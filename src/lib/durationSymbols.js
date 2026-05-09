@@ -13,7 +13,12 @@ const DURATION_MAP = {
     filledHead: false,
     flags: 0,
     beams: 0,
-    spacing: 160,
+    // Per-duration horizontal advance. Standard engraving (Gould) uses
+    // sub-linear spacing — each doubling in duration gets ~sqrt(2)≈1.4x
+    // more horizontal space, not 2x. With 16th=50 as the baseline, this
+    // makes proportional-mixed-duration measures feel right: a beat of
+    // four 16ths gets ~similar width to a beat of two 8ths or one quarter.
+    spacing: 200,
   },
   '1/2': {
     name: 'half',
@@ -22,7 +27,7 @@ const DURATION_MAP = {
     filledHead: false,
     flags: 0,
     beams: 0,
-    spacing: 120,
+    spacing: 140,
   },
   '1/4': {
     name: 'quarter',
@@ -31,7 +36,7 @@ const DURATION_MAP = {
     filledHead: true,
     flags: 0,
     beams: 0,
-    spacing: 80,
+    spacing: 100,
   },
   '1/8': {
     name: 'eighth',
@@ -40,7 +45,7 @@ const DURATION_MAP = {
     filledHead: true,
     flags: 1,
     beams: 1,
-    spacing: 60,
+    spacing: 70,
   },
   '1/16': {
     name: '16th',
@@ -58,7 +63,7 @@ const DURATION_MAP = {
     filledHead: true,
     flags: 3,
     beams: 3,
-    spacing: 40,
+    spacing: 36,
   },
 };
 

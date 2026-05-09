@@ -59,7 +59,7 @@ describe('durationSymbols', () => {
       expect(info.filledHead).toBe(false);
       expect(info.flags).toBe(0);
       expect(info.beams).toBe(0);
-      expect(info.spacing).toBe(160);
+      expect(info.spacing).toBe(200);
     });
 
     it('returns half note info for "1/2"', () => {
@@ -71,7 +71,7 @@ describe('durationSymbols', () => {
       expect(info.filledHead).toBe(false);
       expect(info.flags).toBe(0);
       expect(info.beams).toBe(0);
-      expect(info.spacing).toBe(120);
+      expect(info.spacing).toBe(140);
     });
 
     it('returns quarter note info for "1/4"', () => {
@@ -83,7 +83,7 @@ describe('durationSymbols', () => {
       expect(info.filledHead).toBe(true);
       expect(info.flags).toBe(0);
       expect(info.beams).toBe(0);
-      expect(info.spacing).toBe(80);
+      expect(info.spacing).toBe(100);
     });
 
     it('returns eighth note info for "1/8"', () => {
@@ -95,7 +95,7 @@ describe('durationSymbols', () => {
       expect(info.filledHead).toBe(true);
       expect(info.flags).toBe(1);
       expect(info.beams).toBe(1);
-      expect(info.spacing).toBe(60);
+      expect(info.spacing).toBe(70);
     });
 
     it('returns 16th note info for "1/16"', () => {
