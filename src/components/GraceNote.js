@@ -11,6 +11,17 @@ const GRACE_SCALE = 0.6;
 const GRACE_SPACING = 15;
 const HEAD_RX = 15;
 const HEAD_RY = 10;
+const HEAD_TILT_DEG = -33.33;
+// See Note.js for derivation: stem attaches at the rotated head's edge at y=0.
+const STEM_X_OFFSET = (() => {
+  const t = (HEAD_TILT_DEG * Math.PI) / 180;
+  const c = Math.cos(t);
+  const s = Math.sin(t);
+  const x2 =
+    (HEAD_RX * HEAD_RX * HEAD_RY * HEAD_RY * c * c) /
+    (HEAD_RY * HEAD_RY * c * c + HEAD_RX * HEAD_RX * s * s);
+  return Math.abs(Math.sqrt(x2) / c);
+})();
 const STEM_LENGTH = 60;
 const MIDDLE_LINE_Y = 50;
 const ACCIDENTAL_OFFSET = 14;
@@ -70,7 +81,7 @@ export function renderGraceNotes({ grace, mainX, mainY, clef }) {
 
     // Stem
     const stemDown = noteY <= MIDDLE_LINE_Y;
-    const stemX = stemDown ? -HEAD_RX : HEAD_RX;
+    const stemX = stemDown ? -STEM_X_OFFSET : STEM_X_OFFSET;
     const stemY2 = stemDown ? STEM_LENGTH : -STEM_LENGTH;
     graceGroup.appendChild(
       createLine(stemX, 0, stemX, stemY2, {

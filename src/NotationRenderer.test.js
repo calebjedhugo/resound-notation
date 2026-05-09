@@ -193,6 +193,30 @@ describe('NotationRenderer', () => {
     // assets), not Unicode <text>. Text renders inconsistently across
     // browsers/fonts and ignores the ~2-staff-space height engraving
     // convention; path-based glyphs are scalable and uniform.
+    // The stem must connect to the rotated notehead's actual edge at y=0.
+    // For an ellipse with semi-axes (rx, ry) rotated by angle t, the right
+    // boundary at y=0 lies at x* such that (x*/cos t)² · (ry² cos²t + rx² sin²t)
+    // / (rx² ry²) = 1. With rx=15, ry=10, t=-33.33° this gives x* ≈ 12.8 —
+    // smaller than rx. Placing the stem at x=±rx leaves a visible gap; the
+    // test pins the stem to land within 0.5px of the head's actual edge.
+    it('connects the stem to the rotated notehead with no visible gap', () => {
+      ctx.render([{ pitch: 'E4', length: '1/4' }]);
+      const head = ctx.container.querySelector('.note-head');
+      const stem = ctx.container.querySelector('.note-stem');
+      const rx = parseFloat(head.getAttribute('rx'));
+      const ry = parseFloat(head.getAttribute('ry'));
+      const transform = head.getAttribute('transform') || '';
+      const tiltDeg = parseFloat(transform.match(/rotate\((-?\d+(?:\.\d+)?)/)[1]);
+      const t = (tiltDeg * Math.PI) / 180;
+      const c = Math.cos(t);
+      const s = Math.sin(t);
+      const xOnEllipseSquared =
+        (rx * rx * ry * ry * c * c) / (ry * ry * c * c + rx * rx * s * s);
+      const headEdgeX = Math.abs(Math.sqrt(xOnEllipseSquared) / c);
+      const stemX = parseFloat(stem.getAttribute('x1'));
+      expect(Math.abs(Math.abs(stemX) - headEdgeX)).toBeLessThanOrEqual(0.5);
+    });
+
     it('renders accidentals as path glyphs, not Unicode text', () => {
       // Sharps and flats appear inline from the pitch spelling. Naturals
       // surface when a pitch contradicts the prevailing key signature; we

@@ -57,6 +57,17 @@ const BAR_LINE_PADDING = 5;
 const MIDDLE_LINE_Y = 50;
 const HEAD_RX = 15;
 const HEAD_RY = 10;
+const HEAD_TILT_DEG = -33.33;
+// See Note.js for derivation: stem attaches at the rotated head's edge at y=0.
+const STEM_X_OFFSET = (() => {
+  const t = (HEAD_TILT_DEG * Math.PI) / 180;
+  const c = Math.cos(t);
+  const s = Math.sin(t);
+  const x2 =
+    (HEAD_RX * HEAD_RX * HEAD_RY * HEAD_RY * c * c) /
+    (HEAD_RY * HEAD_RY * c * c + HEAD_RX * HEAD_RX * s * s);
+  return Math.abs(Math.sqrt(x2) / c);
+})();
 const STEM_LENGTH = 70;
 const DYNAMICS_Y = 110;
 const STAFF_CENTER_Y = STAFF_TOP_OFFSET + 40; // midpoint of 5-line staff
@@ -340,7 +351,7 @@ export class NotationRenderer {
                 if (info.hasStem) {
                   const minY = Math.min(...yPositions);
                   const maxY = Math.max(...yPositions);
-                  const stemX = stemDown ? -HEAD_RX : HEAD_RX;
+                  const stemX = stemDown ? -STEM_X_OFFSET : STEM_X_OFFSET;
                   const stemY1 = stemDown ? minY : maxY;
                   const stemY2 = stemDown ? maxY + STEM_LENGTH : minY - STEM_LENGTH;
                   chordGroup.appendChild(
@@ -627,7 +638,7 @@ export class NotationRenderer {
             if (info.hasStem) {
               const minY = Math.min(...yPositions);
               const maxY = Math.max(...yPositions);
-              const stemX = stemDown ? -HEAD_RX : HEAD_RX;
+              const stemX = stemDown ? -STEM_X_OFFSET : STEM_X_OFFSET;
               const stemY1 = stemDown ? minY : maxY;
               const stemY2 = stemDown ? maxY + STEM_LENGTH : minY - STEM_LENGTH;
 
@@ -765,7 +776,7 @@ export class NotationRenderer {
           // Stem
           if (info.hasStem) {
             const stemDown = noteY <= MIDDLE_LINE_Y;
-            const stemX = stemDown ? -HEAD_RX : HEAD_RX;
+            const stemX = stemDown ? -STEM_X_OFFSET : STEM_X_OFFSET;
             const stemY2 = stemDown ? STEM_LENGTH : -STEM_LENGTH;
 
             noteGroup.appendChild(

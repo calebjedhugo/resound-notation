@@ -6,6 +6,18 @@
 import { createGroup, createPath } from '../lib/svgHelpers.js';
 
 const HEAD_RX = 15;
+const HEAD_RY = 10;
+const HEAD_TILT_DEG = -33.33;
+// See Note.js for derivation: stem attaches at the rotated head's edge at y=0.
+const STEM_X_OFFSET = (() => {
+  const t = (HEAD_TILT_DEG * Math.PI) / 180;
+  const c = Math.cos(t);
+  const s = Math.sin(t);
+  const x2 =
+    (HEAD_RX * HEAD_RX * HEAD_RY * HEAD_RY * c * c) /
+    (HEAD_RY * HEAD_RY * c * c + HEAD_RX * HEAD_RX * s * s);
+  return Math.abs(Math.sqrt(x2) / c);
+})();
 const STEM_LENGTH = 70;
 const BEAM_THICKNESS = 4;
 const BEAM_GAP = 4;
@@ -21,7 +33,7 @@ function stemEndY(noteY, stemDown) {
  * Compute the stem X for a note.
  */
 function stemX(noteX, stemDown) {
-  return stemDown ? noteX - HEAD_RX : noteX + HEAD_RX;
+  return stemDown ? noteX - STEM_X_OFFSET : noteX + STEM_X_OFFSET;
 }
 
 /**
