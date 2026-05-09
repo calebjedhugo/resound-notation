@@ -168,6 +168,26 @@ describe('NotationRenderer', () => {
       expect(angle).toBeGreaterThanOrEqual(-25);
       expect(angle).toBeLessThanOrEqual(-15);
     });
+
+    // Standard engraving (Gould "Behind Bars"): adjacent quarter notes need
+    // at least one full notehead-width of clearance between heads, otherwise
+    // they read as a smear. Heads are 24px wide (HEAD_RX*2); the advance
+    // between two quarter-note centers must be at least 2× head-width so the
+    // gap is at least one head-width. Pin via end-to-end render: render two
+    // quarters back-to-back and measure the difference between their group
+    // transforms.
+    it('spaces adjacent quarter notes at least 2 notehead-widths apart', () => {
+      ctx.render([
+        { pitch: 'E4', length: '1/4' },
+        { pitch: 'E4', length: '1/4' },
+      ]);
+      const notes = ctx.getNotes();
+      const xOf = (n) => parseFloat(n.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]);
+      const advance = xOf(notes[1]) - xOf(notes[0]);
+      const head = ctx.container.querySelector('.note-head');
+      const headWidth = parseFloat(head.getAttribute('rx')) * 2;
+      expect(advance).toBeGreaterThanOrEqual(headWidth * 2);
+    });
   });
 
   describe('staff lines', () => {

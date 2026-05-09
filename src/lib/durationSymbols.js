@@ -13,7 +13,7 @@ const DURATION_MAP = {
     filledHead: false,
     flags: 0,
     beams: 0,
-    spacing: 80,
+    spacing: 160,
   },
   '1/2': {
     name: 'half',
@@ -22,7 +22,7 @@ const DURATION_MAP = {
     filledHead: false,
     flags: 0,
     beams: 0,
-    spacing: 60,
+    spacing: 120,
   },
   '1/4': {
     name: 'quarter',
@@ -31,7 +31,7 @@ const DURATION_MAP = {
     filledHead: true,
     flags: 0,
     beams: 0,
-    spacing: 40,
+    spacing: 80,
   },
   '1/8': {
     name: 'eighth',
@@ -40,7 +40,7 @@ const DURATION_MAP = {
     filledHead: true,
     flags: 1,
     beams: 1,
-    spacing: 30,
+    spacing: 60,
   },
   '1/16': {
     name: '16th',
@@ -49,7 +49,7 @@ const DURATION_MAP = {
     filledHead: true,
     flags: 2,
     beams: 2,
-    spacing: 25,
+    spacing: 50,
   },
   '1/32': {
     name: '32nd',
@@ -58,7 +58,7 @@ const DURATION_MAP = {
     filledHead: true,
     flags: 3,
     beams: 3,
-    spacing: 20,
+    spacing: 40,
   },
 };
 
