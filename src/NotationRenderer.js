@@ -59,7 +59,9 @@ const GRAND_STAFF_GAP = 60;
 const STAFF_HEIGHT = 80; // 5 lines, 20px apart
 const ACCIDENTAL_OFFSET = 24;
 const KEY_SIG_ACCIDENTAL_WIDTH = 10;
-const TIME_SIG_WIDTH = 25;
+// Trailing padding (px) after the time-sig glyph before the first note —
+// ~1 staff space of clearance so the digits don't crowd the music.
+const TIME_SIG_PADDING = 25;
 const BAR_LINE_PADDING = 5;
 const MIDDLE_LINE_Y = 50;
 // SMuFL Bravura black notehead stem-up tip (in local pixel coords). All
@@ -222,10 +224,12 @@ export class NotationRenderer {
       // Time signature
       const timeSignature = voice.timeSignature;
       if (timeSignature) {
-        const timeSigGroup = createTimeSignature(timeSignature);
-        timeSigGroup.setAttribute('transform', `translate(${cursorX}, 0)`);
+        const { element: timeSigGroup, width: tsWidth } = createTimeSignature(timeSignature);
+        // createTimeSignature centers digits on local x=0; offset by half
+        // its width so the left edge sits at cursorX.
+        timeSigGroup.setAttribute('transform', `translate(${cursorX + tsWidth / 2}, 0)`);
         staffGroup.appendChild(timeSigGroup);
-        cursorX += TIME_SIG_WIDTH;
+        cursorX += tsWidth + TIME_SIG_PADDING;
       }
 
       // Beat tracking for bar lines

@@ -250,6 +250,31 @@ describe('NotationRenderer', () => {
       const gap = (noteTx - headHalfWidth) - (clefTx + CLEF_GLYPH_MAX_X);
       expect(gap).toBeGreaterThanOrEqual(20);
     });
+
+    // Time signatures must render as Bravura SMuFL path glyphs, not as
+    // <text> elements. Native text renders inconsistently across
+    // browsers, has no engraved feel, and ignores the staff-space size
+    // convention. Pin: a 4/4 time-sig produces 2 path glyphs (one each
+    // for numerator and denominator) and zero <text> children.
+    it('renders time-sig digits as Bravura path glyphs, not text', () => {
+      ctx.render({ timeSignature: [4, 4], notes: [{ pitch: 'C4', length: '1/4' }] });
+      const sig = ctx.container.querySelector('.time-signature');
+      expect(sig).not.toBeNull();
+      expect(sig.querySelector('text')).toBeNull();
+      // Numerator + denominator each render at least one <path>.
+      const numerator = sig.querySelector('.time-numerator');
+      const denominator = sig.querySelector('.time-denominator');
+      expect(numerator.querySelector('path')).not.toBeNull();
+      expect(denominator.querySelector('path')).not.toBeNull();
+    });
+
+    // Multi-digit time signatures (e.g. 12/8) render one glyph per digit.
+    it('renders one glyph per digit in multi-digit time signatures', () => {
+      ctx.render({ timeSignature: [12, 8], notes: [{ pitch: 'C4', length: '1/4' }] });
+      const numerator = ctx.container.querySelector('.time-numerator');
+      // "12" → two digit glyphs.
+      expect(numerator.querySelectorAll('path').length).toBeGreaterThanOrEqual(2);
+    });
   });
 
   describe('staff lines', () => {
@@ -885,8 +910,8 @@ describe('NotationRenderer', () => {
         notes: [{ pitch: 'C4', length: '1/4' }],
       });
       const timeSig = ctx.getTimeSignature();
-      expect(timeSig.querySelector('.time-numerator').textContent).toBe('3');
-      expect(timeSig.querySelector('.time-denominator').textContent).toBe('4');
+      expect(timeSig.getAttribute('data-beats')).toBe('3');
+      expect(timeSig.getAttribute('data-beat-value')).toBe('4');
     });
 
     it('positions time signature after key signature', () => {
@@ -953,8 +978,8 @@ describe('NotationRenderer', () => {
 
       const timeSigs = ctx.container.querySelectorAll('.time-signature');
       expect(timeSigs).toHaveLength(2);
-      expect(timeSigs[0].querySelector('.time-numerator').textContent).toBe('4');
-      expect(timeSigs[1].querySelector('.time-numerator').textContent).toBe('3');
+      expect(timeSigs[0].getAttribute('data-beats')).toBe('4');
+      expect(timeSigs[1].getAttribute('data-beats')).toBe('3');
     });
   });
 
