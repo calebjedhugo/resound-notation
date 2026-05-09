@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>resound-notation snap</title>
+    <style>
+      html, body { margin: 0; padding: 0; background: #fff; }
+      #host { display: inline-block; padding: 8px; }
+      #host svg { display: block; }
+      /* Marker class flipped to "ready" once render completes; used by headless driver. */
+      body.ready::after {
+        content: "ready";
+        position: fixed;
+        bottom: 0;
+        right: 0;
+        font-size: 1px;
+        color: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="host"></div>
+    <script type="module">
+      import { NotationRenderer } from '../src/NotationRenderer.js';
+
+      const params = new URLSearchParams(location.search);
+      const presetName = params.get('preset') || 'single-voice-treble';
+      const width = parseInt(params.get('width') || '800', 10);
+
+      const presetModules = import.meta.glob('./presets/*.js', { eager: true });
+      const presets = Object.values(presetModules)
+        .map((m) => m.default)
+        .filter((p) => p && p.name && p.song);
+
+      const preset = presets.find((p) => p.name === presetName);
+      const host = document.getElementById('host');
+
+      if (!preset) {
+        host.textContent = `unknown preset: ${presetName}\navailable: ${presets.map((p) => p.name).join(', ')}`;
+        document.body.classList.add('ready');
+      } else {
+        const renderer = new NotationRenderer({ container: host, width });
+        renderer.render(preset.song);
+        // Allow a frame for layout, then signal ready.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          document.body.classList.add('ready');
+        }));
+      }
+    </script>
+  </body>
+</html>
