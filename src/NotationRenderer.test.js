@@ -217,6 +217,21 @@ describe('NotationRenderer', () => {
       expect(Math.abs(Math.abs(stemX) - headEdgeX)).toBeLessThanOrEqual(0.5);
     });
 
+    // Half-note heads in standard engraving have a distinct hollow shape:
+    // outer notehead outline + inner cutout (drawn via even-odd fill rule),
+    // not a stroked ellipse. Pin via the path glyph rather than the ellipse
+    // so the half note reads as engraved, not a duplicate of the quarter
+    // with fill=none.
+    it('renders half-note heads as path glyphs (not stroked ellipses)', () => {
+      ctx.render([{ pitch: 'E4', length: '1/2' }]);
+      const note = ctx.container.querySelector('.note-half');
+      expect(note).not.toBeNull();
+      const head = note.querySelector('.note-head');
+      expect(head).not.toBeNull();
+      // The head wrapper should contain a <path>, not be an <ellipse>.
+      expect(head.querySelector('path')).not.toBeNull();
+    });
+
     it('renders accidentals as path glyphs, not Unicode text', () => {
       // Sharps and flats appear inline from the pitch spelling. Naturals
       // surface when a pitch contradicts the prevailing key signature; we

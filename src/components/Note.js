@@ -6,6 +6,7 @@
 import { createGroup, createEllipse, createLine, createPath } from '../lib/svgHelpers.js';
 import { pitchToStaffY } from '../lib/notePositions.js';
 import { getDurationInfo } from '../lib/durationSymbols.js';
+import { createGlyph, HALF_NOTEHEAD_GLYPH } from '../assets/glyphs.js';
 
 const MIDDLE_LINE_Y = 50;
 const HEAD_RX = 15;
@@ -44,14 +45,22 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
     transform: `translate(${x}, ${y})`,
   });
 
-  // Note head
-  const fill = info.filledHead ? 'currentColor' : 'none';
-  const head = createEllipse(0, 0, HEAD_RX, HEAD_RY, {
-    class: 'note-head',
-    fill,
-    stroke: 'currentColor',
-    transform: `rotate(${HEAD_TILT_DEG})`,
-  });
+  // Note head — half notes use the public-domain Blanche.svg glyph (proper
+  // hollow shape with even-odd cutout). Other durations remain a tilted
+  // ellipse for now.
+  let head;
+  if (info.name === 'half') {
+    // Match the existing notehead height (2 × HEAD_RY = 20px = 1 staff space).
+    head = createGlyph(HALF_NOTEHEAD_GLYPH, HEAD_RY * 2, 'note-head');
+  } else {
+    const fill = info.filledHead ? 'currentColor' : 'none';
+    head = createEllipse(0, 0, HEAD_RX, HEAD_RY, {
+      class: 'note-head',
+      fill,
+      stroke: 'currentColor',
+      transform: `rotate(${HEAD_TILT_DEG})`,
+    });
+  }
   group.appendChild(head);
 
   // Stem

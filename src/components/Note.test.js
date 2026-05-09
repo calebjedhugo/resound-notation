@@ -39,10 +39,15 @@ describe('Note', () => {
       expect(head.getAttribute('fill')).not.toBe('none');
     });
 
-    it('renders an open ellipse for half notes', () => {
+    it('renders a hollow head for half notes', () => {
       const g = createNote({ pitch: 'C4', length: '1/2', x: 0, clef: 'treble' });
       const head = g.querySelector('.note-head');
-      expect(head.getAttribute('fill')).toBe('none');
+      // The half-note head is hollow either via fill="none" on an ellipse
+      // or via a path with fill-rule="evenodd" (Blanche.svg glyph).
+      const path = head.querySelector ? head.querySelector('path') : null;
+      const isPathWithEvenOdd = path && path.getAttribute('fill-rule') === 'evenodd';
+      const isOpenEllipse = head.tagName === 'ellipse' && head.getAttribute('fill') === 'none';
+      expect(isPathWithEvenOdd || isOpenEllipse).toBe(true);
     });
 
     it('renders an open ellipse for whole notes', () => {

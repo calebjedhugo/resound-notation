@@ -30,6 +30,20 @@ export const FLAT_GLYPH = {
   vbHeight: 2.5,
 };
 
+// Half-note head — outer outline + inner cutout, rendered with fill-rule
+// evenodd. Path lifted from Wikimedia Commons Blanche.svg (PD); the original
+// asset includes a stem rectangle which we drop here (we render stems
+// separately). Inner transform combines the asset's wrapper translate with
+// its inline matrix transform: matrix(0.004,0,0,-0.004,0,0.548). After this
+// transform the notehead occupies viewBox x ∈ [0, 1.388], y ∈ [0, 1.10].
+export const HALF_NOTEHEAD_GLYPH = {
+  d: 'm 315,65 c 0,24 -21,41 -42,41 -4,0 -8,0 -12,-1 C 230,96 184,65 147,41 110,17 63,-12 43,-37 36,-45 32,-55 32,-65 c 0,-24 21,-41 42,-41 4,0 8,0 12,1 31,9 78,40 115,64 37,24 84,53 104,78 7,8 10,18 10,28 z m -51,72 c 47,0 83,-21 83,-72 0,-19 -4,-37 -10,-56 -12,-38 -32,-74 -65,-96 -54,-36 -113,-51 -188,-51 -47,0 -84,22 -84,73 0,19 5,37 11,56 12,38 31,74 64,96 54,36 114,50 189,50 z',
+  innerTransform: 'matrix(0.004, 0, 0, -0.004, 0, 0.548)',
+  vbWidth: 1.388,
+  vbHeight: 1.10,
+  fillRule: 'evenodd',
+};
+
 export const NATURAL_GLYPH = {
   d: 'm -8,375 c 8,4 17,7 26,7 9,0 17,-3 25,-7 l -3,-183 106,20 h 3 c 10,0 18,-7 18,-17 l 7,-570 c -8,-4 -16,-7 -25,-7 -9,0 -17,3 -25,7 l 3,183 -106,-20 h -3 c -10,0 -18,7 -18,17 z M 131,112 39,95 l -3,-207 92,17 z',
   innerTransform: 'matrix(0.004, 0, 0, -0.004, 0.032, 1.528)',
@@ -59,7 +73,9 @@ export function createGlyph(glyph, targetHeight, className) {
     transform: `translate(${-w / 2}, ${-h / 2}) scale(${scale})`,
   });
   const inner = createGroup('', { transform: glyph.innerTransform });
-  inner.appendChild(createPath(glyph.d, { fill: 'currentColor' }));
+  const pathAttrs = { fill: 'currentColor' };
+  if (glyph.fillRule) pathAttrs['fill-rule'] = glyph.fillRule;
+  inner.appendChild(createPath(glyph.d, pathAttrs));
   centerer.appendChild(inner);
   wrapper.appendChild(centerer);
   return wrapper;
