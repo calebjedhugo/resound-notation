@@ -1,0 +1,15 @@
+{
+  "name": "resound-notation-dev-playground",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Local Vite playground for iterating on resound-notation. Imports directly from ../src for HMR. Not published.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^4.5.0"
+  }
+}

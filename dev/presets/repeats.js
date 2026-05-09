@@ -1,0 +1,25 @@
+export default {
+  name: 'repeats',
+  group: 'api',
+  description: 'repeat-start/end with first and second endings (volta)',
+  song: {
+    clef: 'treble',
+    timeSignature: [4, 4],
+    notes: [
+      { barline: 'repeat-start' },
+      { pitch: 'C5', length: '1/4' },
+      { pitch: 'D5', length: '1/4' },
+      { pitch: 'E5', length: '1/4' },
+      { pitch: 'F5', length: '1/4' },
+      { ending: { number: 1, type: 'start' } },
+      { pitch: 'G5', length: '1/2' },
+      { pitch: 'F5', length: '1/2' },
+      { ending: { number: 1, type: 'stop' } },
+      { barline: 'repeat-end' },
+      { ending: { number: 2, type: 'start' } },
+      { pitch: 'A5', length: '1/2' },
+      { pitch: 'G5', length: '1/2' },
+      { barline: 'final' },
+    ],
+  },
+};

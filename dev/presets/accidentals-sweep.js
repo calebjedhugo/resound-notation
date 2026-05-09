@@ -1,0 +1,28 @@
+export default {
+  name: 'accidentals-sweep',
+  group: 'api',
+  description: 'Sharps and flats on every staff line/space',
+  song: {
+    clef: 'treble',
+    keySignature: 'C',
+    timeSignature: [4, 4],
+    notes: [
+      { pitch: 'C4', length: '1/8' },
+      { pitch: 'C#4', length: '1/8' },
+      { pitch: 'D4', length: '1/8' },
+      { pitch: 'Eb4', length: '1/8' },
+      { pitch: 'E4', length: '1/8' },
+      { pitch: 'F4', length: '1/8' },
+      { pitch: 'F#4', length: '1/8' },
+      { pitch: 'G4', length: '1/8' },
+      { pitch: 'Ab4', length: '1/8' },
+      { pitch: 'A4', length: '1/8' },
+      { pitch: 'Bb4', length: '1/8' },
+      { pitch: 'B4', length: '1/8' },
+      { pitch: 'C5', length: '1/8' },
+      { pitch: 'C#5', length: '1/8' },
+      { pitch: 'D5', length: '1/8' },
+      { pitch: 'Eb5', length: '1/8' },
+    ],
+  },
+};

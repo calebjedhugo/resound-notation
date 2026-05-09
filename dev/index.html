@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>resound-notation playground</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f7f7f8;
+        color: #222;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+      header {
+        background: #1f2937;
+        color: #fff;
+        padding: 8px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      .preset-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .preset-bar button {
+        background: #374151;
+        color: #fff;
+        border: 1px solid #4b5563;
+        padding: 3px 8px;
+        font-size: 11px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .preset-bar button:hover { background: #4b5563; }
+      .preset-bar .group-label {
+        font-size: 10px;
+        opacity: 0.6;
+        align-self: center;
+        padding: 0 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .controls {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        font-size: 12px;
+      }
+      .controls label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+      .controls input[type="range"] { width: 140px; }
+      main { flex: 1; display: flex; min-height: 0; }
+      .pane {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .pane-header {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        background: #e5e7eb;
+        padding: 4px 10px;
+        border-bottom: 1px solid #d1d5db;
+        color: #4b5563;
+      }
+      #editor {
+        flex: 1;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        line-height: 1.4;
+        border: none;
+        outline: none;
+        padding: 8px;
+        resize: none;
+        background: #fff;
+        color: #111;
+        white-space: pre;
+        overflow: auto;
+      }
+      #render-host {
+        flex: 1;
+        background: #fff;
+        overflow: auto;
+        padding: 16px;
+        position: relative;
+      }
+      #notation-container {
+        position: relative;
+        display: inline-block;
+      }
+      #notation-container svg.notation {
+        position: relative;
+        z-index: 2;
+      }
+      #grid-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+        z-index: 1;
+      }
+      #error {
+        background: #fee;
+        color: #800;
+        border-top: 1px solid #fcc;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        padding: 8px 10px;
+        white-space: pre-wrap;
+        max-height: 30%;
+        overflow: auto;
+      }
+      #error:empty { display: none; }
+      .pane.left { border-right: 1px solid #d1d5db; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>resound-notation playground</h1>
+      <div class="preset-bar" id="preset-bar"></div>
+      <div class="controls">
+        <label><input type="checkbox" id="grid-toggle" /> Coordinate grid (10px)</label>
+        <label>Width: <input type="range" id="width-slider" min="400" max="1200" value="800" step="10" /> <span id="width-value">800</span>px</label>
+      </div>
+    </header>
+    <main>
+      <div class="pane left">
+        <div class="pane-header">JSON input</div>
+        <textarea id="editor" spellcheck="false" autocomplete="off"></textarea>
+        <div id="error"></div>
+      </div>
+      <div class="pane">
+        <div class="pane-header">Rendered SVG</div>
+        <div id="render-host">
+          <div id="notation-container"></div>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
