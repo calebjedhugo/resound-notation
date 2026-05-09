@@ -1,0 +1,70 @@
+{
+  "name": "resound-notation",
+  "version": "0.1.0",
+  "description": "SVG music notation renderer extracted from the Resound game.",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./NotationRenderer": {
+      "types": "./dist/NotationRenderer.d.ts",
+      "import": "./dist/NotationRenderer.js",
+      "default": "./dist/NotationRenderer.js"
+    },
+    "./components/*": {
+      "types": "./dist/components/*.d.ts",
+      "import": "./dist/components/*.js",
+      "default": "./dist/components/*.js"
+    },
+    "./lib/*": {
+      "types": "./dist/lib/*.d.ts",
+      "import": "./dist/lib/*.js",
+      "default": "./dist/lib/*.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.js",
+    "!src/__tests__"
+  ],
+  "scripts": {
+    "test": "jest",
+    "build": "npm run build:js && npm run build:types",
+    "build:js": "babel src --out-dir dist --extensions .js --ignore '**/*.test.js','**/__tests__/**'",
+    "build:types": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/calebjedhugo/resound-notation.git"
+  },
+  "keywords": [
+    "music",
+    "notation",
+    "svg",
+    "sheet-music",
+    "score"
+  ],
+  "author": "Caleb Hugo",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/calebjedhugo/resound-notation/issues"
+  },
+  "homepage": "https://github.com/calebjedhugo/resound-notation#readme",
+  "devDependencies": {
+    "@babel/cli": "^7.24.0",
+    "@babel/core": "^7.24.0",
+    "@babel/preset-env": "^7.24.0",
+    "babel-jest": "^29.7.0",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "typescript": "^5.3.3"
+  }
+}
