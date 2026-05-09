@@ -193,48 +193,46 @@ describe('NotationRenderer', () => {
     // assets), not Unicode <text>. Text renders inconsistently across
     // browsers/fonts and ignores the ~2-staff-space height engraving
     // convention; path-based glyphs are scalable and uniform.
-    // The stem must connect to the rotated notehead's actual edge at y=0.
-    // For an ellipse with semi-axes (rx, ry) rotated by angle t, the right
-    // boundary at y=0 lies at x* such that (x*/cos t)² · (ry² cos²t + rx² sin²t)
-    // / (rx² ry²) = 1. With rx=15, ry=10, t=-33.33° this gives x* ≈ 12.8 —
-    // smaller than rx. Placing the stem at x=±rx leaves a visible gap; the
-    // test pins the stem to land within 0.5px of the head's actual edge.
-    it('connects the stem to the rotated notehead with no visible gap', () => {
+    // Standard engraving attaches the stem at the head's long-axis tip
+    // (top-right corner for stem-up). For a tilted ellipse with semi-axes
+    // (rx, ry) and rotation angle t, the right tip lies at
+    // (rx·cos t, rx·sin t) — above center for negative t. Anchoring at
+    // (±STEM_X, 0) instead makes the stem clip through the head's lower
+    // half and exit somewhere along the bottom curve, which reads as a
+    // gap on hollow heads.
+    it('attaches the quarter-note stem at the head long-axis tip', () => {
       ctx.render([{ pitch: 'E4', length: '1/4' }]);
       const head = ctx.container.querySelector('.note-head');
       const stem = ctx.container.querySelector('.note-stem');
       const rx = parseFloat(head.getAttribute('rx'));
-      const ry = parseFloat(head.getAttribute('ry'));
       const transform = head.getAttribute('transform') || '';
       const tiltDeg = parseFloat(transform.match(/rotate\((-?\d+(?:\.\d+)?)/)[1]);
       const t = (tiltDeg * Math.PI) / 180;
-      const c = Math.cos(t);
-      const s = Math.sin(t);
-      const xOnEllipseSquared =
-        (rx * rx * ry * ry * c * c) / (ry * ry * c * c + rx * rx * s * s);
-      const headEdgeX = Math.abs(Math.sqrt(xOnEllipseSquared) / c);
+      const expectedTipX = rx * Math.cos(t);
+      const expectedTipY = rx * Math.sin(t);
       const stemX = parseFloat(stem.getAttribute('x1'));
-      expect(Math.abs(Math.abs(stemX) - headEdgeX)).toBeLessThanOrEqual(0.5);
+      const stemY = parseFloat(stem.getAttribute('y1'));
+      // E4 is below middle line → stem-up → right tip
+      expect(Math.abs(stemX - Math.abs(expectedTipX))).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(stemY - expectedTipY)).toBeLessThanOrEqual(0.5);
     });
 
-    // The Blanche.svg half-note glyph is much more elongated than the
-    // quarter's tilted ellipse — its right outer outline at the head's
-    // vertical center sits well inside the bounding-box max x. Pinning the
-    // stem at the quarter's STEM_X_OFFSET (~12.8) leaves a visible gap on
-    // the half. The stem must attach at a smaller x for the half head.
-    it('attaches the half-note stem closer to center than the quarter-note stem', () => {
-      ctx.render([
-        { pitch: 'E4', length: '1/4' },
-        { pitch: 'E4', length: '1/2' },
-      ]);
-      const notes = ctx.getNotes();
-      const stemQuarter = notes[0].querySelector('.note-stem');
-      const stemHalf = notes[1].querySelector('.note-stem');
-      const xQuarter = Math.abs(parseFloat(stemQuarter.getAttribute('x1')));
-      const xHalf = Math.abs(parseFloat(stemHalf.getAttribute('x1')));
-      // Half-glyph's right edge at center-y is meaningfully inside the
-      // quarter's; require ≥3px difference so the gap closes visibly.
-      expect(xQuarter - xHalf).toBeGreaterThanOrEqual(3);
+    // The Blanche.svg half-note glyph attaches the stem at its long-axis
+    // tip — top-right corner of the path's outline. Path coords (347, 65)
+    // map after the inner matrix to viewBox (1.388, 0.288), then center +
+    // scale to local (12.62, -4.76). Pin (x1, y1) of the half stem against
+    // those coordinates so a regression in the asset metadata or the tip
+    // helper surfaces immediately.
+    it('attaches the half-note stem at the asset glyph long-axis tip', () => {
+      ctx.render([{ pitch: 'E4', length: '1/2' }]);
+      const stem = ctx.container.querySelector('.note-stem');
+      const x = parseFloat(stem.getAttribute('x1'));
+      const y = parseFloat(stem.getAttribute('y1'));
+      // Stem-up (E4 below middle line). Tip at ~(12.62, -4.76) per asset.
+      expect(x).toBeGreaterThanOrEqual(12);
+      expect(x).toBeLessThanOrEqual(13.2);
+      expect(y).toBeGreaterThanOrEqual(-6);
+      expect(y).toBeLessThanOrEqual(-3.5);
     });
 
     // Half-note heads in standard engraving have a distinct hollow shape:

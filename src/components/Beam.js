@@ -8,32 +8,27 @@ import { createGroup, createPath } from '../lib/svgHelpers.js';
 const HEAD_RX = 15;
 const HEAD_RY = 10;
 const HEAD_TILT_DEG = -33.33;
-// See Note.js for derivation: stem attaches at the rotated head's edge at y=0.
-const STEM_X_OFFSET = (() => {
-  const t = (HEAD_TILT_DEG * Math.PI) / 180;
-  const c = Math.cos(t);
-  const s = Math.sin(t);
-  const x2 =
-    (HEAD_RX * HEAD_RX * HEAD_RY * HEAD_RY * c * c) /
-    (HEAD_RY * HEAD_RY * c * c + HEAD_RX * HEAD_RX * s * s);
-  return Math.abs(Math.sqrt(x2) / c);
-})();
+// Stems attach at the rotated head's long-axis tip; see Note.js.
+const HEAD_TIP_X = HEAD_RX * Math.cos((HEAD_TILT_DEG * Math.PI) / 180);
+const HEAD_TIP_Y = HEAD_RX * Math.sin((HEAD_TILT_DEG * Math.PI) / 180);
 const STEM_LENGTH = 70;
 const BEAM_THICKNESS = 4;
 const BEAM_GAP = 4;
 
 /**
- * Compute the stem end Y for a note.
+ * Compute the stem end Y for a note. Beam connects at the far end of the
+ * stem; stems start at the head's tip (noteY ± HEAD_TIP_Y) and extend
+ * STEM_LENGTH outward.
  */
 function stemEndY(noteY, stemDown) {
-  return stemDown ? noteY + STEM_LENGTH : noteY - STEM_LENGTH;
+  return stemDown ? noteY - HEAD_TIP_Y + STEM_LENGTH : noteY + HEAD_TIP_Y - STEM_LENGTH;
 }
 
 /**
  * Compute the stem X for a note.
  */
 function stemX(noteX, stemDown) {
-  return stemDown ? noteX - STEM_X_OFFSET : noteX + STEM_X_OFFSET;
+  return stemDown ? noteX - HEAD_TIP_X : noteX + HEAD_TIP_X;
 }
 
 /**

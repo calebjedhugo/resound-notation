@@ -6,24 +6,19 @@
 import { createGroup, createEllipse, createLine, createPath } from '../lib/svgHelpers.js';
 import { pitchToStaffY } from '../lib/notePositions.js';
 import { getDurationInfo } from '../lib/durationSymbols.js';
-import { createGlyph, glyphStemAttachX, HALF_NOTEHEAD_GLYPH } from '../assets/glyphs.js';
+import { createGlyph, glyphTip, HALF_NOTEHEAD_GLYPH } from '../assets/glyphs.js';
 
 const MIDDLE_LINE_Y = 50;
 const HEAD_RX = 15;
 const HEAD_RY = 10;
 const HEAD_TILT_DEG = -33.33;
-// Stem attaches at the rotated head's actual edge at y=0 (head center row),
-// not at ±HEAD_RX — the tilt pulls the boundary inward. Derived from
-// solving the rotated ellipse for new_y=0 on the right side.
-const STEM_X_OFFSET = (() => {
-  const t = (HEAD_TILT_DEG * Math.PI) / 180;
-  const c = Math.cos(t);
-  const s = Math.sin(t);
-  const x2 =
-    (HEAD_RX * HEAD_RX * HEAD_RY * HEAD_RY * c * c) /
-    (HEAD_RY * HEAD_RY * c * c + HEAD_RX * HEAD_RX * s * s);
-  return Math.abs(Math.sqrt(x2) / c);
-})();
+// Stems attach at the rotated head's long-axis tip (top-right corner for
+// stem-up, bottom-left for stem-down). For an unrotated ellipse the right
+// tip is at (rx, 0); after rotating by HEAD_TILT_DEG it lands at
+// (rx·cos t, rx·sin t). With the heavy -33° tilt the tip is well above
+// center, so anchoring stems at y=0 makes them clip through the head.
+const HEAD_TIP_X = HEAD_RX * Math.cos((HEAD_TILT_DEG * Math.PI) / 180);
+const HEAD_TIP_Y = HEAD_RX * Math.sin((HEAD_TILT_DEG * Math.PI) / 180);
 const STEM_LENGTH = 70;
 
 /**
@@ -47,13 +42,16 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
 
   // Note head — half notes use the public-domain Blanche.svg glyph (proper
   // hollow shape with even-odd cutout). Other durations remain a tilted
-  // ellipse for now. Each shape has its own stem-attach offset since the
-  // half glyph is more elongated than the quarter ellipse.
+  // ellipse. Each shape declares its own long-axis tip so the stem connects
+  // at the proper engraved corner (top-right for stem-up).
   let head;
-  let stemAttachX = STEM_X_OFFSET;
+  let tipX = HEAD_TIP_X;
+  let tipY = HEAD_TIP_Y;
   if (info.name === 'half') {
     head = createGlyph(HALF_NOTEHEAD_GLYPH, HEAD_RY * 2, 'note-head');
-    stemAttachX = glyphStemAttachX(HALF_NOTEHEAD_GLYPH, HEAD_RY * 2);
+    const tip = glyphTip(HALF_NOTEHEAD_GLYPH, HEAD_RY * 2);
+    tipX = tip.x;
+    tipY = tip.y;
   } else {
     const fill = info.filledHead ? 'currentColor' : 'none';
     head = createEllipse(0, 0, HEAD_RX, HEAD_RY, {
@@ -65,12 +63,12 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
   }
   group.appendChild(head);
 
-  // Stem
+  // Stem — attaches at the long-axis tip; opposite tip for stem-down.
   if (info.hasStem) {
     const stemDown = stemDownOverride !== undefined ? stemDownOverride : y <= MIDDLE_LINE_Y;
-    const stemX = stemDown ? -stemAttachX : stemAttachX;
-    const stemY1 = 0;
-    const stemY2 = stemDown ? STEM_LENGTH : -STEM_LENGTH;
+    const stemX = stemDown ? -tipX : tipX;
+    const stemY1 = stemDown ? -tipY : tipY;
+    const stemY2 = stemDown ? -tipY + STEM_LENGTH : tipY - STEM_LENGTH;
 
     group.appendChild(
       createLine(stemX, stemY1, stemX, stemY2, { class: 'note-stem', stroke: 'currentColor' })

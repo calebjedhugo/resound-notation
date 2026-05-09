@@ -42,10 +42,12 @@ export const HALF_NOTEHEAD_GLYPH = {
   vbWidth: 1.388,
   vbHeight: 1.10,
   fillRule: 'evenodd',
-  // Outer outline crosses path-y=0 around path-x=265 (right) and path-x=110
-  // (left). After the inner matrix → viewBox (1.06, 0.548) and (0.44, 0.548).
-  // Stems anchor on the right edge for stem-up.
-  stemAttachVbX: 1.06,
+  // Stem attaches at the long-axis tip per engraving convention — the
+  // top-right corner of path 2 (vertex (347, 65) in path coords) maps to
+  // viewBox (1.388, 0.288). Bottom-left tip (vertex (0, -65)) maps to
+  // viewBox (0, 0.808). Both are mirrored about the bbox center (0.694, 0.55).
+  tipVbX: 1.388,
+  tipVbY: 0.288,
 };
 
 export const NATURAL_GLYPH = {
@@ -66,14 +68,18 @@ export const NATURAL_GLYPH = {
  * @returns {SVGGElement}
  */
 /**
- * For glyphs that declare `stemAttachVbX`, return the local-coord x where a
- * stem should attach (after centering + scaling to targetHeight). Returns
- * null if the glyph doesn't declare an attach point.
+ * For glyphs that declare `tipVbX`/`tipVbY`, return the local-coord
+ * (x, y) of the head's long-axis tip (the right tip; left tip is the
+ * negation). Stems attach here per standard engraving convention.
+ * Returns null if the glyph doesn't declare a tip.
  */
-export function glyphStemAttachX(glyph, targetHeight) {
-  if (typeof glyph.stemAttachVbX !== 'number') return null;
+export function glyphTip(glyph, targetHeight) {
+  if (typeof glyph.tipVbX !== 'number' || typeof glyph.tipVbY !== 'number') return null;
   const scale = targetHeight / glyph.vbHeight;
-  return (glyph.stemAttachVbX - glyph.vbWidth / 2) * scale;
+  return {
+    x: (glyph.tipVbX - glyph.vbWidth / 2) * scale,
+    y: (glyph.tipVbY - glyph.vbHeight / 2) * scale,
+  };
 }
 
 export function createGlyph(glyph, targetHeight, className) {

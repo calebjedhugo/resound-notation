@@ -58,16 +58,10 @@ const MIDDLE_LINE_Y = 50;
 const HEAD_RX = 15;
 const HEAD_RY = 10;
 const HEAD_TILT_DEG = -33.33;
-// See Note.js for derivation: stem attaches at the rotated head's edge at y=0.
-const STEM_X_OFFSET = (() => {
-  const t = (HEAD_TILT_DEG * Math.PI) / 180;
-  const c = Math.cos(t);
-  const s = Math.sin(t);
-  const x2 =
-    (HEAD_RX * HEAD_RX * HEAD_RY * HEAD_RY * c * c) /
-    (HEAD_RY * HEAD_RY * c * c + HEAD_RX * HEAD_RX * s * s);
-  return Math.abs(Math.sqrt(x2) / c);
-})();
+// Stems attach at the rotated head's long-axis tip (top-right for stem-up,
+// bottom-left for stem-down). See Note.js for the convention.
+const HEAD_TIP_X = HEAD_RX * Math.cos((HEAD_TILT_DEG * Math.PI) / 180);
+const HEAD_TIP_Y = HEAD_RX * Math.sin((HEAD_TILT_DEG * Math.PI) / 180);
 const STEM_LENGTH = 70;
 const DYNAMICS_Y = 110;
 const STAFF_CENTER_Y = STAFF_TOP_OFFSET + 40; // midpoint of 5-line staff
@@ -351,9 +345,9 @@ export class NotationRenderer {
                 if (info.hasStem) {
                   const minY = Math.min(...yPositions);
                   const maxY = Math.max(...yPositions);
-                  const stemX = stemDown ? -STEM_X_OFFSET : STEM_X_OFFSET;
-                  const stemY1 = stemDown ? minY : maxY;
-                  const stemY2 = stemDown ? maxY + STEM_LENGTH : minY - STEM_LENGTH;
+                  const stemX = stemDown ? -HEAD_TIP_X : HEAD_TIP_X;
+                  const stemY1 = stemDown ? minY - HEAD_TIP_Y : maxY + HEAD_TIP_Y;
+                  const stemY2 = stemDown ? maxY - HEAD_TIP_Y + STEM_LENGTH : minY + HEAD_TIP_Y - STEM_LENGTH;
                   chordGroup.appendChild(
                     createLine(stemX, stemY1, stemX, stemY2, {
                       class: 'note-stem',
@@ -638,9 +632,9 @@ export class NotationRenderer {
             if (info.hasStem) {
               const minY = Math.min(...yPositions);
               const maxY = Math.max(...yPositions);
-              const stemX = stemDown ? -STEM_X_OFFSET : STEM_X_OFFSET;
-              const stemY1 = stemDown ? minY : maxY;
-              const stemY2 = stemDown ? maxY + STEM_LENGTH : minY - STEM_LENGTH;
+              const stemX = stemDown ? -HEAD_TIP_X : HEAD_TIP_X;
+              const stemY1 = stemDown ? minY - HEAD_TIP_Y : maxY + HEAD_TIP_Y;
+              const stemY2 = stemDown ? maxY - HEAD_TIP_Y + STEM_LENGTH : minY + HEAD_TIP_Y - STEM_LENGTH;
 
               chordGroup.appendChild(
                 createLine(stemX, stemY1, stemX, stemY2, {
@@ -773,14 +767,15 @@ export class NotationRenderer {
           );
           noteGroup.appendChild(xHead);
 
-          // Stem
+          // Stem — anchored at the head's long-axis tip.
           if (info.hasStem) {
             const stemDown = noteY <= MIDDLE_LINE_Y;
-            const stemX = stemDown ? -STEM_X_OFFSET : STEM_X_OFFSET;
-            const stemY2 = stemDown ? STEM_LENGTH : -STEM_LENGTH;
+            const stemX = stemDown ? -HEAD_TIP_X : HEAD_TIP_X;
+            const stemY1 = stemDown ? -HEAD_TIP_Y : HEAD_TIP_Y;
+            const stemY2 = stemDown ? -HEAD_TIP_Y + STEM_LENGTH : HEAD_TIP_Y - STEM_LENGTH;
 
             noteGroup.appendChild(
-              createLine(stemX, 0, stemX, stemY2, {
+              createLine(stemX, stemY1, stemX, stemY2, {
                 class: 'note-stem',
                 stroke: 'currentColor',
               })
