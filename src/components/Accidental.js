@@ -1,27 +1,19 @@
 /**
- * Accidental symbol renderer.
- * Wraps public-domain glyph paths from src/assets/glyphs.js so the
- * accidentals look the same in every browser regardless of system fonts.
- * Sharps and naturals span ~3 staff spaces; flats span ~2.5.
+ * Accidental renderer.
+ * Wraps SMuFL Bravura accidental glyphs (sharp, flat, natural,
+ * doubleSharp, doubleFlat). The glyph's y=0 is the staff line/space
+ * the accidental modifies; caller positions via translate(x, pitchY).
  */
 
-import { createGlyph, SHARP_GLYPH, FLAT_GLYPH, NATURAL_GLYPH } from '../assets/glyphs.js';
-
-const GLYPHS = {
-  sharp: { glyph: SHARP_GLYPH, height: 50 },
-  flat: { glyph: FLAT_GLYPH, height: 44 },
-  natural: { glyph: NATURAL_GLYPH, height: 50 },
-};
+import { createSmuflGlyph, ACCIDENTAL_GLYPHS } from '../assets/glyphs.js';
 
 /**
  * Create an SVG group representing an accidental symbol.
- * @param {string} type - "sharp", "flat", or "natural"
+ * @param {string} type - "sharp", "flat", "natural", "doubleSharp", "doubleFlat"
  * @returns {SVGGElement}
  */
 export function createAccidental(type) {
-  const entry = GLYPHS[type];
-  if (!entry) {
-    throw new Error(`Unknown accidental type: "${type}"`);
-  }
-  return createGlyph(entry.glyph, entry.height, `accidental ${type}`);
+  const glyph = ACCIDENTAL_GLYPHS[type];
+  if (!glyph) throw new Error(`Unknown accidental type: "${type}"`);
+  return createSmuflGlyph(glyph, `accidental ${type}`);
 }

@@ -64,7 +64,10 @@ const KEY_SIG_ACCIDENTAL_WIDTH = 10;
 // Trailing padding (px) after the time-sig glyph before the first note —
 // ~1 staff space of clearance so the digits don't crowd the music.
 const TIME_SIG_PADDING = 25;
-const BAR_LINE_PADDING = 5;
+// Padding (px) before and after each barline. ~1 staff space gives the
+// barline room to read as a measure boundary instead of crowding the
+// last/first notes of adjacent measures.
+const BAR_LINE_PADDING = 12;
 const MIDDLE_LINE_Y = 50;
 // SMuFL Bravura black notehead stem-up tip (in local pixel coords). All
 // chord rendering paths use the black-notehead tip; quarter/8th/16th heads
@@ -805,7 +808,14 @@ export class NotationRenderer {
         } else if (!element.pitch) {
           // Rest (no pitch, has length)
           if (element.length) {
-            const restGroup = createRest({ length: element.length, x: cursorX });
+            // Center long rests (whole / half) within their time-slot
+            // allocation; short rests stay left-aligned at the beat
+            // position per standard engraving.
+            const restInfo = getDurationInfo(element.length);
+            const restX = (restInfo.name === 'whole' || restInfo.name === 'half')
+              ? cursorX + restInfo.spacing / 2
+              : cursorX;
+            const restGroup = createRest({ length: element.length, x: restX });
             restGroup.setAttribute('data-beat', String(currentBeat));
 
             // Fermata on rest

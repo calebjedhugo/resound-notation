@@ -19,8 +19,11 @@ const REST_PLACEMENT = {
   half: { glyph: REST_GLYPHS.half, y: STAFF_MIDLINE },
   quarter: { glyph: REST_GLYPHS.quarter, y: STAFF_MIDLINE },
   eighth: { glyph: REST_GLYPHS['8th'], y: STAFF_MIDLINE },
-  '16th': { glyph: REST_GLYPHS['16th'], y: STAFF_MIDLINE },
-  '32nd': { glyph: REST_GLYPHS['32nd'], y: STAFF_MIDLINE },
+  // 16th/32nd rests have long downward tails. Lift the anchor by half a
+  // staff space so the topmost dot sits near line 2 instead of midline,
+  // letting the tail terminate at the bottom line rather than below it.
+  '16th': { glyph: REST_GLYPHS['16th'], y: STAFF_MIDLINE - 10 },
+  '32nd': { glyph: REST_GLYPHS['32nd'], y: STAFF_MIDLINE - 10 },
 };
 
 /**
