@@ -269,6 +269,22 @@ describe('NotationRenderer', () => {
       expect(denominator.querySelector('path')).not.toBeNull();
     });
 
+    // Rests must render as Bravura SMuFL path glyphs, not hand-rolled
+    // squiggles. Pin via path d-string signature unique to Bravura's
+    // rest16th: it contains the substring 'C292' from one of its bezier
+    // control points which our hand-rolled path does not.
+    it('renders 16th rests as Bravura path glyphs', () => {
+      ctx.render({
+        timeSignature: [4, 4],
+        notes: [{ length: '1/16' }, { pitch: 'C4', length: '1/4' }],
+      });
+      const rest = ctx.container.querySelector('.rest-16th .rest-symbol');
+      expect(rest).not.toBeNull();
+      const path = rest.querySelector('path') || rest;
+      // Bravura rest16th signature: bbox max-x is 320 fu.
+      expect(path.getAttribute('d')).toContain('320');
+    });
+
     // Standard engraving (Gould): beamed-note stems pass *through* the
     // beam, terminating at its outer edge — not at the inner edge where
     // the beam first contacts the stem. Pin: render two same-pitch 8ths,

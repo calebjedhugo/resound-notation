@@ -35,39 +35,39 @@ describe('Rest', () => {
       expect(el.getAttribute('transform')).toContain('100');
     });
 
-    it('whole rest renders a filled rectangle hanging from staff line 2', () => {
+    it('whole rest renders a Bravura path glyph', () => {
       const el = createRest({ length: '1/1', x: 0 });
-      const rect = el.querySelector('rect');
-      expect(rect).not.toBeNull();
-      expect(rect.getAttribute('class')).toBe('rest-symbol');
+      const symbol = el.querySelector('.rest-symbol');
+      expect(symbol).not.toBeNull();
+      expect(symbol.querySelector('path')).not.toBeNull();
     });
 
-    it('half rest renders a filled rectangle', () => {
+    it('half rest renders a Bravura path glyph', () => {
       const el = createRest({ length: '1/2', x: 0 });
-      const rect = el.querySelector('rect');
-      expect(rect).not.toBeNull();
-      expect(rect.getAttribute('class')).toBe('rest-symbol');
+      const symbol = el.querySelector('.rest-symbol');
+      expect(symbol).not.toBeNull();
+      expect(symbol.querySelector('path')).not.toBeNull();
     });
 
     it('quarter rest renders a path element', () => {
       const el = createRest({ length: '1/4', x: 0 });
-      const path = el.querySelector('path');
-      expect(path).not.toBeNull();
-      expect(path.getAttribute('class')).toBe('rest-symbol');
+      const symbol = el.querySelector('.rest-symbol');
+      expect(symbol).not.toBeNull();
+      expect(symbol.querySelector('path')).not.toBeNull();
     });
 
     it('eighth rest renders a path element', () => {
       const el = createRest({ length: '1/8', x: 0 });
-      const path = el.querySelector('path');
-      expect(path).not.toBeNull();
-      expect(path.getAttribute('class')).toBe('rest-symbol');
+      const symbol = el.querySelector('.rest-symbol');
+      expect(symbol).not.toBeNull();
+      expect(symbol.querySelector('path')).not.toBeNull();
     });
 
     it('16th rest renders a path element', () => {
       const el = createRest({ length: '1/16', x: 0 });
-      const path = el.querySelector('path');
-      expect(path).not.toBeNull();
-      expect(path.getAttribute('class')).toBe('rest-symbol');
+      const symbol = el.querySelector('.rest-symbol');
+      expect(symbol).not.toBeNull();
+      expect(symbol.querySelector('path')).not.toBeNull();
     });
 
     it('contains children for all supported rest types', () => {
