@@ -188,6 +188,25 @@ describe('NotationRenderer', () => {
       const headWidth = parseFloat(head.getAttribute('rx')) * 2;
       expect(advance).toBeGreaterThanOrEqual(headWidth * 2);
     });
+
+    // Standard engraving leaves ~1 staff space between the clef glyph's
+    // visual right edge and the first notehead's left edge so the clef
+    // doesn't crowd the music. The treble-clef SVG path's max x is ~39 in
+    // clef-local coordinates; the test reads that as a documented constant.
+    // If the clef glyph is ever replaced, update CLEF_GLYPH_MAX_X — the
+    // test's job is to pin the visible gap, not the glyph itself.
+    it('leaves at least one staff space between the clef and the first note', () => {
+      ctx.render([{ pitch: 'E4', length: '1/4' }]);
+      const clef = ctx.container.querySelector('.clef-treble');
+      const note = ctx.container.querySelector('.note');
+      const head = note.querySelector('.note-head');
+      const clefTx = parseFloat(clef.getAttribute('transform').match(/translate\((\d+)/)[1]);
+      const noteTx = parseFloat(note.getAttribute('transform').match(/translate\((\d+)/)[1]);
+      const headRx = parseFloat(head.getAttribute('rx'));
+      const CLEF_GLYPH_MAX_X = 39;
+      const gap = (noteTx - headRx) - (clefTx + CLEF_GLYPH_MAX_X);
+      expect(gap).toBeGreaterThanOrEqual(20);
+    });
   });
 
   describe('staff lines', () => {
