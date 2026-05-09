@@ -6,7 +6,7 @@
 import { createGroup, createEllipse, createLine, createPath } from '../lib/svgHelpers.js';
 import { pitchToStaffY } from '../lib/notePositions.js';
 import { getDurationInfo } from '../lib/durationSymbols.js';
-import { createGlyph, HALF_NOTEHEAD_GLYPH } from '../assets/glyphs.js';
+import { createGlyph, glyphStemAttachX, HALF_NOTEHEAD_GLYPH } from '../assets/glyphs.js';
 
 const MIDDLE_LINE_Y = 50;
 const HEAD_RX = 15;
@@ -47,11 +47,13 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
 
   // Note head — half notes use the public-domain Blanche.svg glyph (proper
   // hollow shape with even-odd cutout). Other durations remain a tilted
-  // ellipse for now.
+  // ellipse for now. Each shape has its own stem-attach offset since the
+  // half glyph is more elongated than the quarter ellipse.
   let head;
+  let stemAttachX = STEM_X_OFFSET;
   if (info.name === 'half') {
-    // Match the existing notehead height (2 × HEAD_RY = 20px = 1 staff space).
     head = createGlyph(HALF_NOTEHEAD_GLYPH, HEAD_RY * 2, 'note-head');
+    stemAttachX = glyphStemAttachX(HALF_NOTEHEAD_GLYPH, HEAD_RY * 2);
   } else {
     const fill = info.filledHead ? 'currentColor' : 'none';
     head = createEllipse(0, 0, HEAD_RX, HEAD_RY, {
@@ -66,7 +68,7 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
   // Stem
   if (info.hasStem) {
     const stemDown = stemDownOverride !== undefined ? stemDownOverride : y <= MIDDLE_LINE_Y;
-    const stemX = stemDown ? -STEM_X_OFFSET : STEM_X_OFFSET;
+    const stemX = stemDown ? -stemAttachX : stemAttachX;
     const stemY1 = 0;
     const stemY2 = stemDown ? STEM_LENGTH : -STEM_LENGTH;
 

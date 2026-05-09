@@ -42,6 +42,10 @@ export const HALF_NOTEHEAD_GLYPH = {
   vbWidth: 1.388,
   vbHeight: 1.10,
   fillRule: 'evenodd',
+  // Outer outline crosses path-y=0 around path-x=265 (right) and path-x=110
+  // (left). After the inner matrix → viewBox (1.06, 0.548) and (0.44, 0.548).
+  // Stems anchor on the right edge for stem-up.
+  stemAttachVbX: 1.06,
 };
 
 export const NATURAL_GLYPH = {
@@ -61,6 +65,17 @@ export const NATURAL_GLYPH = {
  * @param {string} className
  * @returns {SVGGElement}
  */
+/**
+ * For glyphs that declare `stemAttachVbX`, return the local-coord x where a
+ * stem should attach (after centering + scaling to targetHeight). Returns
+ * null if the glyph doesn't declare an attach point.
+ */
+export function glyphStemAttachX(glyph, targetHeight) {
+  if (typeof glyph.stemAttachVbX !== 'number') return null;
+  const scale = targetHeight / glyph.vbHeight;
+  return (glyph.stemAttachVbX - glyph.vbWidth / 2) * scale;
+}
+
 export function createGlyph(glyph, targetHeight, className) {
   const scale = targetHeight / glyph.vbHeight;
   const w = glyph.vbWidth * scale;

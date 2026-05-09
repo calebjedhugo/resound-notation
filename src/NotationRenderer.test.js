@@ -217,6 +217,26 @@ describe('NotationRenderer', () => {
       expect(Math.abs(Math.abs(stemX) - headEdgeX)).toBeLessThanOrEqual(0.5);
     });
 
+    // The Blanche.svg half-note glyph is much more elongated than the
+    // quarter's tilted ellipse — its right outer outline at the head's
+    // vertical center sits well inside the bounding-box max x. Pinning the
+    // stem at the quarter's STEM_X_OFFSET (~12.8) leaves a visible gap on
+    // the half. The stem must attach at a smaller x for the half head.
+    it('attaches the half-note stem closer to center than the quarter-note stem', () => {
+      ctx.render([
+        { pitch: 'E4', length: '1/4' },
+        { pitch: 'E4', length: '1/2' },
+      ]);
+      const notes = ctx.getNotes();
+      const stemQuarter = notes[0].querySelector('.note-stem');
+      const stemHalf = notes[1].querySelector('.note-stem');
+      const xQuarter = Math.abs(parseFloat(stemQuarter.getAttribute('x1')));
+      const xHalf = Math.abs(parseFloat(stemHalf.getAttribute('x1')));
+      // Half-glyph's right edge at center-y is meaningfully inside the
+      // quarter's; require ≥3px difference so the gap closes visibly.
+      expect(xQuarter - xHalf).toBeGreaterThanOrEqual(3);
+    });
+
     // Half-note heads in standard engraving have a distinct hollow shape:
     // outer notehead outline + inner cutout (drawn via even-odd fill rule),
     // not a stroked ellipse. Pin via the path glyph rather than the ellipse
