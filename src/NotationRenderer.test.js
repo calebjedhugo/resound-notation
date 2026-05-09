@@ -228,9 +228,10 @@ describe('NotationRenderer', () => {
       const stem = ctx.container.querySelector('.note-stem');
       const x = parseFloat(stem.getAttribute('x1'));
       const y = parseFloat(stem.getAttribute('y1'));
-      // Stem-up (E4 below middle line). Tip at ~(12.62, -4.76) per asset.
-      expect(x).toBeGreaterThanOrEqual(12);
-      expect(x).toBeLessThanOrEqual(13.2);
+      // Stem-up (E4 below middle line). Tip at ~(11.62, -4.76) per asset
+      // (pulled 1px toward center from path max-x to land on the visible curve).
+      expect(x).toBeGreaterThanOrEqual(11);
+      expect(x).toBeLessThanOrEqual(12.5);
       expect(y).toBeGreaterThanOrEqual(-6);
       expect(y).toBeLessThanOrEqual(-3.5);
     });

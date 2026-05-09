@@ -42,11 +42,12 @@ export const HALF_NOTEHEAD_GLYPH = {
   vbWidth: 1.388,
   vbHeight: 1.10,
   fillRule: 'evenodd',
-  // Stem attaches at the long-axis tip per engraving convention — the
-  // top-right corner of path 2 (vertex (347, 65) in path coords) maps to
-  // viewBox (1.388, 0.288). Bottom-left tip (vertex (0, -65)) maps to
-  // viewBox (0, 0.808). Both are mirrored about the bbox center (0.694, 0.55).
-  tipVbX: 1.388,
+  // Stem attaches at the long-axis tip per engraving convention. The path's
+  // max-x vertex is (347, 65) → vb (1.388, 0.288), but visually the outline
+  // curls in slightly before that vertex; pulling the tip 1px toward center
+  // (vb-x 1.388 → 1.333 = ~1px in local coords at scale 18.18) lands the
+  // stem flush with the visible curve.
+  tipVbX: 1.333,
   tipVbY: 0.288,
 };
 
