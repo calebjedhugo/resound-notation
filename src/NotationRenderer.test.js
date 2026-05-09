@@ -247,7 +247,8 @@ describe('NotationRenderer', () => {
       const noteTx = parseFloat(note.getAttribute('transform').match(/translate\((\d+)/)[1]);
       // Bravura noteheadBlack half-width: 295 fu / 2 × 0.08 = 11.8 px.
       const headHalfWidth = 11.8;
-      const CLEF_GLYPH_MAX_X = 39;
+      // Bravura gClef visible width: 671 fu × 0.08 = 53.68 px.
+      const CLEF_GLYPH_MAX_X = 54;
       const gap = (noteTx - headHalfWidth) - (clefTx + CLEF_GLYPH_MAX_X);
       expect(gap).toBeGreaterThanOrEqual(20);
     });
@@ -267,6 +268,24 @@ describe('NotationRenderer', () => {
       const denominator = sig.querySelector('.time-denominator');
       expect(numerator.querySelector('path')).not.toBeNull();
       expect(denominator.querySelector('path')).not.toBeNull();
+    });
+
+    // Clefs must render as Bravura SMuFL path glyphs. Pin via path
+    // d-string signatures unique to each Bravura clef.
+    it('renders treble + bass clefs as Bravura path glyphs', () => {
+      ctx.render({
+        voices: [
+          { clef: 'treble', notes: [{ pitch: 'C5', length: '1/4' }] },
+          { clef: 'bass', notes: [{ pitch: 'C3', length: '1/4' }] },
+        ],
+      });
+      const treble = ctx.container.querySelector('.clef-treble path');
+      const bass = ctx.container.querySelector('.clef-bass path');
+      expect(treble).not.toBeNull();
+      expect(bass).not.toBeNull();
+      // Bravura gClef path begins with M376; fClef begins with M252.
+      expect(treble.getAttribute('d').startsWith('M376')).toBe(true);
+      expect(bass.getAttribute('d').startsWith('M252')).toBe(true);
     });
 
     // Rests must render as Bravura SMuFL path glyphs, not hand-rolled

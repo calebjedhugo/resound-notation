@@ -52,7 +52,9 @@ const DEFAULT_WIDTH = 800;
 const DEFAULT_HEIGHT = 200;
 const STAFF_START_X = 20;
 const STAFF_TOP_OFFSET = 10;
-const CLEF_WIDTH = 75;
+// Bravura clefs render at ~54px (gClef) to ~56px (cClef). 90 leaves
+// ~1.5 staff spaces between clef glyph and first note.
+const CLEF_WIDTH = 90;
 const VOICE_HEIGHT = 200;
 const VOICE_GAP = 40;
 const GRAND_STAFF_GAP = 60;
