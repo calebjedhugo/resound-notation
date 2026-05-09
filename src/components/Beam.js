@@ -19,15 +19,15 @@ export const BEAM_THICKNESS = 10;
 export const BEAM_GAP = 5;
 
 /**
- * Extra stem length needed for a beamed note so the stem passes through
- * all beam levels and terminates at the outer edge of the outermost
- * beam (standard Gould/Bravura engraving). For N beam levels, the
- * outermost beam's far edge sits N*BT + (N-1)*BG past the stem's
- * unbeamed tip.
+ * Extra stem length needed for a beamed note so the stem terminates at
+ * the outer edge of the outermost beam. The beam stack is shifted one
+ * beam-thickness toward the head (see beamPath offset), so the primary
+ * beam's far edge sits at the un-beamed stem tip — extension is 0 for a
+ * single 8th beam, BT+BG for 16ths, 2*(BT+BG) for 32nds.
  */
 export function beamStemExtension(numBeams) {
   if (numBeams <= 0) return 0;
-  return numBeams * BEAM_THICKNESS + (numBeams - 1) * BEAM_GAP;
+  return (numBeams - 1) * (BEAM_THICKNESS + BEAM_GAP);
 }
 
 /**
@@ -57,7 +57,11 @@ function stemX(noteX, stemDown) {
  */
 function beamPath(x1, y1, x2, y2, level, stemDown) {
   const dir = stemDown ? 1 : -1;
-  const offset = level * (BEAM_THICKNESS + BEAM_GAP) * dir;
+  // Shift the entire beam stack one beam-thickness toward the head so the
+  // primary beam's far edge sits at the un-beamed stem tip (y1, y2). This
+  // tightens the visual spacing between beam and noteheads — without the
+  // shift the stack appears stuck onto the end of the stem.
+  const offset = (level * (BEAM_THICKNESS + BEAM_GAP) - BEAM_THICKNESS) * dir;
   const topY1 = y1 + offset;
   const topY2 = y2 + offset;
   const botY1 = topY1 + BEAM_THICKNESS * dir;
