@@ -12,8 +12,11 @@ const BLACK_TIP = smuflTip(NOTEHEAD_BLACK_GLYPH);
 const HEAD_TIP_X = BLACK_TIP.x;
 const HEAD_TIP_Y = BLACK_TIP.y;
 const STEM_LENGTH = 70;
-const BEAM_THICKNESS = 4;
-const BEAM_GAP = 4;
+// Standard engraving (Gould, Bravura defaults): beam thickness ~0.5 staff
+// space; gap between adjacent beam levels ~0.25 staff space. With
+// LINE_SPACING=20px that's 10px and 5px respectively.
+const BEAM_THICKNESS = 10;
+const BEAM_GAP = 5;
 
 /**
  * Compute the stem end Y for a note. Beam connects at the far end of the

@@ -268,6 +268,28 @@ describe('NotationRenderer', () => {
       expect(denominator.querySelector('path')).not.toBeNull();
     });
 
+    // Standard engraving (Gould, Bravura): beams are ~0.5 staff space
+    // thick — half the height of a notehead, so they read as a strong
+    // horizontal/diagonal mark. With LINE_SPACING=20px that's ~10px;
+    // thinner beams (e.g. 4px) read as wireframes. Pin via path geometry:
+    // render two same-pitch 8ths, expect the (flat) beam parallelogram to
+    // span ≥ 8px vertically.
+    it('renders beams at ~0.5 staff space thickness', () => {
+      ctx.render({
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C4', length: '1/8' },
+          { pitch: 'C4', length: '1/8' },
+        ],
+      });
+      const beam = ctx.container.querySelector('.beam');
+      expect(beam).not.toBeNull();
+      const yValues = beam.getAttribute('d').match(/-?[\d.]+/g).map(Number)
+        .filter((_, i) => i % 2 === 1); // every other = Y
+      const thickness = Math.max(...yValues) - Math.min(...yValues);
+      expect(thickness).toBeGreaterThanOrEqual(8);
+    });
+
     // Multi-digit time signatures (e.g. 12/8) render one glyph per digit.
     it('renders one glyph per digit in multi-digit time signatures', () => {
       ctx.render({ timeSignature: [12, 8], notes: [{ pitch: 'C4', length: '1/4' }] });
