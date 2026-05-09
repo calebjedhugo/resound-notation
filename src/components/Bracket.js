@@ -6,13 +6,9 @@
  * the glyphs' native trunk width (125 fu × SMUFL_SCALE) so trunk and
  * hooks line up seamlessly.
  *
- * Engraving convention for a left-of-staff bracket "[": the trunk is the
- * vertical line CLOSEST to the staff (on the right side of the symbol),
- * and the hook tips curl AWAY from the staff (to the LEFT). The native
- * Bravura bracketTop curls UP-and-RIGHT in font coords — so we apply BOTH
- * an X-mirror and the SMuFL Y-flip (scale(-SMUFL_SCALE, -SMUFL_SCALE)),
- * then translate by (TRUNK_WIDTH, 0) so the mirrored hook's bottom edge
- * snaps back onto the trunk's top edge x = [0, TRUNK_WIDTH].
+ * The hooks curl toward the staff (RIGHT in local coords); the trunk is
+ * the LEFT vertical line of the bracket symbol. (This deviates from
+ * typical engraving convention but matches the user's preferred visual.)
  */
 
 import {
@@ -32,10 +28,9 @@ const TRUNK_WIDTH = 125 * SMUFL_SCALE; // = 10
  * Create an SVG group representing a square staff bracket.
  *
  * Local coords: trunk runs x = [0, TRUNK_WIDTH], y = [0, height]. Hooks
- * curl outward to the LEFT (negative x), with tips at approximately
- * x = TRUNK_WIDTH - 469 * SMUFL_SCALE ≈ -27.5 px and y = ±271 * SMUFL_SCALE
- * ≈ ∓21.7 px (above the top / below the bottom). Bracket opening faces
- * LEFT; trunk's RIGHT edge (x = TRUNK_WIDTH) sits flush with the staff.
+ * curl to the RIGHT (toward the staff), with tips at approximately
+ * x ≈ 469 * SMUFL_SCALE ≈ 37.5 px and y = ±271 * SMUFL_SCALE ≈ ∓21.7 px
+ * (above the top / below the bottom). Total local footprint: x=[0, ~37.5].
  *
  * @param {Object} options
  * @param {number} [options.height=200] - Total height of the trunk; hooks
@@ -56,24 +51,21 @@ export function createBracket({ height = DEFAULT_HEIGHT } = {}) {
   });
   group.appendChild(trunk);
 
-  // Top hook: scale(-SMUFL_SCALE, -SMUFL_SCALE) applies an X-mirror plus
-  // the SMuFL Y-flip so the native UP-RIGHT hook becomes UP-LEFT. The
-  // mirrored hook's bottom edge runs from x=0 back to x=-TRUNK_WIDTH, so
-  // we translate by (TRUNK_WIDTH, 0) to land the bottom edge on the
-  // trunk's top edge x=[0, TRUNK_WIDTH]. Hook tip ends up at x ≈ -27.5.
+  // Top hook: scale(SMUFL_SCALE, -SMUFL_SCALE) applies the SMuFL Y-flip
+  // only; the native bracketTop curls UP-and-RIGHT, so after Y-flip the
+  // hook tip ends up above and to the RIGHT (toward the staff).
   const topHook = createGroup('bracket-hook-top', {
-    transform: `translate(${TRUNK_WIDTH}, 0) scale(${-SMUFL_SCALE}, ${-SMUFL_SCALE})`,
+    transform: `translate(0, 0) scale(${SMUFL_SCALE}, ${-SMUFL_SCALE})`,
   });
   topHook.appendChild(
     createPath(BRACKET_TOP_GLYPH.d, { fill: 'currentColor', stroke: 'none' }),
   );
   group.appendChild(topHook);
 
-  // Bottom hook: same X-mirror + Y-flip, anchored at the trunk's
-  // bottom-RIGHT corner (TRUNK_WIDTH, height). After scaleY(-1) the hook
-  // extends DOWN-LEFT below y=height.
+  // Bottom hook: anchored at the trunk's bottom-LEFT corner (0, height).
+  // After scaleY(-1) the hook extends DOWN-RIGHT below y=height.
   const bottomHook = createGroup('bracket-hook-bottom', {
-    transform: `translate(${TRUNK_WIDTH}, ${height}) scale(${-SMUFL_SCALE}, ${-SMUFL_SCALE})`,
+    transform: `translate(0, ${height}) scale(${SMUFL_SCALE}, ${-SMUFL_SCALE})`,
   });
   bottomHook.appendChild(
     createPath(BRACKET_BOTTOM_GLYPH.d, { fill: 'currentColor', stroke: 'none' }),
