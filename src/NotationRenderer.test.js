@@ -1992,6 +1992,52 @@ describe('NotationRenderer', () => {
       expect(grandGap).toBeLessThan(indGap);
     });
 
+    it('renders a bracket element when staffGroups contains a bracket', () => {
+      ctx.render({
+        voices: [
+          { id: 'a', clef: 'treble', notes: [{ pitch: 'C5', length: '1/4' }] },
+          { id: 'b', clef: 'treble', notes: [{ pitch: 'G4', length: '1/4' }] },
+          { id: 'c', clef: 'bass', notes: [{ pitch: 'C3', length: '1/4' }] },
+        ],
+        staffGroups: [{ type: 'bracket', voiceIds: ['a', 'b', 'c'] }],
+      });
+      const bracket = ctx.container.querySelector('.bracket');
+      expect(bracket).not.toBeNull();
+      // Bracket should not also be rendered as a brace.
+      expect(ctx.container.querySelector('.brace')).toBeNull();
+    });
+
+    it('renders shared bar lines for a bracket group', () => {
+      ctx.render({
+        voices: [
+          {
+            id: 'a',
+            clef: 'treble',
+            timeSignature: [4, 4],
+            notes: [
+              { pitch: 'C5', length: '1/4' },
+              { pitch: 'D5', length: '1/4' },
+              { pitch: 'E5', length: '1/4' },
+              { pitch: 'F5', length: '1/4' },
+              { pitch: 'G5', length: '1/4' },
+            ],
+          },
+          {
+            id: 'b',
+            clef: 'bass',
+            timeSignature: [4, 4],
+            notes: [
+              { pitch: 'C3', length: '1/1' },
+              { pitch: 'D3', length: '1/4' },
+            ],
+          },
+        ],
+        staffGroups: [{ type: 'bracket', voiceIds: ['a', 'b'] }],
+      });
+      const sharedBarLines = ctx.container.querySelectorAll('.shared-bar-line');
+      expect(sharedBarLines.length).toBeGreaterThan(0);
+    });
+
     it('renders shared bar lines spanning both staves in a brace group', () => {
       ctx.render({
         voices: [

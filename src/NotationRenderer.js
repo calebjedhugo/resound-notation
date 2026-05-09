@@ -46,6 +46,7 @@ import { renderExpressionText } from './components/ExpressionText.js';
 import { renderRehearsalMark } from './components/RehearsalMark.js';
 import { renderLyric, renderMelisma } from './components/Lyric.js';
 import { createBrace } from './components/Brace.js';
+import { createBracket } from './components/Bracket.js';
 import { createSharedBarLine } from './components/SharedBarLine.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -261,14 +262,24 @@ export class NotationRenderer {
     const voiceCount = parsed.voices.length;
     const staffGroups = parsed.staffGroups || [];
 
-    // Build brace group lookup: voiceId -> group info
-    const braceGroups = staffGroups.filter((g) => g.type === 'brace');
+    // Build group lookup: voiceId -> group info. Both brace and bracket
+    // groups participate in same-group tight spacing and shared barlines.
+    const braceGroups = staffGroups.filter(
+      (g) => g.type === 'brace' || g.type === 'bracket',
+    );
     const voiceBraceGroup = new Map();
     for (const group of braceGroups) {
       for (const vid of group.voiceIds) {
         voiceBraceGroup.set(vid, group);
       }
     }
+
+    // Bracket hooks curl outward above the top staff and below the
+    // bottom staff. When any bracket group exists, reserve vertical
+    // headroom at the top so the upper hook doesn't get clipped by
+    // SVG y=0. Bottom hook fits in the existing trailing margin.
+    const hasBracketGroup = staffGroups.some((g) => g.type === 'bracket');
+    const bracketTopMargin = hasBracketGroup ? 24 : 0;
 
     // Compute Y positions for each voice
     const voiceYPositions = [];
@@ -279,8 +290,8 @@ export class NotationRenderer {
       const yOffset = voiceHeight / 2 - STAFF_CENTER_Y;
 
       if (vi === 0) {
-        voiceYPositions.push(yOffset);
-        currentY = yOffset;
+        voiceYPositions.push(yOffset + bracketTopMargin);
+        currentY = yOffset + bracketTopMargin;
       } else {
         const prevVoice = parsed.voices[vi - 1];
         const prevInBrace = voiceBraceGroup.get(prevVoice.id);
@@ -297,7 +308,8 @@ export class NotationRenderer {
     if (voiceCount <= 1) {
       totalHeight = this._height;
     } else if (hasBraceGroups) {
-      // Dynamic height for grouped staves
+      // Dynamic height for grouped staves. The trailing 40 covers
+      // descenders and bracket bottom hooks.
       const lastVoiceBottom =
         voiceYPositions[voiceCount - 1] + STAFF_TOP_OFFSET + STAFF_HEIGHT + 40;
       totalHeight = lastVoiceBottom;
@@ -306,11 +318,14 @@ export class NotationRenderer {
       totalHeight = voiceCount * VOICE_HEIGHT + (voiceCount - 1) * VOICE_GAP;
     }
 
+    // Extend the viewBox to the left when brackets are present so the
+    // outward-curling hook tips don't get clipped.
+    const bracketLeftMargin = hasBracketGroup ? 30 : 0;
     this._svg = createSvgElement('svg', {
       class: 'notation',
-      width: this._width,
+      width: this._width + bracketLeftMargin,
       height: totalHeight,
-      viewBox: `0 0 ${this._width} ${totalHeight}`,
+      viewBox: `${-bracketLeftMargin} 0 ${this._width + bracketLeftMargin} ${totalHeight}`,
     });
 
     // Pre-pass: compute the shared music-start X (max over voices of
@@ -1287,11 +1302,20 @@ export class NotationRenderer {
       const topY = voiceYPositions[firstIdx] + STAFF_TOP_OFFSET;
       const bottomY = voiceYPositions[lastIdx] + STAFF_TOP_OFFSET + STAFF_HEIGHT;
 
-      // Brace at the left edge
-      const braceHeight = bottomY - topY;
-      const braceEl = createBrace({ height: braceHeight });
-      braceEl.setAttribute('transform', `translate(${STAFF_START_X - 12}, ${topY})`);
-      this._svg.appendChild(braceEl);
+      // Group symbol at the left edge: curly brace (single instrument
+      // grand staff) or square bracket (ensemble grouping).
+      const groupHeight = bottomY - topY;
+      let groupEl;
+      if (group.type === 'bracket') {
+        groupEl = createBracket({ height: groupHeight });
+        // Bracket trunk sits flush against the staff's left edge; hooks
+        // protrude outward to the left.
+        groupEl.setAttribute('transform', `translate(${STAFF_START_X - 10}, ${topY})`);
+      } else {
+        groupEl = createBrace({ height: groupHeight });
+        groupEl.setAttribute('transform', `translate(${STAFF_START_X - 12}, ${topY})`);
+      }
+      this._svg.appendChild(groupEl);
 
       // Shared barlines: collect X positions common across grouped voices
       const allBarlineXSets = voiceIndices.map((vi) => {
