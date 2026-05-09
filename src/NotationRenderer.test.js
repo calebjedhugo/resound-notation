@@ -166,29 +166,30 @@ describe('NotationRenderer', () => {
     });
 
     // SMuFL Bravura noteheadBlack stem-up tip: the path's max-x vertex sits
-    // at font-units (295, 42). After centering on cx=147.5 and SMUFL_SCALE
-    // 0.08 with Y-flip, the local-coord tip is (11.8, -3.36). Stem attaches
-    // at this exact engraved-corner anchor.
-    it('attaches the quarter-note stem at the SMuFL black notehead tip', () => {
+    // at font-units (295, 42). The stem anchor is pulled ~1px toward the
+    // head's center so the stem overlaps the outline rather than butting
+    // up against it (standard engraving — without overlap the stem reads
+    // as "stuck on" the head edge instead of joining cleanly).
+    it('attaches the quarter-note stem ~1px inside the head outline', () => {
       ctx.render([{ pitch: 'E4', length: '1/4' }]);
       const stem = ctx.container.querySelector('.note-stem');
       const x = parseFloat(stem.getAttribute('x1'));
       const y = parseFloat(stem.getAttribute('y1'));
-      // E4 is below middle line → stem-up → upper-right tip.
-      expect(x).toBeCloseTo(11.8, 1);
-      expect(y).toBeCloseTo(-3.36, 1);
+      // E4 is below middle line → stem-up → upper-right tip pulled inward.
+      expect(x).toBeLessThan(11.8);
+      expect(x).toBeGreaterThan(10);
+      expect(y).toBeLessThan(-3); // still in the upper-right region
     });
 
-    // SMuFL Bravura noteheadHalf has the same outer max-x vertex as Black
-    // (font units 295, 42 → local 11.8, -3.36). Pin half stem at the same
-    // engraved anchor.
-    it('attaches the half-note stem at the SMuFL half notehead tip', () => {
+    // Same pullback applies to the SMuFL noteheadHalf glyph.
+    it('attaches the half-note stem ~1px inside the head outline', () => {
       ctx.render([{ pitch: 'E4', length: '1/2' }]);
       const stem = ctx.container.querySelector('.note-stem');
       const x = parseFloat(stem.getAttribute('x1'));
       const y = parseFloat(stem.getAttribute('y1'));
-      expect(x).toBeCloseTo(11.8, 1);
-      expect(y).toBeCloseTo(-3.36, 1);
+      expect(x).toBeLessThan(11.8);
+      expect(x).toBeGreaterThan(10);
+      expect(y).toBeLessThan(-3);
     });
 
     // Half-note heads in standard engraving have a distinct hollow shape:

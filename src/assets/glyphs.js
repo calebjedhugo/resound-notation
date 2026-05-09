@@ -24,16 +24,21 @@ export const SMUFL_SCALE = 0.08;
 // `bbox` is the SMuFL spec bounding box in font units; `tipFu` is the
 // stem-up tip vertex (max-x outline point). Half and Black share the
 // same tip; Whole has no stem.
+// Stem anchor (tipFu) is pulled ~1px (12 font units at SMUFL_SCALE 0.08)
+// toward the head's center along the long axis from the path's max-x
+// vertex (295, 42). Without the pullback the stem butts up against the
+// head outline; the inward shift gives the engraved overlap so the stem
+// reads as joining the head cleanly.
 export const NOTEHEAD_BLACK_GLYPH = {
   d: 'M97 -125C186 -125 295 -43 295 42C295 93 255 125 198 125C88 125 0 44 0 -42C0 -94 43 -125 97 -125Z',
   bbox: { xMin: 0, yMin: -125, xMax: 295, yMax: 125 },
-  tipFu: { x: 295, y: 42 },
+  tipFu: { x: 283, y: 39 },
 };
 
 export const NOTEHEAD_HALF_GLYPH = {
   d: 'M97 -125C262 -125 295 9 295 42C295 93 254 125 196 125C47 125 0 10 0 -42C0 -95 42 -125 97 -125ZM75 -87C54 -87 42 -76 35 -64C32 -58 29 -51 29 -44C29 5 174 84 221 84C240 84 251 75 258 63C261 57 264 51 264 44C264 1 123 -87 75 -87Z',
   bbox: { xMin: 0, yMin: -125, xMax: 295, yMax: 125 },
-  tipFu: { x: 295, y: 42 },
+  tipFu: { x: 283, y: 39 },
   fillRule: 'evenodd',
 };
 
