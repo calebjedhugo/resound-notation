@@ -87,6 +87,121 @@ const STEM_LENGTH = 70;
 const DYNAMICS_Y = 110;
 const STAFF_CENTER_Y = STAFF_TOP_OFFSET + 40; // midpoint of 5-line staff
 
+/**
+ * Walk a voice's notes, emitting (startBeat, endBeat, spacing) events for
+ * every note/rest/chord/tuplet element. Used to build a shared beat→x
+ * map across voices so notes at the same beat align vertically.
+ */
+function collectVoiceEvents(voiceNotes) {
+  const events = [];
+  let beat = 0;
+
+  for (const element of voiceNotes) {
+    if (Array.isArray(element)) {
+      // Chord — duration from any note's length
+      const lengths = element.filter((e) => e && e.length).map((e) => e);
+      if (lengths.length === 0) continue;
+      const first = lengths[0];
+      const info = getDurationInfo(first.length);
+      const dur = fractionToBeats(first.length) * (first.dotted ? 1.5 : 1);
+      const spacing = info.spacing * (first.dotted ? 1.5 : 1);
+      events.push({ startBeat: beat, endBeat: beat + dur, spacing });
+      beat += dur;
+      continue;
+    }
+
+    if (element.tuplet !== undefined && element.notes) {
+      // Tuplet: nested notes with a ratio. Pro-rate each sub-note's
+      // contribution by ratio[1]/ratio[0] (e.g. triplet = 2/3).
+      const [actual, normal] = element.tuplet;
+      for (const tEl of element.notes) {
+        let length;
+        let dotted;
+        if (Array.isArray(tEl)) {
+          // Chord inside tuplet
+          const first = tEl.find((e) => e && e.length);
+          if (!first) continue;
+          length = first.length;
+          dotted = first.dotted;
+        } else if (tEl && tEl.length) {
+          length = tEl.length;
+          dotted = tEl.dotted;
+        } else {
+          continue;
+        }
+        const info = getDurationInfo(length);
+        const dur = fractionToBeats(length) * (dotted ? 1.5 : 1) * (normal / actual);
+        const spacing = info.spacing * (dotted ? 1.5 : 1) * (normal / actual);
+        events.push({ startBeat: beat, endBeat: beat + dur, spacing });
+        beat += dur;
+      }
+      continue;
+    }
+
+    // Skip non-note markers
+    if (element.barline !== undefined) continue;
+    if (
+      element.ending !== undefined ||
+      element.navigation !== undefined ||
+      element.tempo !== undefined ||
+      element.tempoChange !== undefined ||
+      element.expression !== undefined ||
+      element.rehearsal !== undefined ||
+      element.dynamic !== undefined ||
+      element.hairpin !== undefined
+    ) continue;
+
+    if (!element.length) continue;
+
+    const info = getDurationInfo(element.length);
+    const dur = fractionToBeats(element.length) * (element.dotted ? 1.5 : 1);
+    const spacing = info.spacing * (element.dotted ? 1.5 : 1);
+    events.push({ startBeat: beat, endBeat: beat + dur, spacing });
+    beat += dur;
+  }
+
+  return events;
+}
+
+/**
+ * Build a shared beat → x map from all voices' events. The width of
+ * each gap between consecutive layout beats is the maximum width
+ * required by any voice covering that gap (pro-rated by event duration).
+ */
+function computeBeatLayout(voices, startX) {
+  const allEvents = [];
+  for (const voice of voices) {
+    for (const ev of collectVoiceEvents(voice.notes)) {
+      allEvents.push(ev);
+    }
+  }
+
+  const beats = new Set([0]);
+  for (const ev of allEvents) {
+    beats.add(ev.startBeat);
+    beats.add(ev.endBeat);
+  }
+  const sorted = [...beats].sort((a, b) => a - b);
+
+  const map = new Map([[sorted[0], startX]]);
+  for (let i = 0; i < sorted.length - 1; i += 1) {
+    const a = sorted[i];
+    const z = sorted[i + 1];
+    const gap = z - a;
+    let maxWidth = 0;
+    for (const ev of allEvents) {
+      if (ev.startBeat <= a + 0.0001 && ev.endBeat >= z - 0.0001) {
+        const evDur = ev.endBeat - ev.startBeat;
+        const contribution = ev.spacing * (gap / evDur);
+        if (contribution > maxWidth) maxWidth = contribution;
+      }
+    }
+    map.set(z, map.get(a) + maxWidth);
+  }
+
+  return map;
+}
+
 function chordGlyphFor(info) {
   if (info.name === 'whole') return NOTEHEAD_WHOLE_GLYPH;
   if (info.name === 'half') return NOTEHEAD_HALF_GLYPH;
@@ -198,6 +313,32 @@ export class NotationRenderer {
       viewBox: `0 0 ${this._width} ${totalHeight}`,
     });
 
+    // Pre-pass: compute the shared music-start X (max over voices of
+    // header end position) and the shared beat → x layout. All voices
+    // jump to musicStartX after their per-voice header (clef + key sig
+    // + time sig) so notes at the same beat align vertically across
+    // staves.
+    let musicStartX = STAFF_START_X + CLEF_WIDTH;
+    for (const voice of parsed.voices) {
+      let x = STAFF_START_X + CLEF_WIDTH;
+      const keyInfo = getKeySignature(voice.keySignature || 'C');
+      if (keyInfo.count > 0) {
+        x += keyInfo.count * KEY_SIG_ACCIDENTAL_WIDTH;
+      }
+      if (voice.timeSignature) {
+        const { width: tsWidth } = createTimeSignature(voice.timeSignature);
+        x += tsWidth + TIME_SIG_PADDING;
+      }
+      if (x > musicStartX) musicStartX = x;
+    }
+    // Use first voice's measureLength as the shared barline rhythm.
+    const sharedTimeSignature = parsed.voices.find((v) => v.timeSignature)
+      ?.timeSignature;
+    const sharedMeasureLength = sharedTimeSignature
+      ? sharedTimeSignature[0] * (4 / sharedTimeSignature[1])
+      : null;
+    const beatToX = computeBeatLayout(parsed.voices, musicStartX);
+
     // Track per-voice barline X positions for shared barlines
     const voiceBarlineXPositions = new Map();
 
@@ -247,6 +388,16 @@ export class NotationRenderer {
       // Beat tracking for bar lines
       const measureLength = timeSignature ? timeSignature[0] * (4 / timeSignature[1]) : null;
       let cumulativeBeats = 0;
+
+      // Jump to shared music-start X. From here on, note positions are
+      // looked up in the shared beatToX map (with cumulative barline
+      // padding applied per voice as it crosses measure boundaries).
+      cursorX = musicStartX;
+      let barlineOffset = 0;
+      const xForBeat = (beat) => {
+        const base = beatToX.get(beat);
+        return (base !== undefined ? base : cursorX) + barlineOffset;
+      };
 
       // Track barline X positions for shared barlines in brace groups
       const barlineXs = [];
@@ -712,27 +863,29 @@ export class NotationRenderer {
               voiceId: voice.id,
             });
 
-            cursorX += info.spacing;
             const chordElementBeats = fractionToBeats(chordLength);
-            beatPosition += chordNotes[0].dotted ? chordElementBeats * 1.5 : chordElementBeats;
+            const chordAdjBeats = chordNotes[0].dotted
+              ? chordElementBeats * 1.5
+              : chordElementBeats;
+            beatPosition += chordAdjBeats;
 
-            // Bar line insertion for chords
+            // Bar line insertion for chords (shared layout: barline x =
+            // beatToX(measureEndBeat) + accumulated barlineOffset + padding).
             if (measureLength && chordElementBeats > 0) {
-              const adjustedBeats = chordNotes[0].dotted
-                ? chordElementBeats * 1.5
-                : chordElementBeats;
-              cumulativeBeats += adjustedBeats;
+              cumulativeBeats += chordAdjBeats;
               while (cumulativeBeats >= measureLength - 0.001) {
-                cursorX += BAR_LINE_PADDING;
-                staffGroup.appendChild(createBarLine(cursorX));
-                barlineXs.push(cursorX);
-                cursorX += BAR_LINE_PADDING;
+                barlineOffset += BAR_LINE_PADDING;
+                const barlineX = xForBeat(beatPosition);
+                staffGroup.appendChild(createBarLine(barlineX));
+                barlineXs.push(barlineX);
+                barlineOffset += BAR_LINE_PADDING;
                 cumulativeBeats -= measureLength;
               }
               if (Math.abs(cumulativeBeats) < 0.001) {
                 cumulativeBeats = 0;
               }
             }
+            cursorX = xForBeat(beatPosition);
           }
           // eslint-disable-next-line no-continue
           continue;
@@ -795,18 +948,18 @@ export class NotationRenderer {
             voiceId: voice.id,
           });
 
-          cursorX += info.spacing;
           elementBeats = fractionToBeats(element.length);
           if (element.dotted) elementBeats *= 1.5;
         } else if (!element.pitch) {
           // Rest (no pitch, has length)
           if (element.length) {
-            // Center long rests (whole / half) within their time-slot
-            // allocation; short rests stay left-aligned at the beat
-            // position per standard engraving.
             const restInfo = getDurationInfo(element.length);
+            const elemBeats = fractionToBeats(element.length) * (element.dotted ? 1.5 : 1);
+            // Center long rests (whole/half) within their full slot;
+            // short rests left-align at the beat position.
+            const slotEndX = xForBeat(beatPosition + elemBeats);
             const restX = (restInfo.name === 'whole' || restInfo.name === 'half')
-              ? cursorX + restInfo.spacing / 2
+              ? (cursorX + slotEndX) / 2
               : cursorX;
             const restGroup = createRest({ length: element.length, x: restX });
             restGroup.setAttribute('data-beat', String(currentBeat));
@@ -825,10 +978,7 @@ export class NotationRenderer {
             }
 
             target.appendChild(restGroup);
-            const info = getDurationInfo(element.length);
-            cursorX += info.spacing;
-            elementBeats = fractionToBeats(element.length);
-            if (element.dotted) elementBeats *= 1.5;
+            elementBeats = elemBeats;
           }
         } else {
           const noteY = pitchToStaffY(element.pitch, clef);
@@ -908,8 +1058,6 @@ export class NotationRenderer {
             lyricData.push({ text: element.lyric, x: cursorX, noteIndex: i });
           }
 
-          const info = getDurationInfo(element.length);
-          cursorX += info.spacing;
           elementBeats = fractionToBeats(element.length);
           if (element.dotted) elementBeats *= 1.5;
         }
@@ -929,20 +1077,23 @@ export class NotationRenderer {
           activeBeamGroupIdx = -1;
         }
 
-        // Bar line insertion
+        // Bar line insertion (shared layout)
         if (measureLength && elementBeats > 0) {
           cumulativeBeats += elementBeats;
           while (cumulativeBeats >= measureLength - 0.001) {
-            cursorX += BAR_LINE_PADDING;
-            staffGroup.appendChild(createBarLine(cursorX));
-            barlineXs.push(cursorX);
-            cursorX += BAR_LINE_PADDING;
+            barlineOffset += BAR_LINE_PADDING;
+            const barlineX = xForBeat(beatPosition);
+            staffGroup.appendChild(createBarLine(barlineX));
+            barlineXs.push(barlineX);
+            barlineOffset += BAR_LINE_PADDING;
             cumulativeBeats -= measureLength;
           }
           if (Math.abs(cumulativeBeats) < 0.001) {
             cumulativeBeats = 0;
           }
         }
+        // Advance cursor to next beat's shared X (with current barline offset).
+        cursorX = xForBeat(beatPosition);
       }
 
       // Tie rendering pass (after all notes so ties draw on top)
