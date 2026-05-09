@@ -45,7 +45,7 @@ import { renderTempoMarking, renderTempoChange } from './components/TempoMarking
 import { renderExpressionText } from './components/ExpressionText.js';
 import { renderRehearsalMark } from './components/RehearsalMark.js';
 import { renderLyric, renderMelisma } from './components/Lyric.js';
-import { createBrace } from './components/Brace.js';
+import { createBrace, getBraceWidth } from './components/Brace.js';
 import { createBracket } from './components/Bracket.js';
 import { createSharedBarLine } from './components/SharedBarLine.js';
 
@@ -318,15 +318,38 @@ export class NotationRenderer {
       totalHeight = voiceCount * VOICE_HEIGHT + (voiceCount - 1) * VOICE_GAP;
     }
 
-    // Extend the viewBox to the left when brackets are present so the
-    // outward-curling hook tips don't get clipped.
-    // Bracket sits entirely to the LEFT of x=0 (where staff lines begin)
-    // with a small visible gap. Bracket local footprint: trunk x=[0,10],
-    // hook tips reach x≈37.5. We translate to x=-45 so the trunk sits at
-    // x=[-45,-35] and hook tips at x≈-7.5 — a ~7.5px gap before the staff.
-    // Margin = 50 leaves a hair of room on the left so the trunk isn't
-    // clipped by the viewBox edge.
-    const bracketLeftMargin = hasBracketGroup ? 50 : 0;
+    // Extend the viewBox to the left when a bracket OR brace is present so
+    // the symbol (which sits entirely outside the staff) isn't clipped.
+    //
+    // Bracket: trunk's right edge at x = -2, hook tips at x ≈ -39.5.
+    // Margin 50 covers it with a hair of headroom.
+    //
+    // Brace: right edge at x = -2, left edge at x = -2 - braceWidth(h).
+    // braceWidth scales sub-linearly with height; at typical grand-staff
+    // heights it lands near 8–13 px, so we compute the worst case across
+    // brace groups to size the margin.
+    const hasBraceGroup = braceGroups.some((g) => g.type !== 'bracket');
+    let braceLeftMargin = 0;
+    if (hasBraceGroup) {
+      let maxBraceWidth = 0;
+      for (const group of braceGroups) {
+        if (group.type === 'bracket') continue;
+        const indices = group.voiceIds
+          .map((vid) => parsed.voices.findIndex((v) => v.id === vid))
+          .filter((i) => i >= 0);
+        if (indices.length < 2) continue;
+        const firstIdx = Math.min(...indices);
+        const lastIdx = Math.max(...indices);
+        const h =
+          voiceYPositions[lastIdx] + STAFF_TOP_OFFSET + STAFF_HEIGHT
+          - (voiceYPositions[firstIdx] + STAFF_TOP_OFFSET);
+        const w = getBraceWidth(h);
+        if (w > maxBraceWidth) maxBraceWidth = w;
+      }
+      // 2 px gap + brace width + 4 px breathing room on the viewBox edge.
+      braceLeftMargin = Math.ceil(2 + maxBraceWidth + 4);
+    }
+    const bracketLeftMargin = hasBracketGroup ? 50 : braceLeftMargin;
     this._svg = createSvgElement('svg', {
       class: 'notation',
       width: this._width + bracketLeftMargin,
@@ -1314,15 +1337,19 @@ export class NotationRenderer {
       let groupEl;
       if (group.type === 'bracket') {
         groupEl = createBracket({ height: groupHeight });
-        // Bracket sits entirely OUTSIDE the staff area (to the left of
-        // x=0 where staff lines begin). Local footprint: trunk x=[0,10],
-        // hook tips reach x≈37.5. With translate x=-45, trunk sits at
-        // absolute x=[-45,-35] and hook tips at x≈-7.5 — leaving a
-        // visible gap before the staff lines start at x=0.
-        groupEl.setAttribute('transform', `translate(-45, ${topY})`);
+        // Bracket sits entirely OUTSIDE the staff area. Local footprint:
+        // trunk x=[0,10] (right edge nearest staff), hook tips reach
+        // x≈-27.5 (left). With translate x=-12, the trunk's right edge
+        // lands at x=-2 — a 2 px gap before staff lines at x=0 — and
+        // hook tips reach x≈-39.5.
+        groupEl.setAttribute('transform', `translate(-12, ${topY})`);
       } else {
         groupEl = createBrace({ height: groupHeight });
-        groupEl.setAttribute('transform', `translate(${STAFF_START_X - 12}, ${topY})`);
+        // Brace sits OUTSIDE the staff with a ~2 px gap. Brace local x
+        // range is [0, ~braceWidth] (where braceWidth scales sub-linearly
+        // with height); position so the brace's right edge lands at x=-2.
+        const braceWidth = getBraceWidth(groupHeight);
+        groupEl.setAttribute('transform', `translate(${-2 - braceWidth}, ${topY})`);
       }
       this._svg.appendChild(groupEl);
 

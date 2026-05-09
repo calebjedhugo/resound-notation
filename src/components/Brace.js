@@ -25,6 +25,24 @@ import { createGroup, createPath } from '../lib/svgHelpers.js';
 const DEFAULT_HEIGHT = 200;
 const BRACE_NATIVE_HEIGHT_FU = 997;
 const BRACE_NATIVE_HEIGHT_PX = BRACE_NATIVE_HEIGHT_FU * SMUFL_SCALE; // ≈ 79.76
+// BRACE_GLYPH bbox xMax in font units (xMin = 2, but path effectively starts
+// at 0). Using xMax directly approximates the brace's right edge in local px.
+const BRACE_GLYPH_XMAX_FU = 82;
+
+/**
+ * Compute the rendered pixel width of the brace at a given height. Mirrors
+ * the X-scale formula used inside `createBrace` so callers (e.g. the
+ * renderer positioning the brace outside the staff) can compute the
+ * brace's local-x extent without rendering it.
+ *
+ * @param {number} height - Brace span in px
+ * @returns {number} approximate brace width in px (local x range = [0, this])
+ */
+export function getBraceWidth(height = DEFAULT_HEIGHT) {
+  const widthRatio = Math.max(1, Math.sqrt(height / BRACE_NATIVE_HEIGHT_PX));
+  const xScale = SMUFL_SCALE * widthRatio;
+  return BRACE_GLYPH_XMAX_FU * xScale;
+}
 
 /**
  * Create an SVG group representing a curly brace.
