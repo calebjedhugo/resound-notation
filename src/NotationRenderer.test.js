@@ -268,6 +268,31 @@ describe('NotationRenderer', () => {
       expect(denominator.querySelector('path')).not.toBeNull();
     });
 
+    // Standard engraving (Gould): beamed-note stems pass *through* the
+    // beam, terminating at its outer edge — not at the inner edge where
+    // the beam first contacts the stem. Pin: render two same-pitch 8ths,
+    // compare stem y2 (absolute) against the beam path's outer Y vertex.
+    it('extends beamed stems through the beam to its far edge', () => {
+      ctx.render({
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C5', length: '1/8' },
+          { pitch: 'C5', length: '1/8' },
+        ],
+      });
+      const note = ctx.container.querySelector('.note');
+      const stem = note.querySelector('.note-stem');
+      const beam = ctx.container.querySelector('.beam');
+      const noteY = parseFloat(note.getAttribute('transform').match(/translate\([-\d.]+,\s*([-\d.]+)\)/)[1]);
+      const stemY2Abs = noteY + parseFloat(stem.getAttribute('y2'));
+      const beamYs = beam.getAttribute('d').match(/-?[\d.]+/g).map(Number)
+        .filter((_, i) => i % 2 === 1);
+      // C5 in treble is above middle line → stem-down → beam below stems
+      // → far edge = max Y of beam path.
+      const beamFarY = Math.max(...beamYs);
+      expect(stemY2Abs).toBeCloseTo(beamFarY, 0);
+    });
+
     // Standard engraving (Gould, Bravura): beams are ~0.5 staff space
     // thick — half the height of a notehead, so they read as a strong
     // horizontal/diagonal mark. With LINE_SPACING=20px that's ~10px;

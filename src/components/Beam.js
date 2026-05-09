@@ -15,8 +15,20 @@ const STEM_LENGTH = 70;
 // Standard engraving (Gould, Bravura defaults): beam thickness ~0.5 staff
 // space; gap between adjacent beam levels ~0.25 staff space. With
 // LINE_SPACING=20px that's 10px and 5px respectively.
-const BEAM_THICKNESS = 10;
-const BEAM_GAP = 5;
+export const BEAM_THICKNESS = 10;
+export const BEAM_GAP = 5;
+
+/**
+ * Extra stem length needed for a beamed note so the stem passes through
+ * all beam levels and terminates at the outer edge of the outermost
+ * beam (standard Gould/Bravura engraving). For N beam levels, the
+ * outermost beam's far edge sits N*BT + (N-1)*BG past the stem's
+ * unbeamed tip.
+ */
+export function beamStemExtension(numBeams) {
+  if (numBeams <= 0) return 0;
+  return numBeams * BEAM_THICKNESS + (numBeams - 1) * BEAM_GAP;
+}
 
 /**
  * Compute the stem end Y for a note. Beam connects at the far end of the

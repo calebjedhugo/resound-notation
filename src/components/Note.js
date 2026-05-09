@@ -13,6 +13,7 @@ import {
   NOTEHEAD_HALF_GLYPH,
   NOTEHEAD_WHOLE_GLYPH,
 } from '../assets/glyphs.js';
+import { beamStemExtension } from './Beam.js';
 
 const MIDDLE_LINE_Y = 50;
 const STEM_LENGTH = 70;
@@ -51,9 +52,14 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
   if (info.hasStem) {
     const tip = smuflTip(glyph);
     const stemDown = stemDownOverride !== undefined ? stemDownOverride : y <= MIDDLE_LINE_Y;
+    // Beamed stems extend past the standard tip so they terminate at the
+    // outer edge of the outermost beam.
+    const beamExt = beamed ? beamStemExtension(info.flags) : 0;
     const stemX = stemDown ? -tip.x : tip.x;
     const stemY1 = stemDown ? -tip.y : tip.y;
-    const stemY2 = stemDown ? -tip.y + STEM_LENGTH : tip.y - STEM_LENGTH;
+    const stemY2 = stemDown
+      ? -tip.y + STEM_LENGTH + beamExt
+      : tip.y - STEM_LENGTH - beamExt;
 
     group.appendChild(
       createLine(stemX, stemY1, stemX, stemY2, { class: 'note-stem', stroke: 'currentColor' })
