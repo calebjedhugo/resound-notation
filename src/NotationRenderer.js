@@ -27,7 +27,7 @@ import { createBarLine } from './components/BarLine.js';
 import { createTimeSignature } from './components/TimeSignature.js';
 import { getKeySignature } from './lib/keySignatures.js';
 import { computeBeamGroups } from './lib/beaming.js';
-import { createBeams } from './components/Beam.js';
+import { createBeams, computeBeamLine, beamLineYAt } from './components/Beam.js';
 import { resolveTies } from './lib/tieResolver.js';
 import { createTieArc } from './components/Tie.js';
 import { renderDynamic } from './components/Dynamic.js';
@@ -1044,6 +1044,7 @@ export class NotationRenderer {
               x: cursorX,
               y: noteY,
               beams: info.beams,
+              noteGroup,
             });
           }
 
@@ -1066,9 +1067,26 @@ export class NotationRenderer {
 
         // Close beam group
         if (beamInfo && beamInfo.isLast && activeBeamGroupEl) {
+          const beamStemDownClose = beamGroupStemDown[activeBeamGroupIdx];
+          // Compute slope-capped beam line and update each note's stem
+          // y2 to land on it. Uses the same line createBeams will draw.
+          if (activeBeamNoteData.length >= 2) {
+            const line = computeBeamLine(activeBeamNoteData, beamStemDownClose);
+            for (const noteData of activeBeamNoteData) {
+              if (!noteData.noteGroup) continue;
+              const stem = noteData.noteGroup.querySelector('.note-stem');
+              if (!stem) continue;
+              const stemAbsX = beamStemDownClose
+                ? noteData.x - HEAD_TIP_X
+                : noteData.x + HEAD_TIP_X;
+              const targetAbsY = beamLineYAt(line, stemAbsX);
+              // Note group has translate(x, noteY), so local y2 = absY - noteY.
+              stem.setAttribute('y2', targetAbsY - noteData.y);
+            }
+          }
           const beamPaths = createBeams({
             notes: activeBeamNoteData,
-            stemDown: beamGroupStemDown[activeBeamGroupIdx],
+            stemDown: beamStemDownClose,
           });
           activeBeamGroupEl.appendChild(beamPaths);
           staffGroup.appendChild(activeBeamGroupEl);

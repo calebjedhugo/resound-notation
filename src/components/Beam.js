@@ -30,6 +30,12 @@ export function beamStemExtension(numBeams) {
   return (numBeams - 1) * (BEAM_THICKNESS + BEAM_GAP);
 }
 
+// Maximum beam-line rise (px) across an entire beam group. Standard
+// engraving (Gould "Behind Bars") caps slope at ~1 staff space — steep
+// note-contour groups should still produce a near-flat beam, with stems
+// lengthening on whichever side the contour falls short of the line.
+const MAX_BEAM_RISE = 20;
+
 /**
  * Compute the stem end Y for a note. Beam connects at the far end of the
  * stem; stems start at the head's tip (noteY ± HEAD_TIP_Y) and extend
@@ -37,6 +43,63 @@ export function beamStemExtension(numBeams) {
  */
 function stemEndY(noteY, stemDown) {
   return stemDown ? noteY - HEAD_TIP_Y + STEM_LENGTH : noteY + HEAD_TIP_Y - STEM_LENGTH;
+}
+
+/**
+ * Slope-capped beam line endpoints for a group of beamed notes. Each
+ * note's stemEndY (computed from STEM_LENGTH) is used as the *minimum*
+ * extension; the beam line is shifted outward (away from heads) if any
+ * note's natural stem would fall short of the capped line. Caller can
+ * interpolate this line at each note's x to set stem y2.
+ *
+ * @returns {{x1:number, y1:number, x2:number, y2:number}}
+ */
+export function computeBeamLine(notes, stemDown) {
+  const first = notes[0];
+  const last = notes[notes.length - 1];
+  const x1 = stemX(first.x, stemDown);
+  const x2 = stemX(last.x, stemDown);
+  let y1 = stemEndY(first.y, stemDown);
+  let y2 = stemEndY(last.y, stemDown);
+
+  // Cap slope at MAX_BEAM_RISE.
+  const rise = y2 - y1;
+  if (Math.abs(rise) > MAX_BEAM_RISE) {
+    const sign = Math.sign(rise);
+    const avg = (y1 + y2) / 2;
+    y1 = avg - (sign * MAX_BEAM_RISE) / 2;
+    y2 = avg + (sign * MAX_BEAM_RISE) / 2;
+  }
+
+  // Ensure no note's stem ends up too short. For stem-up (dir=-1), the
+  // beam y must be ≤ each note's natural stemEndY; for stem-down (dir=+1),
+  // ≥. If any note violates, shift the whole line outward (away from head).
+  for (const note of notes) {
+    const t = x2 === x1 ? 0 : (stemX(note.x, stemDown) - x1) / (x2 - x1);
+    const targetY = y1 + t * (y2 - y1);
+    const minY = stemEndY(note.y, stemDown);
+    if (stemDown && targetY < minY) {
+      const shift = minY - targetY;
+      y1 += shift;
+      y2 += shift;
+    } else if (!stemDown && targetY > minY) {
+      const shift = targetY - minY;
+      y1 -= shift;
+      y2 -= shift;
+    }
+  }
+
+  return { x1, y1, x2, y2 };
+}
+
+/**
+ * Interpolate the slope-capped beam line at a stem x.
+ */
+export function beamLineYAt(line, x) {
+  const { x1, y1, x2, y2 } = line;
+  if (x2 === x1) return y1;
+  const t = (x - x1) / (x2 - x1);
+  return y1 + t * (y2 - y1);
 }
 
 /**
@@ -83,12 +146,9 @@ export function createBeams({ notes, stemDown }) {
 
   if (notes.length < 2) return group;
 
-  const firstNote = notes[0];
-  const lastNote = notes[notes.length - 1];
-  const x1 = stemX(firstNote.x, stemDown);
-  const y1 = stemEndY(firstNote.y, stemDown);
-  const x2 = stemX(lastNote.x, stemDown);
-  const y2 = stemEndY(lastNote.y, stemDown);
+  // Slope-capped beam line shared by all beam levels.
+  const line = computeBeamLine(notes, stemDown);
+  const { x1, y1, x2, y2 } = line;
 
   // Determine how many full beam levels span all notes
   const minBeams = Math.min(...notes.map((n) => n.beams));
@@ -103,22 +163,20 @@ export function createBeams({ notes, stemDown }) {
     );
   }
 
-  // Draw partial beams for higher levels
+  // Draw partial beams for higher levels — sub-segments still ride on
+  // the same slope-capped beam line (interpolated at the run's stem-Xs).
   for (let level = minBeams; level < Math.max(...notes.map((n) => n.beams)); level++) {
-    // Find consecutive runs of notes with beams > level
     let runStart = -1;
     for (let i = 0; i <= notes.length; i++) {
       const hasBeam = i < notes.length && notes[i].beams > level;
       if (hasBeam && runStart < 0) {
         runStart = i;
       } else if (!hasBeam && runStart >= 0) {
-        // End of run
         if (i - runStart >= 2) {
-          // Partial beam spanning the run
           const sx1 = stemX(notes[runStart].x, stemDown);
-          const sy1 = stemEndY(notes[runStart].y, stemDown);
           const sx2 = stemX(notes[i - 1].x, stemDown);
-          const sy2 = stemEndY(notes[i - 1].y, stemDown);
+          const sy1 = beamLineYAt(line, sx1);
+          const sy2 = beamLineYAt(line, sx2);
           group.appendChild(
             createPath(beamPath(sx1, sy1, sx2, sy2, level, stemDown), {
               class: 'beam',
@@ -126,14 +184,14 @@ export function createBeams({ notes, stemDown }) {
             })
           );
         } else {
-          // Single note with extra beam — draw a stub
+          // Single-note stub.
           const noteIdx = runStart;
           const nx = stemX(notes[noteIdx].x, stemDown);
-          const ny = stemEndY(notes[noteIdx].y, stemDown);
-          // Stub extends toward the nearest neighbor
+          const ny = beamLineYAt(line, nx);
           const neighborIdx = noteIdx > 0 ? noteIdx - 1 : noteIdx + 1;
-          const stubX = nx + (stemX(notes[neighborIdx].x, stemDown) - nx) * 0.4;
-          const stubY = ny + (stemEndY(notes[neighborIdx].y, stemDown) - ny) * 0.4;
+          const neighborX = stemX(notes[neighborIdx].x, stemDown);
+          const stubX = nx + (neighborX - nx) * 0.4;
+          const stubY = beamLineYAt(line, stubX);
           group.appendChild(
             createPath(beamPath(nx, ny, stubX, stubY, level, stemDown), {
               class: 'beam',
