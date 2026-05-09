@@ -9,8 +9,8 @@ import { createAccidental } from './Accidental.js';
 
 const GRACE_SCALE = 0.6;
 const GRACE_SPACING = 15;
-const HEAD_RX = 6;
-const HEAD_RY = 5;
+const HEAD_RX = 12;
+const HEAD_RY = 10;
 const STEM_LENGTH = 60;
 const MIDDLE_LINE_Y = 50;
 const ACCIDENTAL_OFFSET = 14;

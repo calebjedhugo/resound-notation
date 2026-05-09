@@ -8,8 +8,8 @@ import { pitchToStaffY } from '../lib/notePositions.js';
 import { getDurationInfo } from '../lib/durationSymbols.js';
 
 const MIDDLE_LINE_Y = 50;
-const HEAD_RX = 6;
-const HEAD_RY = 5;
+const HEAD_RX = 12;
+const HEAD_RY = 10;
 const STEM_LENGTH = 70;
 
 /**

@@ -133,6 +133,24 @@ describe('NotationRenderer', () => {
       const y2 = parseFloat(stem.getAttribute('y2'));
       expect(Math.abs(y2 - y1)).toBe(70);
     });
+
+    // Standard engraving: notehead height equals one staff space, with width
+    // slightly larger (~1.2 spaces) for the characteristic oval. Staff line
+    // spacing is 20px, so ry should be 10 (head fills a space line-to-line)
+    // and rx around 12. The previous values (rx=6, ry=5) made notes read as
+    // dots/pellets instead of noteheads — visually obvious in the dev
+    // playground at the post-stem-fix iteration.
+    it('renders noteheads sized to fill one staff space', () => {
+      ctx.render([{ pitch: 'E4', length: '1/4' }]);
+      const head = ctx.container.querySelector('.note-head');
+      const rx = parseFloat(head.getAttribute('rx'));
+      const ry = parseFloat(head.getAttribute('ry'));
+      // ry == half the staff-line spacing (LINE_SPACING/2 = 10)
+      expect(ry).toBe(10);
+      // rx slightly wider than ry for oval shape
+      expect(rx).toBeGreaterThan(ry);
+      expect(rx).toBeLessThanOrEqual(13);
+    });
   });
 
   describe('staff lines', () => {
