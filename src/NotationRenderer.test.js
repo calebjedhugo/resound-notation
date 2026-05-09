@@ -151,6 +151,23 @@ describe('NotationRenderer', () => {
       expect(rx).toBeGreaterThan(ry);
       expect(rx).toBeLessThanOrEqual(13);
     });
+
+    // Standard engraving (SMuFL / Bravura / Lilypond) tilts the notehead
+    // ~20° counter-clockwise around its center: the long axis runs from
+    // upper-left to lower-right, with the top leaning slightly to the left.
+    // A horizontal ellipse reads as a "pellet" rather than a notehead;
+    // the tilt is what gives it the characteristic engraved look.
+    it('tilts the notehead ~20° counter-clockwise', () => {
+      ctx.render([{ pitch: 'E4', length: '1/4' }]);
+      const head = ctx.container.querySelector('.note-head');
+      const transform = head.getAttribute('transform') || '';
+      const match = transform.match(/rotate\((-?\d+(?:\.\d+)?)\)/);
+      expect(match).not.toBeNull();
+      const angle = parseFloat(match[1]);
+      // CCW in SVG is negative; want top leaning left. Allow 15-25°.
+      expect(angle).toBeGreaterThanOrEqual(-25);
+      expect(angle).toBeLessThanOrEqual(-15);
+    });
   });
 
   describe('staff lines', () => {

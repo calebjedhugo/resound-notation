@@ -331,6 +331,7 @@ export class NotationRenderer {
                       class: 'note-head',
                       fill,
                       stroke: 'currentColor',
+                      transform: `rotate(-20, 0, ${noteY})`,
                     })
                   );
                   tupletYPositions.push(noteY);
@@ -617,6 +618,7 @@ export class NotationRenderer {
                   class: 'note-head',
                   fill,
                   stroke: 'currentColor',
+                  transform: `rotate(-20, 0, ${noteY})`,
                 })
               );
             }

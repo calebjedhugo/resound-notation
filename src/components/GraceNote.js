@@ -64,6 +64,7 @@ export function renderGraceNotes({ grace, mainX, mainY, clef }) {
         class: 'note-head',
         fill: 'currentColor',
         stroke: 'currentColor',
+        transform: 'rotate(-20)',
       })
     );
 

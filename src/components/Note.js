@@ -37,6 +37,7 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
     class: 'note-head',
     fill,
     stroke: 'currentColor',
+    transform: 'rotate(-20)',
   });
   group.appendChild(head);
 
