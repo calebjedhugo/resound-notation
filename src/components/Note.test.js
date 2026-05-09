@@ -31,35 +31,39 @@ describe('Note', () => {
   });
 
   describe('note head', () => {
-    it('renders a filled ellipse for quarter notes', () => {
+    it('renders a Bravura path glyph for quarter notes', () => {
       const g = createNote({ pitch: 'C4', length: '1/4', x: 0, clef: 'treble' });
       const head = g.querySelector('.note-head');
       expect(head).not.toBeNull();
-      expect(head.tagName).toBe('ellipse');
-      expect(head.getAttribute('fill')).not.toBe('none');
+      const path = head.querySelector('path');
+      expect(path).not.toBeNull();
+      // Bravura noteheadBlack signature vertex.
+      expect(path.getAttribute('d')).toContain('295');
     });
 
-    it('renders a hollow head for half notes', () => {
+    it('renders a hollow head for half notes (evenodd cutout)', () => {
       const g = createNote({ pitch: 'C4', length: '1/2', x: 0, clef: 'treble' });
       const head = g.querySelector('.note-head');
-      // The half-note head is hollow either via fill="none" on an ellipse
-      // or via a path with fill-rule="evenodd" (Blanche.svg glyph).
-      const path = head.querySelector ? head.querySelector('path') : null;
-      const isPathWithEvenOdd = path && path.getAttribute('fill-rule') === 'evenodd';
-      const isOpenEllipse = head.tagName === 'ellipse' && head.getAttribute('fill') === 'none';
-      expect(isPathWithEvenOdd || isOpenEllipse).toBe(true);
+      const path = head.querySelector('path');
+      expect(path).not.toBeNull();
+      expect(path.getAttribute('fill-rule')).toBe('evenodd');
     });
 
-    it('renders an open ellipse for whole notes', () => {
+    it('renders a hollow head for whole notes (evenodd cutout)', () => {
       const g = createNote({ pitch: 'C4', length: '1/1', x: 0, clef: 'treble' });
       const head = g.querySelector('.note-head');
-      expect(head.getAttribute('fill')).toBe('none');
+      const path = head.querySelector('path');
+      expect(path).not.toBeNull();
+      expect(path.getAttribute('fill-rule')).toBe('evenodd');
     });
 
-    it('renders a filled ellipse for eighth notes', () => {
+    it('renders a filled black-notehead glyph for eighth notes', () => {
       const g = createNote({ pitch: 'C4', length: '1/8', x: 0, clef: 'treble' });
       const head = g.querySelector('.note-head');
-      expect(head.getAttribute('fill')).not.toBe('none');
+      const path = head.querySelector('path');
+      expect(path).not.toBeNull();
+      // Bravura black notehead has no fill-rule (solid fill).
+      expect(path.getAttribute('fill-rule')).toBeNull();
     });
   });
 

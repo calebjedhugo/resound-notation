@@ -134,48 +134,25 @@ describe('NotationRenderer', () => {
       expect(Math.abs(y2 - y1)).toBe(70);
     });
 
-    // Standard engraving: notehead height equals one staff space, with width
-    // ~1.5× height for the characteristic elongated oval (Wikipedia /
-    // Bravura BlackNotehead has rx/ry = 4.35/2.9 ≈ 1.5). Staff line spacing
-    // is 20px, so ry == 10 (head fills a space line-to-line) and rx == 15.
-    // The previous values (rx=6, ry=5) made notes read as dots; the
-    // post-fix 12/10 still read as too-round.
-    it('renders noteheads sized to fill one staff space', () => {
+    // SMuFL Bravura noteheads are path glyphs, not stroked ellipses. The
+    // path is pre-tilted in the font (no rotate transform needed). Black
+    // notehead bbox is 295 × 250 font units → 23.6 × 20 px at scale 0.08
+    // (LINE_SPACING/250). Inner <path> contains the Bravura signature
+    // vertex 'C295' on its rightmost outline.
+    it('renders noteheads as Bravura path glyphs', () => {
       ctx.render([{ pitch: 'E4', length: '1/4' }]);
       const head = ctx.container.querySelector('.note-head');
-      const rx = parseFloat(head.getAttribute('rx'));
-      const ry = parseFloat(head.getAttribute('ry'));
-      // ry == half the staff-line spacing (LINE_SPACING/2 = 10)
-      expect(ry).toBe(10);
-      // rx ≈ 1.5 × ry per Wikipedia/Bravura proportions
-      expect(rx / ry).toBeGreaterThanOrEqual(1.4);
-      expect(rx / ry).toBeLessThanOrEqual(1.6);
-    });
-
-    // Standard engraving (Wikipedia BlackNotehead.svg, Bravura) tilts the
-    // notehead ~33° counter-clockwise around its center: long axis from
-    // upper-left to lower-right, top leaning slightly to the left. A
-    // horizontal ellipse reads as a "pellet"; the tilt is what gives it the
-    // characteristic engraved look. Allow 25-40° to permit minor variation.
-    it('tilts the notehead ~33° counter-clockwise', () => {
-      ctx.render([{ pitch: 'E4', length: '1/4' }]);
-      const head = ctx.container.querySelector('.note-head');
-      const transform = head.getAttribute('transform') || '';
-      const match = transform.match(/rotate\((-?\d+(?:\.\d+)?)/);
-      expect(match).not.toBeNull();
-      const angle = parseFloat(match[1]);
-      // CCW in SVG is negative; want top leaning left.
-      expect(angle).toBeGreaterThanOrEqual(-40);
-      expect(angle).toBeLessThanOrEqual(-25);
+      expect(head.tagName.toLowerCase()).not.toBe('ellipse');
+      const path = head.querySelector('path');
+      expect(path).not.toBeNull();
+      // Stable Bravura noteheadBlack signature: max-x vertex at (295, 42).
+      expect(path.getAttribute('d')).toContain('295');
     });
 
     // Standard engraving (Gould "Behind Bars"): adjacent quarter notes need
-    // at least one full notehead-width of clearance between heads, otherwise
-    // they read as a smear. Heads are 24px wide (HEAD_RX*2); the advance
-    // between two quarter-note centers must be at least 2× head-width so the
-    // gap is at least one head-width. Pin via end-to-end render: render two
-    // quarters back-to-back and measure the difference between their group
-    // transforms.
+    // at least one full notehead-width of clearance between heads. SMuFL
+    // Bravura noteheadBlack is 23.6 px wide (295 fu × 0.08). Pin advance
+    // ≥ 2× head-width.
     it('spaces adjacent quarter notes at least 2 notehead-widths apart', () => {
       ctx.render([
         { pitch: 'E4', length: '1/4' },
@@ -184,56 +161,34 @@ describe('NotationRenderer', () => {
       const notes = ctx.getNotes();
       const xOf = (n) => parseFloat(n.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]);
       const advance = xOf(notes[1]) - xOf(notes[0]);
-      const head = ctx.container.querySelector('.note-head');
-      const headWidth = parseFloat(head.getAttribute('rx')) * 2;
+      const headWidth = 23.6; // Bravura noteheadBlack
       expect(advance).toBeGreaterThanOrEqual(headWidth * 2);
     });
 
-    // Accidentals must render as SVG paths (from the public-domain glyph
-    // assets), not Unicode <text>. Text renders inconsistently across
-    // browsers/fonts and ignores the ~2-staff-space height engraving
-    // convention; path-based glyphs are scalable and uniform.
-    // Standard engraving attaches the stem at the head's long-axis tip
-    // (top-right corner for stem-up). For a tilted ellipse with semi-axes
-    // (rx, ry) and rotation angle t, the right tip lies at
-    // (rx·cos t, rx·sin t) — above center for negative t. Anchoring at
-    // (±STEM_X, 0) instead makes the stem clip through the head's lower
-    // half and exit somewhere along the bottom curve, which reads as a
-    // gap on hollow heads.
-    it('attaches the quarter-note stem at the head long-axis tip', () => {
+    // SMuFL Bravura noteheadBlack stem-up tip: the path's max-x vertex sits
+    // at font-units (295, 42). After centering on cx=147.5 and SMUFL_SCALE
+    // 0.08 with Y-flip, the local-coord tip is (11.8, -3.36). Stem attaches
+    // at this exact engraved-corner anchor.
+    it('attaches the quarter-note stem at the SMuFL black notehead tip', () => {
       ctx.render([{ pitch: 'E4', length: '1/4' }]);
-      const head = ctx.container.querySelector('.note-head');
       const stem = ctx.container.querySelector('.note-stem');
-      const rx = parseFloat(head.getAttribute('rx'));
-      const transform = head.getAttribute('transform') || '';
-      const tiltDeg = parseFloat(transform.match(/rotate\((-?\d+(?:\.\d+)?)/)[1]);
-      const t = (tiltDeg * Math.PI) / 180;
-      const expectedTipX = rx * Math.cos(t);
-      const expectedTipY = rx * Math.sin(t);
-      const stemX = parseFloat(stem.getAttribute('x1'));
-      const stemY = parseFloat(stem.getAttribute('y1'));
-      // E4 is below middle line → stem-up → right tip
-      expect(Math.abs(stemX - Math.abs(expectedTipX))).toBeLessThanOrEqual(0.5);
-      expect(Math.abs(stemY - expectedTipY)).toBeLessThanOrEqual(0.5);
+      const x = parseFloat(stem.getAttribute('x1'));
+      const y = parseFloat(stem.getAttribute('y1'));
+      // E4 is below middle line → stem-up → upper-right tip.
+      expect(x).toBeCloseTo(11.8, 1);
+      expect(y).toBeCloseTo(-3.36, 1);
     });
 
-    // The Blanche.svg half-note glyph attaches the stem at its long-axis
-    // tip — top-right corner of the path's outline. Path coords (347, 65)
-    // map after the inner matrix to viewBox (1.388, 0.288), then center +
-    // scale to local (12.62, -4.76). Pin (x1, y1) of the half stem against
-    // those coordinates so a regression in the asset metadata or the tip
-    // helper surfaces immediately.
-    it('attaches the half-note stem at the asset glyph long-axis tip', () => {
+    // SMuFL Bravura noteheadHalf has the same outer max-x vertex as Black
+    // (font units 295, 42 → local 11.8, -3.36). Pin half stem at the same
+    // engraved anchor.
+    it('attaches the half-note stem at the SMuFL half notehead tip', () => {
       ctx.render([{ pitch: 'E4', length: '1/2' }]);
       const stem = ctx.container.querySelector('.note-stem');
       const x = parseFloat(stem.getAttribute('x1'));
       const y = parseFloat(stem.getAttribute('y1'));
-      // Stem-up (E4 below middle line). Tip at ~(11.62, -4.76) per asset
-      // (pulled 1px toward center from path max-x to land on the visible curve).
-      expect(x).toBeGreaterThanOrEqual(11);
-      expect(x).toBeLessThanOrEqual(12.5);
-      expect(y).toBeGreaterThanOrEqual(-6);
-      expect(y).toBeLessThanOrEqual(-3.5);
+      expect(x).toBeCloseTo(11.8, 1);
+      expect(y).toBeCloseTo(-3.36, 1);
     });
 
     // Half-note heads in standard engraving have a distinct hollow shape:
@@ -289,9 +244,10 @@ describe('NotationRenderer', () => {
       const head = note.querySelector('.note-head');
       const clefTx = parseFloat(clef.getAttribute('transform').match(/translate\((\d+)/)[1]);
       const noteTx = parseFloat(note.getAttribute('transform').match(/translate\((\d+)/)[1]);
-      const headRx = parseFloat(head.getAttribute('rx'));
+      // Bravura noteheadBlack half-width: 295 fu / 2 × 0.08 = 11.8 px.
+      const headHalfWidth = 11.8;
       const CLEF_GLYPH_MAX_X = 39;
-      const gap = (noteTx - headRx) - (clefTx + CLEF_GLYPH_MAX_X);
+      const gap = (noteTx - headHalfWidth) - (clefTx + CLEF_GLYPH_MAX_X);
       expect(gap).toBeGreaterThanOrEqual(20);
     });
   });

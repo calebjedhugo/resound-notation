@@ -3,18 +3,22 @@
  * Creates SVG elements for grace notes (acciaccatura and appoggiatura).
  */
 
-import { createGroup, createEllipse, createLine, createPath } from '../lib/svgHelpers.js';
+import { createGroup, createLine, createPath } from '../lib/svgHelpers.js';
 import { pitchToStaffY, parsePitch } from '../lib/notePositions.js';
 import { createAccidental } from './Accidental.js';
+import { createSmuflGlyph, smuflTip, NOTEHEAD_BLACK_GLYPH } from '../assets/glyphs.js';
 
 const GRACE_SCALE = 0.6;
 const GRACE_SPACING = 15;
-const HEAD_RX = 15;
-const HEAD_RY = 10;
-const HEAD_TILT_DEG = -33.33;
-// Stems attach at the rotated head's long-axis tip; see Note.js.
-const HEAD_TIP_X = HEAD_RX * Math.cos((HEAD_TILT_DEG * Math.PI) / 180);
-const HEAD_TIP_Y = HEAD_RX * Math.sin((HEAD_TILT_DEG * Math.PI) / 180);
+// Grace notes use SMuFL black notehead at GRACE_SCALE. Stem attach point
+// follows the engraved tip vertex (the GRACE_SCALE outer transform on the
+// graceGroup scales the same tip values to grace size).
+const BLACK_TIP = smuflTip(NOTEHEAD_BLACK_GLYPH);
+const HEAD_TIP_X = BLACK_TIP.x;
+const HEAD_TIP_Y = BLACK_TIP.y;
+// Black notehead bbox is 295 × 250 fu → 23.6 × 20 px at SMUFL_SCALE.
+const HEAD_HALF_WIDTH = 11.8;
+const HEAD_HALF_HEIGHT = 10;
 const STEM_LENGTH = 60;
 const MIDDLE_LINE_Y = 50;
 const ACCIDENTAL_OFFSET = 14;
@@ -62,15 +66,9 @@ export function renderGraceNotes({ grace, mainX, mainY, clef }) {
       transform: `translate(${noteX}, ${noteY}) scale(${GRACE_SCALE})`,
     });
 
-    // Note head (always filled)
-    graceGroup.appendChild(
-      createEllipse(0, 0, HEAD_RX, HEAD_RY, {
-        class: 'note-head',
-        fill: 'currentColor',
-        stroke: 'currentColor',
-        transform: 'rotate(-33.33)',
-      })
-    );
+    // Note head — SMuFL Bravura black notehead, scaled by GRACE_SCALE on
+    // the parent group.
+    graceGroup.appendChild(createSmuflGlyph(NOTEHEAD_BLACK_GLYPH, 'note-head'));
 
     // Stem — anchored at the head's long-axis tip.
     const stemDown = noteY <= MIDDLE_LINE_Y;
@@ -113,9 +111,9 @@ export function renderGraceNotes({ grace, mainX, mainY, clef }) {
   // Slur from last grace note to main note
   const lastGrace = graceNoteData[graceNoteData.length - 1];
   const dir = lastGrace.y <= MIDDLE_LINE_Y ? -1 : 1;
-  const slurStartX = lastGrace.x + HEAD_RX * GRACE_SCALE;
-  const slurStartY = lastGrace.y + HEAD_RY * dir;
-  const slurEndY = mainY + HEAD_RY * dir;
+  const slurStartX = lastGrace.x + HEAD_HALF_WIDTH * GRACE_SCALE;
+  const slurStartY = lastGrace.y + HEAD_HALF_HEIGHT * dir;
+  const slurEndY = mainY + HEAD_HALF_HEIGHT * dir;
   const cpY = Math.min(slurStartY, slurEndY) + dir * -8;
   const cpX = (slurStartX + mainX) / 2;
 

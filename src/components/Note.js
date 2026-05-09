@@ -3,23 +3,25 @@
  * Creates SVG group for a single note with head, stem, and flags.
  */
 
-import { createGroup, createEllipse, createLine, createPath } from '../lib/svgHelpers.js';
+import { createGroup, createLine, createPath } from '../lib/svgHelpers.js';
 import { pitchToStaffY } from '../lib/notePositions.js';
 import { getDurationInfo } from '../lib/durationSymbols.js';
-import { createGlyph, glyphTip, HALF_NOTEHEAD_GLYPH } from '../assets/glyphs.js';
+import {
+  createSmuflGlyph,
+  smuflTip,
+  NOTEHEAD_BLACK_GLYPH,
+  NOTEHEAD_HALF_GLYPH,
+  NOTEHEAD_WHOLE_GLYPH,
+} from '../assets/glyphs.js';
 
 const MIDDLE_LINE_Y = 50;
-const HEAD_RX = 15;
-const HEAD_RY = 10;
-const HEAD_TILT_DEG = -33.33;
-// Stems attach at the rotated head's long-axis tip (top-right corner for
-// stem-up, bottom-left for stem-down). For an unrotated ellipse the right
-// tip is at (rx, 0); after rotating by HEAD_TILT_DEG it lands at
-// (rx·cos t, rx·sin t). With the heavy -33° tilt the tip is well above
-// center, so anchoring stems at y=0 makes them clip through the head.
-const HEAD_TIP_X = HEAD_RX * Math.cos((HEAD_TILT_DEG * Math.PI) / 180);
-const HEAD_TIP_Y = HEAD_RX * Math.sin((HEAD_TILT_DEG * Math.PI) / 180);
 const STEM_LENGTH = 70;
+
+function glyphForDuration(info) {
+  if (info.name === 'whole') return NOTEHEAD_WHOLE_GLYPH;
+  if (info.name === 'half') return NOTEHEAD_HALF_GLYPH;
+  return NOTEHEAD_BLACK_GLYPH;
+}
 
 /**
  * Create an SVG group representing a single note.
@@ -40,35 +42,18 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
     transform: `translate(${x}, ${y})`,
   });
 
-  // Note head — half notes use the public-domain Blanche.svg glyph (proper
-  // hollow shape with even-odd cutout). Other durations remain a tilted
-  // ellipse. Each shape declares its own long-axis tip so the stem connects
-  // at the proper engraved corner (top-right for stem-up).
-  let head;
-  let tipX = HEAD_TIP_X;
-  let tipY = HEAD_TIP_Y;
-  if (info.name === 'half') {
-    head = createGlyph(HALF_NOTEHEAD_GLYPH, HEAD_RY * 2, 'note-head');
-    const tip = glyphTip(HALF_NOTEHEAD_GLYPH, HEAD_RY * 2);
-    tipX = tip.x;
-    tipY = tip.y;
-  } else {
-    const fill = info.filledHead ? 'currentColor' : 'none';
-    head = createEllipse(0, 0, HEAD_RX, HEAD_RY, {
-      class: 'note-head',
-      fill,
-      stroke: 'currentColor',
-      transform: `rotate(${HEAD_TILT_DEG})`,
-    });
-  }
-  group.appendChild(head);
+  // SMuFL Bravura notehead path glyph (whole / half / black). Each glyph
+  // declares its own stem-up tip vertex so stems attach at the engraved
+  // long-axis corner per standard notation convention.
+  const glyph = glyphForDuration(info);
+  group.appendChild(createSmuflGlyph(glyph, 'note-head'));
 
-  // Stem — attaches at the long-axis tip; opposite tip for stem-down.
   if (info.hasStem) {
+    const tip = smuflTip(glyph);
     const stemDown = stemDownOverride !== undefined ? stemDownOverride : y <= MIDDLE_LINE_Y;
-    const stemX = stemDown ? -tipX : tipX;
-    const stemY1 = stemDown ? -tipY : tipY;
-    const stemY2 = stemDown ? -tipY + STEM_LENGTH : tipY - STEM_LENGTH;
+    const stemX = stemDown ? -tip.x : tip.x;
+    const stemY1 = stemDown ? -tip.y : tip.y;
+    const stemY2 = stemDown ? -tip.y + STEM_LENGTH : tip.y - STEM_LENGTH;
 
     group.appendChild(
       createLine(stemX, stemY1, stemX, stemY2, { class: 'note-stem', stroke: 'currentColor' })

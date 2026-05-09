@@ -1,21 +1,48 @@
 /**
- * Public-domain glyph data lifted from Wikimedia Commons SVGs.
- * Each entry stores: path d-string, the asset's inline matrix transform
- * (path-coords → asset-viewBox-coords), and the glyph's effective viewBox
- * extent. Consumers scale to a target pixel height in the staff coordinate
- * system (LINE_SPACING = 20px per staff space).
+ * Glyph data sourced from two libraries:
+ *   - Bravura (SIL OFL) — SMuFL reference font; used for noteheads.
+ *     Path data lifted directly from ~/Desktop/smufl-glyphs/bravura/*.svg.
+ *   - Wikimedia Commons (public domain) — used for accidentals and clefs
+ *     pending Bravura migration of those glyphs.
  *
- * Sources (all public domain):
- *   sharp   — Wikimedia Commons Dièse.svg
- *   flat    — Wikimedia Commons Bémol.svg
- *   natural — Wikimedia Commons Bécarre.svg
- *   notehead — Wikimedia Commons BlackNotehead.svg (rendered inline; included
- *             for documentation; the renderer uses an equivalent ellipse).
+ * SMuFL coordinate system: paths are in font units (upem=1000); 1 staff
+ * space = upem/4 = 250 units; y=0 is the staff midline. Bravura SVG assets
+ * apply `transform="scale(1,-1)"` to flip into screen coords; we replicate
+ * that flip via `scale(SMUFL_SCALE, -SMUFL_SCALE)` at render time, with
+ * SMUFL_SCALE = LINE_SPACING/250 = 20/250 = 0.08 px/font-unit.
  */
 
 import { createGroup, createPath } from '../lib/svgHelpers.js';
 
+// SMuFL → staff-coord pixel scale. LINE_SPACING (20px) / fu-per-space (250).
+export const SMUFL_SCALE = 0.08;
+
 /* eslint-disable max-len */
+
+// SMuFL Bravura noteheads. Path data verbatim from
+// ~/Desktop/smufl-glyphs/bravura/notehead{Black,Half,Whole}.svg.
+// `bbox` is the SMuFL spec bounding box in font units; `tipFu` is the
+// stem-up tip vertex (max-x outline point). Half and Black share the
+// same tip; Whole has no stem.
+export const NOTEHEAD_BLACK_GLYPH = {
+  d: 'M97 -125C186 -125 295 -43 295 42C295 93 255 125 198 125C88 125 0 44 0 -42C0 -94 43 -125 97 -125Z',
+  bbox: { xMin: 0, yMin: -125, xMax: 295, yMax: 125 },
+  tipFu: { x: 295, y: 42 },
+};
+
+export const NOTEHEAD_HALF_GLYPH = {
+  d: 'M97 -125C262 -125 295 9 295 42C295 93 254 125 196 125C47 125 0 10 0 -42C0 -95 42 -125 97 -125ZM75 -87C54 -87 42 -76 35 -64C32 -58 29 -51 29 -44C29 5 174 84 221 84C240 84 251 75 258 63C261 57 264 51 264 44C264 1 123 -87 75 -87Z',
+  bbox: { xMin: 0, yMin: -125, xMax: 295, yMax: 125 },
+  tipFu: { x: 295, y: 42 },
+  fillRule: 'evenodd',
+};
+
+export const NOTEHEAD_WHOLE_GLYPH = {
+  d: 'M216 125C83 125 0 70 0 2C0 -65 57 -125 206 -125C370 -125 422 -68 422 2C422 73 309 125 216 125ZM111 63C122 98 159 103 190 103C259 103 314 29 314 -31C314 -62 301 -90 268 -98C258 -101 247 -102 237 -102C201 -102 164 -78 143 -50C123 -27 108 7 108 39C108 47 109 55 111 63Z',
+  bbox: { xMin: 0, yMin: -125, xMax: 422, yMax: 125 },
+  fillRule: 'evenodd',
+};
+
 export const SHARP_GLYPH = {
   d: 'm 216,-312 c 0,-10 -8,-19 -18,-19 -10,0 -19,9 -19,19 v 145 l -83,-31 v -158 c 0,-10 -9,-19 -19,-19 -10,0 -18,9 -18,19 v 145 l -32,-12 c -2,-1 -5,-1 -7,-1 -11,0 -20,9 -20,20 v 60 c 0,8 5,16 13,19 l 46,16 V 51 L 27,40 C 25,39 22,39 20,39 9,39 0,48 0,59 v 60 c 0,8 5,15 13,18 l 46,17 v 158 c 0,10 8,19 18,19 10,0 19,-9 19,-19 V 167 l 83,31 v 158 c 0,10 9,19 19,19 10,0 18,-9 18,-19 V 211 l 32,12 c 2,1 5,1 7,1 11,0 20,-9 20,-20 v -60 c 0,-8 -5,-16 -13,-19 L 216,109 V -51 l 32,11 c 2,1 5,1 7,1 11,0 20,-9 20,-20 v -60 c 0,-8 -5,-15 -13,-18 l -46,-17 V -312 z M 96,65 V -95 l 83,30 V 95 z',
   innerTransform: 'matrix(0.004, 0, 0, -0.004, 0, 1.5)',
@@ -80,6 +107,45 @@ export function glyphTip(glyph, targetHeight) {
   return {
     x: (glyph.tipVbX - glyph.vbWidth / 2) * scale,
     y: (glyph.tipVbY - glyph.vbHeight / 2) * scale,
+  };
+}
+
+/**
+ * Render a SMuFL glyph at engraving scale (SMUFL_SCALE px/font-unit).
+ * Glyph path is in SMuFL font coords (y=0 = staff midline, y positive =
+ * above midline). The inner transform applies SMUFL_SCALE in x and
+ * -SMUFL_SCALE in y to scale + flip Y into SVG screen coords. Outer
+ * transform centers the glyph horizontally on local x=0; vertical anchor
+ * stays at the SMuFL origin (midline). Caller positions via translate().
+ *
+ * @param {{d:string, bbox:{xMin:number,xMax:number,yMin:number,yMax:number}, fillRule?:string}} glyph
+ * @param {string} className
+ * @returns {SVGGElement}
+ */
+export function createSmuflGlyph(glyph, className) {
+  const cx = (glyph.bbox.xMin + glyph.bbox.xMax) / 2;
+  const wrapper = createGroup(className);
+  const inner = createGroup('', {
+    transform: `translate(${-cx * SMUFL_SCALE}, 0) scale(${SMUFL_SCALE}, ${-SMUFL_SCALE})`,
+  });
+  const pathAttrs = { fill: 'currentColor' };
+  if (glyph.fillRule) pathAttrs['fill-rule'] = glyph.fillRule;
+  inner.appendChild(createPath(glyph.d, pathAttrs));
+  wrapper.appendChild(inner);
+  return wrapper;
+}
+
+/**
+ * Stem-up tip in local pixel coords for a SMuFL glyph that declares
+ * `tipFu` (path-coord max-x outline vertex). Stem-down tip is the
+ * reflection (-x, -y). Returns null if not declared.
+ */
+export function smuflTip(glyph) {
+  if (!glyph.tipFu) return null;
+  const cx = (glyph.bbox.xMin + glyph.bbox.xMax) / 2;
+  return {
+    x: (glyph.tipFu.x - cx) * SMUFL_SCALE,
+    y: -glyph.tipFu.y * SMUFL_SCALE,
   };
 }
 

@@ -3,7 +3,14 @@
  * Converts musical data to SVG staff notation.
  */
 
-import { createSvgElement, createGroup, createLine, createEllipse } from './lib/svgHelpers.js';
+import { createSvgElement, createGroup, createLine } from './lib/svgHelpers.js';
+import {
+  createSmuflGlyph,
+  smuflTip,
+  NOTEHEAD_BLACK_GLYPH,
+  NOTEHEAD_HALF_GLYPH,
+  NOTEHEAD_WHOLE_GLYPH,
+} from './assets/glyphs.js';
 import { parseNoteData } from './lib/dataParser.js';
 import { inferClef } from './lib/clefInference.js';
 import { getDurationInfo, fractionToBeats } from './lib/durationSymbols.js';
@@ -55,16 +62,22 @@ const KEY_SIG_ACCIDENTAL_WIDTH = 10;
 const TIME_SIG_WIDTH = 25;
 const BAR_LINE_PADDING = 5;
 const MIDDLE_LINE_Y = 50;
-const HEAD_RX = 15;
-const HEAD_RY = 10;
-const HEAD_TILT_DEG = -33.33;
-// Stems attach at the rotated head's long-axis tip (top-right for stem-up,
-// bottom-left for stem-down). See Note.js for the convention.
-const HEAD_TIP_X = HEAD_RX * Math.cos((HEAD_TILT_DEG * Math.PI) / 180);
-const HEAD_TIP_Y = HEAD_RX * Math.sin((HEAD_TILT_DEG * Math.PI) / 180);
+// SMuFL Bravura black notehead stem-up tip (in local pixel coords). All
+// chord rendering paths use the black-notehead tip; quarter/8th/16th heads
+// share this geometry. Half/whole chord rendering uses the same tip vertex
+// (Bravura noteheadHalf has identical max-x at fu (295,42)).
+const BLACK_TIP = smuflTip(NOTEHEAD_BLACK_GLYPH);
+const HEAD_TIP_X = BLACK_TIP.x;
+const HEAD_TIP_Y = BLACK_TIP.y;
 const STEM_LENGTH = 70;
 const DYNAMICS_Y = 110;
 const STAFF_CENTER_Y = STAFF_TOP_OFFSET + 40; // midpoint of 5-line staff
+
+function chordGlyphFor(info) {
+  if (info.name === 'whole') return NOTEHEAD_WHOLE_GLYPH;
+  if (info.name === 'half') return NOTEHEAD_HALF_GLYPH;
+  return NOTEHEAD_BLACK_GLYPH;
+}
 
 /**
  * Check if an element is a non-note marker (dynamic, hairpin, barline, etc.).
@@ -330,15 +343,9 @@ export class NotationRenderer {
                 chordGroup.setAttribute('data-beat', String(beatPosition));
 
                 for (const noteY of yPositions) {
-                  const fill = info.filledHead ? 'currentColor' : 'none';
-                  chordGroup.appendChild(
-                    createEllipse(0, noteY, HEAD_RX, HEAD_RY, {
-                      class: 'note-head',
-                      fill,
-                      stroke: 'currentColor',
-                      transform: `rotate(-33.33, 0, ${noteY})`,
-                    })
-                  );
+                  const head = createSmuflGlyph(chordGlyphFor(info), 'note-head');
+                  head.setAttribute('transform', `translate(0, ${noteY})`);
+                  chordGroup.appendChild(head);
                   tupletYPositions.push(noteY);
                 }
 
@@ -617,15 +624,9 @@ export class NotationRenderer {
 
             // Note heads
             for (const noteY of yPositions) {
-              const fill = info.filledHead ? 'currentColor' : 'none';
-              chordGroup.appendChild(
-                createEllipse(0, noteY, HEAD_RX, HEAD_RY, {
-                  class: 'note-head',
-                  fill,
-                  stroke: 'currentColor',
-                  transform: `rotate(-33.33, 0, ${noteY})`,
-                })
-              );
+              const head = createSmuflGlyph(chordGlyphFor(info), 'note-head');
+              head.setAttribute('transform', `translate(0, ${noteY})`);
+              chordGroup.appendChild(head);
             }
 
             // Single shared stem

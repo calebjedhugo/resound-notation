@@ -4,13 +4,13 @@
  */
 
 import { createGroup, createPath } from '../lib/svgHelpers.js';
+import { smuflTip, NOTEHEAD_BLACK_GLYPH } from '../assets/glyphs.js';
 
-const HEAD_RX = 15;
-const HEAD_RY = 10;
-const HEAD_TILT_DEG = -33.33;
-// Stems attach at the rotated head's long-axis tip; see Note.js.
-const HEAD_TIP_X = HEAD_RX * Math.cos((HEAD_TILT_DEG * Math.PI) / 180);
-const HEAD_TIP_Y = HEAD_RX * Math.sin((HEAD_TILT_DEG * Math.PI) / 180);
+// Beamed notes are always 8th or shorter → black notehead. Stem attaches
+// at the SMuFL black notehead's stem-up tip vertex.
+const BLACK_TIP = smuflTip(NOTEHEAD_BLACK_GLYPH);
+const HEAD_TIP_X = BLACK_TIP.x;
+const HEAD_TIP_Y = BLACK_TIP.y;
 const STEM_LENGTH = 70;
 const BEAM_THICKNESS = 4;
 const BEAM_GAP = 4;
