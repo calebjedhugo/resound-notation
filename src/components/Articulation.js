@@ -4,6 +4,24 @@
  */
 
 import { createGroup, createSvgElement, createLine, createPath } from '../lib/svgHelpers.js';
+import { createSmuflGlyph, SMUFL_SCALE, ARTICULATION_GLYPHS } from '../assets/glyphs.js';
+
+function bravuraSymbol(type, below) {
+  const key = type + (below ? 'Below' : 'Above');
+  const glyph = ARTICULATION_GLYPHS[key];
+  if (!glyph) return null;
+  const heightPx = (glyph.bbox.yMax - glyph.bbox.yMin) * SMUFL_SCALE;
+  // SMuFL Above glyphs anchor y=0 at the bottom edge (closer to head);
+  // Below glyphs anchor at the top edge. Shift the inner glyph so its
+  // visual center sits at local (0,0) — matches the hand-rolled symbols
+  // the caller's offset math expects.
+  const inner = createSmuflGlyph(glyph, '');
+  const yShift = below ? -heightPx / 2 : heightPx / 2;
+  inner.setAttribute('transform', `translate(0, ${yShift})`);
+  const wrapper = createGroup('');
+  wrapper.appendChild(inner);
+  return { element: wrapper, height: heightPx };
+}
 
 const NOTEHEAD_GAP = 4;
 const STACK_GAP = 3;
@@ -36,6 +54,11 @@ const STACK_PRIORITY = {
  * @returns {{ element: SVGElement, height: number }}
  */
 function createArticulationSymbol(type, below) {
+  // Bravura SMuFL paths for the standard articulations + fermata.
+  if (type === 'staccato' || type === 'accent' || type === 'tenuto' || type === 'marcato' || type === 'fermata') {
+    const result = bravuraSymbol(type, below);
+    if (result) return result;
+  }
   switch (type) {
     case 'staccato': {
       const el = createSvgElement('circle', {

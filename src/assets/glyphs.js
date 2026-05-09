@@ -42,6 +42,22 @@ export const NOTEHEAD_HALF_GLYPH = {
   fillRule: 'evenodd',
 };
 
+// SMuFL Bravura articulations + fermatas. Each direction-pair anchors
+// y=0 to the side closest to the notehead so callers translate by
+// (x, noteY ± gap) without per-glyph offset gymnastics.
+export const ARTICULATION_GLYPHS = {
+  staccatoAbove: { d: 'M84 42C84 65 65 84 42 84C19 84 0 65 0 42C0 19 19 0 42 0C65 0 84 19 84 42Z', bbox: { xMin: 0, yMin: 0, xMax: 84, yMax: 84 } },
+  staccatoBelow: { d: 'M84 -42C84 -19 65 0 42 0C19 0 0 -19 0 -42C0 -65 19 -84 42 -84C65 -84 84 -65 84 -42Z', bbox: { xMin: 0, yMin: -84, xMax: 84, yMax: 0 } },
+  accentAbove: { d: 'M326 105C339 108 339 115 339 123C339 131 339 137 326 141L26 243C22 244 18 245 17 245C8 245 5 239 2 231C1 227 0 224 0 221C0 216 3 211 14 207C14 207 230 134 240 130C245 129 247 126 247 123C247 120 245 118 239 116C228 113 14 40 14 40C3 35 0 30 0 25C0 22 1 19 2 16C5 9 9 1 16 1C17 1 19 1 20 2Z', bbox: { xMin: 0, yMin: 1, xMax: 339, yMax: 245 } },
+  accentBelow: { d: 'M326 -140C339 -137 339 -130 339 -122C339 -114 339 -108 326 -104L26 -2C22 -1 18 0 17 0C8 0 5 -6 2 -14C1 -18 0 -21 0 -24C0 -29 3 -34 14 -38C14 -38 230 -111 240 -115C245 -116 247 -119 247 -122C247 -125 245 -127 239 -129C228 -132 14 -205 14 -205C3 -210 0 -215 0 -220C0 -223 1 -226 2 -229C5 -236 9 -244 16 -244C17 -244 19 -244 20 -243Z', bbox: { xMin: 0, yMin: -244, xMax: 339, yMax: 0 } },
+  tenutoAbove: { d: 'M314 0C337 0 338 11 338 24C338 37 338 48 314 48H23C-1 48 -1 37 -1 24C-1 11 -1 0 23 0Z', bbox: { xMin: -1, yMin: 0, xMax: 338, yMax: 48 } },
+  tenutoBelow: { d: 'M314 -48C337 -48 338 -37 338 -24C338 -11 338 0 314 0H23C-1 0 -1 -11 -1 -24C-1 -37 -1 -48 23 -48Z', bbox: { xMin: -1, yMin: -48, xMax: 338, yMax: 0 } },
+  marcatoAbove: { d: 'M126 247C123 251 120 253 116 253C109 253 106 247 106 247L0 16C-1 14 -1 13 -1 11C-1 6 1 1 6 0C7 -1 10 -1 11 -1C15 -1 20 1 22 6C22 6 76 125 78 129C79 131 80 132 82 132C84 132 86 131 88 129C89 125 145 6 145 6C148 2 152 0 156 0H224C231 1 235 5 235 11C235 13 235 15 234 16Z', bbox: { xMin: -1, yMin: -1, xMax: 235, yMax: 253 } },
+  marcatoBelow: { d: 'M108 -248C111 -252 114 -254 118 -254C125 -254 128 -248 128 -248L234 -17C235 -15 235 -14 235 -12C235 -7 233 -2 228 -1C227 0 224 0 223 0C219 0 214 -2 212 -7C212 -7 158 -126 156 -130C155 -132 154 -133 152 -133C150 -133 148 -132 146 -130C145 -126 89 -7 89 -7C86 -3 82 -1 78 -1H10C3 -2 -1 -6 -1 -12C-1 -14 -1 -16 0 -17Z', bbox: { xMin: -1, yMin: -254, xMax: 235, yMax: 0 } },
+  fermataAbove: { d: 'M302 221C515 221 558 63 568 25C569 22 569 19 570 18C577 4 581 -3 591 -3C600 -3 605 1 605 11C605 14 605 17 604 21C542 327 333 329 304 329C272 329 65 327 4 21C3 17 3 13 3 10C3 0 8 -3 16 -3C25 -3 30 4 36 18C37 19 38 23 39 27C51 68 96 221 302 221ZM358 52C358 81 333 106 303 106C274 106 249 81 249 52C249 22 274 -3 303 -3C333 -3 358 22 358 52Z', bbox: { xMin: 3, yMin: -3, xMax: 605, yMax: 329 }, fillRule: 'evenodd' },
+  fermataBelow: { d: 'M302 -224C96 -224 51 -71 39 -30C38 -26 37 -22 36 -21C30 -7 25 0 16 0C8 0 3 -3 3 -13C3 -16 3 -20 4 -24C65 -330 272 -332 304 -332C333 -332 542 -330 604 -24C605 -20 605 -17 605 -14C605 -4 600 0 591 0C581 0 577 -7 570 -21C569 -22 569 -25 568 -28C558 -66 515 -224 302 -224ZM358 -55C358 -25 333 0 303 0C274 0 249 -25 249 -55C249 -84 274 -109 303 -109C333 -109 358 -84 358 -55Z', bbox: { xMin: 3, yMin: -332, xMax: 605, yMax: 0 }, fillRule: 'evenodd' },
+};
+
 // SMuFL Bravura accidentals. y=0 is the staff line/space the
 // accidental modifies; the renderer translates to (x, pitchY).
 export const ACCIDENTAL_GLYPHS = {
