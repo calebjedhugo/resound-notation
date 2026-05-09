@@ -1,15 +1,16 @@
 /**
  * Accidental symbol renderer.
- * Creates SVG group for sharp, flat, or natural symbols.
+ * Wraps public-domain glyph paths from src/assets/glyphs.js so the
+ * accidentals look the same in every browser regardless of system fonts.
+ * Sharps and naturals span ~3 staff spaces; flats span ~2.5.
  */
 
-import { createGroup, createText } from '../lib/svgHelpers.js';
+import { createGlyph, SHARP_GLYPH, FLAT_GLYPH, NATURAL_GLYPH } from '../assets/glyphs.js';
 
-// Unicode music symbols
-const SYMBOLS = {
-  sharp: '\u266F', // ♯
-  flat: '\u266D', // ♭
-  natural: '\u266E', // ♮
+const GLYPHS = {
+  sharp: { glyph: SHARP_GLYPH, height: 50 },
+  flat: { glyph: FLAT_GLYPH, height: 44 },
+  natural: { glyph: NATURAL_GLYPH, height: 50 },
 };
 
 /**
@@ -18,19 +19,9 @@ const SYMBOLS = {
  * @returns {SVGGElement}
  */
 export function createAccidental(type) {
-  const symbol = SYMBOLS[type];
-  if (!symbol) {
+  const entry = GLYPHS[type];
+  if (!entry) {
     throw new Error(`Unknown accidental type: "${type}"`);
   }
-
-  const group = createGroup(`accidental ${type}`);
-  const textEl = createText(symbol, 0, 0, {
-    'font-size': '18',
-    'text-anchor': 'middle',
-    'dominant-baseline': 'central',
-    fill: 'currentColor',
-  });
-  group.appendChild(textEl);
-
-  return group;
+  return createGlyph(entry.glyph, entry.height, `accidental ${type}`);
 }

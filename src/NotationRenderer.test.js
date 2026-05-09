@@ -189,6 +189,35 @@ describe('NotationRenderer', () => {
       expect(advance).toBeGreaterThanOrEqual(headWidth * 2);
     });
 
+    // Accidentals must render as SVG paths (from the public-domain glyph
+    // assets), not Unicode <text>. Text renders inconsistently across
+    // browsers/fonts and ignores the ~2-staff-space height engraving
+    // convention; path-based glyphs are scalable and uniform.
+    it('renders accidentals as path glyphs, not Unicode text', () => {
+      // Sharps and flats appear inline from the pitch spelling. Naturals
+      // surface when a pitch contradicts the prevailing key signature; we
+      // force one by setting key signature G (one sharp on F) and writing
+      // an explicit F-natural.
+      ctx.render({
+        voices: [
+          {
+            keySignature: 'G',
+            notes: [
+              { pitch: 'C#4', length: '1/4' },
+              { pitch: 'Db4', length: '1/4' },
+              { pitch: 'F4', length: '1/4' },
+            ],
+          },
+        ],
+      });
+      const accidentals = ctx.container.querySelectorAll('.accidental');
+      expect(accidentals.length).toBeGreaterThan(0);
+      for (const acc of accidentals) {
+        expect(acc.querySelector('path')).not.toBeNull();
+        expect(acc.querySelector('text')).toBeNull();
+      }
+    });
+
     // Standard engraving leaves ~1 staff space between the clef glyph's
     // visual right edge and the first notehead's left edge so the clef
     // doesn't crowd the music. The treble-clef SVG path's max x is ~39 in
