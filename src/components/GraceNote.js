@@ -9,7 +9,7 @@ import { createAccidental } from './Accidental.js';
 
 const GRACE_SCALE = 0.6;
 const GRACE_SPACING = 15;
-const HEAD_RX = 12;
+const HEAD_RX = 15;
 const HEAD_RY = 10;
 const STEM_LENGTH = 60;
 const MIDDLE_LINE_Y = 50;
@@ -64,7 +64,7 @@ export function renderGraceNotes({ grace, mainX, mainY, clef }) {
         class: 'note-head',
         fill: 'currentColor',
         stroke: 'currentColor',
-        transform: 'rotate(-20)',
+        transform: 'rotate(-33.33)',
       })
     );
 

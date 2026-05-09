@@ -8,7 +8,7 @@ import { pitchToStaffY } from '../lib/notePositions.js';
 import { getDurationInfo } from '../lib/durationSymbols.js';
 
 const MIDDLE_LINE_Y = 50;
-const HEAD_RX = 12;
+const HEAD_RX = 15;
 const HEAD_RY = 10;
 const STEM_LENGTH = 70;
 
@@ -37,7 +37,7 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
     class: 'note-head',
     fill,
     stroke: 'currentColor',
-    transform: 'rotate(-20)',
+    transform: 'rotate(-33.33)',
   });
   group.appendChild(head);
 

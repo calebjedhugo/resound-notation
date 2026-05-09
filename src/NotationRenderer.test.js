@@ -135,11 +135,11 @@ describe('NotationRenderer', () => {
     });
 
     // Standard engraving: notehead height equals one staff space, with width
-    // slightly larger (~1.2 spaces) for the characteristic oval. Staff line
-    // spacing is 20px, so ry should be 10 (head fills a space line-to-line)
-    // and rx around 12. The previous values (rx=6, ry=5) made notes read as
-    // dots/pellets instead of noteheads — visually obvious in the dev
-    // playground at the post-stem-fix iteration.
+    // ~1.5× height for the characteristic elongated oval (Wikipedia /
+    // Bravura BlackNotehead has rx/ry = 4.35/2.9 ≈ 1.5). Staff line spacing
+    // is 20px, so ry == 10 (head fills a space line-to-line) and rx == 15.
+    // The previous values (rx=6, ry=5) made notes read as dots; the
+    // post-fix 12/10 still read as too-round.
     it('renders noteheads sized to fill one staff space', () => {
       ctx.render([{ pitch: 'E4', length: '1/4' }]);
       const head = ctx.container.querySelector('.note-head');
@@ -147,26 +147,26 @@ describe('NotationRenderer', () => {
       const ry = parseFloat(head.getAttribute('ry'));
       // ry == half the staff-line spacing (LINE_SPACING/2 = 10)
       expect(ry).toBe(10);
-      // rx slightly wider than ry for oval shape
-      expect(rx).toBeGreaterThan(ry);
-      expect(rx).toBeLessThanOrEqual(13);
+      // rx ≈ 1.5 × ry per Wikipedia/Bravura proportions
+      expect(rx / ry).toBeGreaterThanOrEqual(1.4);
+      expect(rx / ry).toBeLessThanOrEqual(1.6);
     });
 
-    // Standard engraving (SMuFL / Bravura / Lilypond) tilts the notehead
-    // ~20° counter-clockwise around its center: the long axis runs from
-    // upper-left to lower-right, with the top leaning slightly to the left.
-    // A horizontal ellipse reads as a "pellet" rather than a notehead;
-    // the tilt is what gives it the characteristic engraved look.
-    it('tilts the notehead ~20° counter-clockwise', () => {
+    // Standard engraving (Wikipedia BlackNotehead.svg, Bravura) tilts the
+    // notehead ~33° counter-clockwise around its center: long axis from
+    // upper-left to lower-right, top leaning slightly to the left. A
+    // horizontal ellipse reads as a "pellet"; the tilt is what gives it the
+    // characteristic engraved look. Allow 25-40° to permit minor variation.
+    it('tilts the notehead ~33° counter-clockwise', () => {
       ctx.render([{ pitch: 'E4', length: '1/4' }]);
       const head = ctx.container.querySelector('.note-head');
       const transform = head.getAttribute('transform') || '';
-      const match = transform.match(/rotate\((-?\d+(?:\.\d+)?)\)/);
+      const match = transform.match(/rotate\((-?\d+(?:\.\d+)?)/);
       expect(match).not.toBeNull();
       const angle = parseFloat(match[1]);
-      // CCW in SVG is negative; want top leaning left. Allow 15-25°.
-      expect(angle).toBeGreaterThanOrEqual(-25);
-      expect(angle).toBeLessThanOrEqual(-15);
+      // CCW in SVG is negative; want top leaning left.
+      expect(angle).toBeGreaterThanOrEqual(-40);
+      expect(angle).toBeLessThanOrEqual(-25);
     });
 
     // Standard engraving (Gould "Behind Bars"): adjacent quarter notes need

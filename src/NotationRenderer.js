@@ -55,7 +55,7 @@ const KEY_SIG_ACCIDENTAL_WIDTH = 10;
 const TIME_SIG_WIDTH = 25;
 const BAR_LINE_PADDING = 5;
 const MIDDLE_LINE_Y = 50;
-const HEAD_RX = 12;
+const HEAD_RX = 15;
 const HEAD_RY = 10;
 const STEM_LENGTH = 70;
 const DYNAMICS_Y = 110;
@@ -331,7 +331,7 @@ export class NotationRenderer {
                       class: 'note-head',
                       fill,
                       stroke: 'currentColor',
-                      transform: `rotate(-20, 0, ${noteY})`,
+                      transform: `rotate(-33.33, 0, ${noteY})`,
                     })
                   );
                   tupletYPositions.push(noteY);
@@ -618,7 +618,7 @@ export class NotationRenderer {
                   class: 'note-head',
                   fill,
                   stroke: 'currentColor',
-                  transform: `rotate(-20, 0, ${noteY})`,
+                  transform: `rotate(-33.33, 0, ${noteY})`,
                 })
               );
             }

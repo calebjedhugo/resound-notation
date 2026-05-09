@@ -14,8 +14,8 @@ const LINE_STEP = 20;
 const FIRST_LEDGER_ABOVE = TOP_LINE_Y - LINE_STEP; // y = -10
 const FIRST_LEDGER_BELOW = BOTTOM_LINE_Y + LINE_STEP; // y = 110
 
-// Ledger line width: HEAD_RX(12)*2 + 6 = 30px, centered on note x
-const LEDGER_HALF_WIDTH = 15;
+// Ledger line width: HEAD_RX(15)*2 + 6 = 36px, centered on note x
+const LEDGER_HALF_WIDTH = 18;
 
 /**
  * Create ledger lines for a note at the given position.
