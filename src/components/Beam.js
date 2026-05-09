@@ -6,7 +6,7 @@
 import { createGroup, createPath } from '../lib/svgHelpers.js';
 
 const HEAD_RX = 6;
-const STEM_LENGTH = 35;
+const STEM_LENGTH = 70;
 const BEAM_THICKNESS = 4;
 const BEAM_GAP = 4;
 

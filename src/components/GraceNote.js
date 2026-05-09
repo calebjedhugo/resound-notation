@@ -11,7 +11,7 @@ const GRACE_SCALE = 0.6;
 const GRACE_SPACING = 15;
 const HEAD_RX = 6;
 const HEAD_RY = 5;
-const STEM_LENGTH = 30;
+const STEM_LENGTH = 60;
 const MIDDLE_LINE_Y = 50;
 const ACCIDENTAL_OFFSET = 14;
 

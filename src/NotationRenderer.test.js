@@ -119,6 +119,20 @@ describe('NotationRenderer', () => {
       expect(notes[1].classList.contains('note-quarter')).toBe(true);
       expect(notes[2].classList.contains('note-eighth')).toBe(true);
     });
+
+    // Standard engraving (Gould, "Behind Bars"; Lilypond / Dorico defaults):
+    // for notes within the staff, stems extend one octave (3.5 staff spaces)
+    // from the notehead. Staff line spacing is 20px, so the stem length must
+    // be 70px. Pin the value: shorter stems read as stubby/childlike
+    // (regression caught visually in the dev playground), longer stems
+    // collide with adjacent staves in multi-voice/grand-staff layouts.
+    it('renders quarter-note stems one octave (70px / 3.5 spaces) long for notes near the staff', () => {
+      ctx.render([{ pitch: 'E4', length: '1/4' }]);
+      const stem = ctx.container.querySelector('.note-stem');
+      const y1 = parseFloat(stem.getAttribute('y1'));
+      const y2 = parseFloat(stem.getAttribute('y2'));
+      expect(Math.abs(y2 - y1)).toBe(70);
+    });
   });
 
   describe('staff lines', () => {

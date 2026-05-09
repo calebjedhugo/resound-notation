@@ -57,7 +57,7 @@ const BAR_LINE_PADDING = 5;
 const MIDDLE_LINE_Y = 50;
 const HEAD_RX = 6;
 const HEAD_RY = 5;
-const STEM_LENGTH = 35;
+const STEM_LENGTH = 70;
 const DYNAMICS_Y = 110;
 const STAFF_CENTER_Y = STAFF_TOP_OFFSET + 40; // midpoint of 5-line staff
 
