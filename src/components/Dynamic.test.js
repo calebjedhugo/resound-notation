@@ -23,14 +23,18 @@ describe('dynamics rendering', () => {
 
       const dynamics = ctx.getDynamics();
       expect(dynamics).toHaveLength(1);
-      expect(dynamics[0].querySelector('.dynamic-text').textContent).toBe('f');
+      expect(dynamics[0].dataset.dynamic).toBe('f');
+      // f letter is one Bravura glyph path.
+      expect(dynamics[0].querySelectorAll('path')).toHaveLength(1);
     });
 
     it('renders multi-character dynamics as a single element', () => {
       ctx.render([{ dynamic: 'mf' }, { pitch: 'C4', length: '1/4' }]);
 
-      const text = ctx.container.querySelector('.dynamic-text');
-      expect(text.textContent).toBe('mf');
+      const dynamic = ctx.container.querySelector('.dynamic');
+      expect(dynamic.dataset.dynamic).toBe('mf');
+      // mf renders as 2 letter glyphs.
+      expect(dynamic.querySelectorAll('path')).toHaveLength(2);
     });
 
     it('renders multiple dynamics at their respective positions', () => {
@@ -61,8 +65,13 @@ describe('dynamics rendering', () => {
       values.forEach((val) => {
         ctx.render([{ dynamic: val }, { pitch: 'C4', length: '1/4' }]);
 
-        const text = ctx.container.querySelector('.dynamic-text');
-        expect(text.textContent).toBe(val);
+        const dynamic = ctx.container.querySelector('.dynamic');
+        expect(dynamic.dataset.dynamic).toBe(val);
+        // Each character that maps to a Bravura letter renders one path.
+        const expected = [...val.toLowerCase()].filter((c) =>
+          'pmfrszn'.includes(c)
+        ).length;
+        expect(dynamic.querySelectorAll('path')).toHaveLength(expected);
         ctx.renderer.clear();
       });
     });

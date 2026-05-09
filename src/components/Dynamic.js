@@ -1,12 +1,23 @@
 /**
  * Point dynamic renderer.
- * Creates SVG group for a dynamic marking (pp, mf, ff, etc.).
+ * Renders SMuFL Bravura dynamic letter glyphs (p, m, f, r, s, z, n)
+ * laid out side-by-side for compound markings (pp, mf, ff, sfz, etc.).
  */
 
-import { createGroup, createText } from '../lib/svgHelpers.js';
+import { createGroup } from '../lib/svgHelpers.js';
+import { createSmuflGlyph, SMUFL_SCALE, DYNAMIC_LETTERS } from '../assets/glyphs.js';
+
+function letterAdvancePx(letter) {
+  // Use bbox xMax (advance width approx for SMuFL dynamic letters);
+  // most descenders extend to negative xMin and shouldn't add to spacing.
+  const g = DYNAMIC_LETTERS[letter];
+  return g.bbox.xMax * SMUFL_SCALE;
+}
 
 /**
- * Render a point dynamic marking.
+ * Render a point dynamic marking. Letters lay out left-to-right and
+ * the whole stack centers horizontally on local x=0.
+ *
  * @param {Object} params
  * @param {string} params.dynamic - Dynamic value (e.g. "f", "mf", "pp")
  * @param {number} params.x - Horizontal position (centered on this x)
@@ -19,14 +30,22 @@ export function renderDynamic({ dynamic, x, y }) {
     transform: `translate(${x}, ${y})`,
   });
 
-  group.appendChild(
-    createText(dynamic, 0, 0, {
-      class: 'dynamic-text',
-      'text-anchor': 'middle',
-      'font-style': 'italic',
-      'font-size': '14',
-    })
-  );
+  const letters = [...dynamic.toLowerCase()].filter((c) => DYNAMIC_LETTERS[c]);
+  if (letters.length === 0) return group;
+
+  const advances = letters.map(letterAdvancePx);
+  const totalAdvance = advances.reduce((a, b) => a + b, 0);
+  let cursor = -totalAdvance / 2;
+  for (let i = 0; i < letters.length; i += 1) {
+    const w = advances[i];
+    const symbol = createSmuflGlyph(DYNAMIC_LETTERS[letters[i]], '');
+    // Place each letter at cursor + w/2 (the bbox visual center) so
+    // overlap from negative-xMin descenders looks intentional, like
+    // engraved italic ff/pp markings.
+    symbol.setAttribute('transform', `translate(${cursor + w / 2}, 0)`);
+    group.appendChild(symbol);
+    cursor += w;
+  }
 
   return group;
 }
