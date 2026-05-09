@@ -59,7 +59,10 @@ const VOICE_HEIGHT = 200;
 const VOICE_GAP = 40;
 const GRAND_STAFF_GAP = 60;
 const STAFF_HEIGHT = 80; // 5 lines, 20px apart
-const ACCIDENTAL_OFFSET = 24;
+// Distance (px) from notehead center back to accidental center.
+// Bravura sharp ≈ 20 wide, head half-width ≈ 12, plus ~5px breathing
+// room → 30 keeps the accidental clear of the head.
+const ACCIDENTAL_OFFSET = 30;
 // Per-accidental cursor advance for the key signature. Matches
 // ACCIDENTAL_SPACING in KeySignature.js plus a little trailing room
 // before the time-signature.

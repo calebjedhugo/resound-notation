@@ -21,7 +21,7 @@ const HEAD_HALF_WIDTH = 11.8;
 const HEAD_HALF_HEIGHT = 10;
 const STEM_LENGTH = 60;
 const MIDDLE_LINE_Y = 50;
-const ACCIDENTAL_OFFSET = 14;
+const ACCIDENTAL_OFFSET = 18;
 
 const ACCIDENTAL_TYPE_MAP = {
   '#': 'sharp',
