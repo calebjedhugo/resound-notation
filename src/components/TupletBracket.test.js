@@ -34,7 +34,7 @@ describe('tuplet rendering', () => {
     expect(groups[0].getAttribute('data-tuplet')).toBe('3:2');
 
     const number = ctx.container.querySelector('.tuplet-number');
-    expect(number.textContent).toBe('3');
+    expect(number.getAttribute('data-actual')).toBe('3');
 
     // Quarter notes are not beamed, so bracket is shown
     const bracket = ctx.container.querySelector('.tuplet-bracket');
@@ -63,7 +63,7 @@ describe('tuplet rendering', () => {
 
     // Number still shown
     const number = ctx.container.querySelector('.tuplet-number');
-    expect(number.textContent).toBe('3');
+    expect(number.getAttribute('data-actual')).toBe('3');
   });
 
   it('renders tuplet containing rests with bracket', () => {
@@ -124,7 +124,7 @@ describe('tuplet rendering', () => {
     });
 
     const number = ctx.container.querySelector('.tuplet-number');
-    expect(number.textContent).toBe('5');
+    expect(number.getAttribute('data-actual')).toBe('5');
   });
 
   it('highlights tuplet notes at fractional beat positions during playback', () => {
