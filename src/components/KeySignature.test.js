@@ -40,7 +40,7 @@ describe('KeySignature', () => {
       expect(accidentals).toHaveLength(3);
     });
 
-    it('spaces accidentals 10px apart horizontally', () => {
+    it('spaces adjacent accidentals far enough that Bravura glyphs do not horizontally overlap', () => {
       const group = createKeySignature('D', 'treble');
       const accidentals = group.querySelectorAll('.accidental');
 
@@ -50,7 +50,9 @@ describe('KeySignature', () => {
       const x1 = parseFloat(
         accidentals[1].getAttribute('transform').match(/translate\(([^,]+)/)[1]
       );
-      expect(x1 - x0).toBe(10);
+      // Bravura sharp half-width ≈ 10 px; advance ≥ 12 keeps interlock
+      // engraving-correct without bodies stacking.
+      expect(x1 - x0).toBeGreaterThanOrEqual(12);
     });
 
     it('positions sharps at correct Y for treble clef', () => {

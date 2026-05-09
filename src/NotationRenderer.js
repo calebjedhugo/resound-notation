@@ -60,7 +60,10 @@ const VOICE_GAP = 40;
 const GRAND_STAFF_GAP = 60;
 const STAFF_HEIGHT = 80; // 5 lines, 20px apart
 const ACCIDENTAL_OFFSET = 24;
-const KEY_SIG_ACCIDENTAL_WIDTH = 10;
+// Per-accidental cursor advance for the key signature. Matches
+// ACCIDENTAL_SPACING in KeySignature.js plus a little trailing room
+// before the time-signature.
+const KEY_SIG_ACCIDENTAL_WIDTH = 14;
 // Trailing padding (px) after the time-sig glyph before the first note —
 // ~1 staff space of clearance so the digits don't crowd the music.
 const TIME_SIG_PADDING = 25;

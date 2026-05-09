@@ -31,7 +31,14 @@ export const KEY_SIG_POSITIONS = {
   },
 };
 
-const ACCIDENTAL_SPACING = 10;
+// Bravura accidentalSharp/Flat are ~20px wide. 14 lets adjacent glyphs
+// interlock vertically (engraving convention) without horizontal overlap
+// of their bodies.
+const ACCIDENTAL_SPACING = 14;
+// SMuFL accidentals are centered on their x=0; offset the first glyph by
+// half its width so the key-sig group's left edge sits at parent x=0
+// (i.e. the accidental doesn't extend left of the caller's translate).
+const ACCIDENTAL_LEAD = 10;
 
 /**
  * Create an SVG group representing a key signature.
@@ -57,7 +64,7 @@ export function createKeySignature(key, clef) {
   const group = createGroup('key-signature');
 
   for (let i = 0; i < keyInfo.count; i++) {
-    const x = i * ACCIDENTAL_SPACING;
+    const x = ACCIDENTAL_LEAD + i * ACCIDENTAL_SPACING;
     const y = pitchToStaffY(pitchList[i], clef);
 
     const accGroup = createAccidental(keyInfo.type);
