@@ -320,7 +320,13 @@ export class NotationRenderer {
 
     // Extend the viewBox to the left when brackets are present so the
     // outward-curling hook tips don't get clipped.
-    const bracketLeftMargin = hasBracketGroup ? 30 : 0;
+    // Bracket sits entirely to the LEFT of x=0 (where staff lines begin)
+    // with a small visible gap. Bracket local footprint: trunk x=[0,10],
+    // hook tips reach x≈37.5. We translate to x=-45 so the trunk sits at
+    // x=[-45,-35] and hook tips at x≈-7.5 — a ~7.5px gap before the staff.
+    // Margin = 50 leaves a hair of room on the left so the trunk isn't
+    // clipped by the viewBox edge.
+    const bracketLeftMargin = hasBracketGroup ? 50 : 0;
     this._svg = createSvgElement('svg', {
       class: 'notation',
       width: this._width + bracketLeftMargin,
@@ -1308,9 +1314,12 @@ export class NotationRenderer {
       let groupEl;
       if (group.type === 'bracket') {
         groupEl = createBracket({ height: groupHeight });
-        // Bracket trunk sits flush against the staff's left edge; hooks
-        // protrude outward to the left.
-        groupEl.setAttribute('transform', `translate(${STAFF_START_X - 10}, ${topY})`);
+        // Bracket sits entirely OUTSIDE the staff area (to the left of
+        // x=0 where staff lines begin). Local footprint: trunk x=[0,10],
+        // hook tips reach x≈37.5. With translate x=-45, trunk sits at
+        // absolute x=[-45,-35] and hook tips at x≈-7.5 — leaving a
+        // visible gap before the staff lines start at x=0.
+        groupEl.setAttribute('transform', `translate(-45, ${topY})`);
       } else {
         groupEl = createBrace({ height: groupHeight });
         groupEl.setAttribute('transform', `translate(${STAFF_START_X - 12}, ${topY})`);
