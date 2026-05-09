@@ -143,6 +143,23 @@ describe('NotationRenderer', () => {
       const staffLines = ctx.container.querySelector('.staff-lines');
       expect(staffLines.getAttribute('transform')).toBe('translate(0, 10)');
     });
+
+    // Staff lines must be visibly rendered. SVG <line> defaults to stroke="none",
+    // so without an explicit stroke attribute (or a stylesheet the consumer must
+    // remember to ship), the staff is invisible in any environment that just
+    // mounts the SVG and renders. Sibling primitives (note-stem, ledger-line)
+    // already use inline stroke="currentColor"; staff lines should match so the
+    // library renders correctly out of the box and themes via CSS color.
+    it('renders staff lines with a visible stroke', () => {
+      ctx.render([{ pitch: 'C4', length: '1/4' }]);
+      const lines = ctx.container.querySelectorAll('.staff-line');
+      expect(lines.length).toBeGreaterThan(0);
+      for (const line of lines) {
+        const stroke = line.getAttribute('stroke');
+        expect(stroke).toBeTruthy();
+        expect(stroke).not.toBe('none');
+      }
+    });
   });
 
   describe('staff groups', () => {

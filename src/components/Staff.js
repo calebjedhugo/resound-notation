@@ -19,7 +19,7 @@ export function createStaffLines(width) {
 
   for (let i = 0; i < LINE_COUNT; i++) {
     const y = i * LINE_SPACING;
-    group.appendChild(createLine(0, y, width, y, { class: 'staff-line' }));
+    group.appendChild(createLine(0, y, width, y, { class: 'staff-line', stroke: 'currentColor' }));
   }
 
   return group;
