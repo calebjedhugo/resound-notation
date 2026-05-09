@@ -218,6 +218,29 @@ export const HALF_NOTEHEAD_GLYPH = {
   tipVbY: 0.288,
 };
 
+// Bravura U+E000 brace. Drawn at unit reference height — caller stretches
+// vertically (via scale Y) to match the desired group span.
+export const BRACE_GLYPH = {
+  d: 'M20 498C49 516 82 587 82 646C82 651 82 657 81 662C74 722 44 815 44 869C44 921 67 971 72 980C75 986 77 987 77 990C77 993 74 997 71 997C69 997 67 995 63 990C41 963 14 905 14 805C14 706 49 666 49 603C49 556 30 530 2 498C20 478 49 462 49 397C49 327 14 265 14 192C14 92 41 34 63 6C67 1 69 0 71 0C74 0 77 3 77 6C77 9 76 11 72 17C67 25 44 75 44 128C44 181 74 275 81 334C82 339 82 344 82 350C82 409 49 480 20 498Z',
+  bbox: { xMin: 2, yMin: 0, xMax: 82, yMax: 997 },
+};
+
+// Bravura U+E003 bracketTop. Hook only — registration at (0, 0), the
+// bracket trunk's top-left corner. Hook bottom edge runs (0, 0) → (125, 0)
+// in font units; tip at ~(468, 271) — i.e. the hook curls UP and to the
+// RIGHT in native font coords. We mirror in X at draw time so the hook
+// curls outward (LEFT) as engraving convention dictates.
+export const BRACKET_TOP_GLYPH = {
+  d: 'M0 0H125C285 30 428 104 468 271C469 275 469 278 469 281C469 289 466 293 461 295C452 295 441 288 436 281C426 270 300 138 109 124H8C2 124 0 123 0 117Z',
+  bbox: { xMin: 0, yMin: 0, xMax: 469, yMax: 295 },
+};
+
+// Bravura U+E004 bracketBottom. Mirror image of bracketTop across y=0.
+export const BRACKET_BOTTOM_GLYPH = {
+  d: 'M0 -117C0 -123 2 -124 8 -124H109C300 -138 426 -270 436 -281C441 -288 452 -295 461 -295C466 -293 469 -289 469 -281C469 -278 469 -275 468 -271C428 -104 285 -30 125 0H0Z',
+  bbox: { xMin: 0, yMin: -295, xMax: 469, yMax: 0 },
+};
+
 export const NATURAL_GLYPH = {
   d: 'm -8,375 c 8,4 17,7 26,7 9,0 17,-3 25,-7 l -3,-183 106,20 h 3 c 10,0 18,-7 18,-17 l 7,-570 c -8,-4 -16,-7 -25,-7 -9,0 -17,3 -25,7 l 3,183 -106,-20 h -3 c -10,0 -18,7 -18,17 z M 131,112 39,95 l -3,-207 92,17 z',
   innerTransform: 'matrix(0.004, 0, 0, -0.004, 0.032, 1.528)',

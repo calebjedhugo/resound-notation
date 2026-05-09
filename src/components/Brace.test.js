@@ -25,16 +25,16 @@ describe('Brace', () => {
     });
 
     it('scales to match the requested height', () => {
+      // Different heights should produce different effective Y-scales
+      // somewhere in the rendered tree (group or path transform).
       const small = createBrace({ height: 100 });
       const large = createBrace({ height: 300 });
-
-      // The transform should reflect the different heights
-      const smallTransform = small.getAttribute('transform') || '';
-      const largeTransform = large.getAttribute('transform') || '';
-
-      // Both should have transforms (scaling)
-      expect(smallTransform || small.querySelector('path').getAttribute('transform')).toBeTruthy();
-      expect(largeTransform || large.querySelector('path').getAttribute('transform')).toBeTruthy();
+      const collectTransforms = (root) =>
+        Array.from(root.querySelectorAll('*'))
+          .map((el) => el.getAttribute('transform'))
+          .filter(Boolean)
+          .join(' ');
+      expect(collectTransforms(small)).not.toEqual(collectTransforms(large));
     });
 
     it('uses default height when not specified', () => {
