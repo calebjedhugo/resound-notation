@@ -19,7 +19,9 @@ export function createBarLine(x) {
   group.appendChild(
     createLine(x, TOP_LINE_Y, x, BOTTOM_LINE_Y, {
       stroke: 'currentColor',
-      'stroke-width': '1',
+      // Engraving convention: barlines are slightly thicker than staff
+      // lines so they read as section breaks rather than blending in.
+      'stroke-width': '1.5',
     })
   );
   return group;

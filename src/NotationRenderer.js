@@ -10,6 +10,7 @@ import {
   NOTEHEAD_BLACK_GLYPH,
   NOTEHEAD_HALF_GLYPH,
   NOTEHEAD_WHOLE_GLYPH,
+  NOTEHEAD_X_BLACK_GLYPH,
 } from './assets/glyphs.js';
 import { parseNoteData } from './lib/dataParser.js';
 import { inferClef } from './lib/clefInference.js';
@@ -766,22 +767,8 @@ export class NotationRenderer {
           });
           noteGroup.setAttribute('data-beat', String(currentBeat));
 
-          // X-shaped notehead
-          const xSize = 5;
-          const xHead = createGroup('note-head-x');
-          xHead.appendChild(
-            createLine(-xSize, -xSize, xSize, xSize, {
-              stroke: 'currentColor',
-              'stroke-width': 2,
-            })
-          );
-          xHead.appendChild(
-            createLine(-xSize, xSize, xSize, -xSize, {
-              stroke: 'currentColor',
-              'stroke-width': 2,
-            })
-          );
-          noteGroup.appendChild(xHead);
+          // X-shaped notehead — Bravura noteheadXBlack glyph.
+          noteGroup.appendChild(createSmuflGlyph(NOTEHEAD_X_BLACK_GLYPH, 'note-head-x'));
 
           // Stem — anchored at the head's long-axis tip.
           if (info.hasStem) {
