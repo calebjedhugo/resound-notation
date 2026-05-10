@@ -522,10 +522,108 @@ export class NotationRenderer {
     // after rendering. Starts as the default staff band; min/max get
     // tightened by any content (ledger lines, brackets, stems) that
     // protrudes above/below.
-    let contentMinY = 0;
-    let contentMaxY = totalHeight;
+    const systemContext = { contentMinY: 0, contentMaxY: totalHeight };
 
-    parsed.voices.forEach((voice, index) => {
+    // For now, render exactly one system covering the entire piece. The
+    // measureTargetWidths table is the identity (each target equals its
+    // intrinsic width), so beat→x is unchanged. Iteration B will split
+    // this into N renderSystem calls with justified target widths.
+    const measureCount = this._intrinsicWidths
+      ? this._intrinsicWidths.combined.length
+      : 0;
+    const measureTargetWidths = this._intrinsicWidths
+      ? this._intrinsicWidths.combined.map((m) => m.intrinsicWidth)
+      : [];
+
+    this._renderSystem({
+      voices: parsed.voices,
+      shiftedVoiceNotes,
+      ottavaSegmentsPerVoice,
+      voiceYPositions,
+      voiceBarlineXPositions,
+      beatToX,
+      musicStartX,
+      startMeasure: 0,
+      endMeasure: Math.max(0, measureCount - 1),
+      measureTargetWidths,
+      isFirstSystem: true,
+      isLastSystem: true,
+      systemContext,
+      braceGroups,
+    });
+
+    const { contentMinY, contentMaxY } = systemContext;
+
+
+    // Content-aware viewport grow. We started with [0, totalHeight] and
+    // tightened (contentMinY, contentMaxY) to the actual rendered content.
+    // Apply a small visual margin and rewrite width/height/viewBox so the
+    // SVG itself contains all rendered ink without consumer-side padding.
+    const MARGIN = 10;
+    const grownTop = Math.min(0, Math.floor(contentMinY - MARGIN));
+    const grownBottom = Math.max(totalHeight, Math.ceil(contentMaxY + MARGIN));
+    const grownHeight = grownBottom - grownTop;
+    if (grownTop < 0 || grownBottom > totalHeight) {
+      const widthAttr = this._svg.getAttribute('width');
+      const w = parseFloat(widthAttr);
+      this._svg.setAttribute('height', grownHeight);
+      this._svg.setAttribute(
+        'viewBox',
+        `${-bracketLeftMargin} ${grownTop} ${w} ${grownHeight}`
+      );
+    }
+
+    if (this._container) {
+      this._container.appendChild(this._svg);
+    }
+
+    return this._svg;
+  }
+
+  /**
+   * Render one system: a horizontal slice of the piece spanning a measure
+   * range. Currently called once with the entire piece (zero-behavior-change
+   * seam); upcoming iterations will call this N times for N systems with
+   * justified target widths per measure.
+   *
+   * The caller owns all piece-wide pre-computed state (parsed voices,
+   * shifted-pitch voices for ottava, ottava segments, brace groups, beat→x
+   * map, music-start X, per-voice Y positions, per-voice barline-X collector
+   * keyed by voice id). This method appends every visible element for the
+   * system — staff lines, clefs, key sigs, time sigs, notes, beams, ties,
+   * slurs, dynamics, hairpins, ottava brackets, voltas, lyrics, braces,
+   * brackets, shared barlines — and updates `systemContext.contentMinY` /
+   * `contentMaxY` so the caller can grow the viewBox to fit the content.
+   *
+   * @private
+   */
+  _renderSystem({
+    voices,
+    shiftedVoiceNotes,
+    ottavaSegmentsPerVoice,
+    voiceYPositions,
+    voiceBarlineXPositions,
+    beatToX,
+    musicStartX,
+    // startMeasure, endMeasure, measureTargetWidths, isFirstSystem,
+    // isLastSystem reserved for upcoming system-breaking iteration.
+    // eslint-disable-next-line no-unused-vars
+    startMeasure,
+    // eslint-disable-next-line no-unused-vars
+    endMeasure,
+    // eslint-disable-next-line no-unused-vars
+    measureTargetWidths,
+    // eslint-disable-next-line no-unused-vars
+    isFirstSystem,
+    // eslint-disable-next-line no-unused-vars
+    isLastSystem,
+    systemContext,
+    braceGroups,
+  }) {
+    let contentMinY = systemContext.contentMinY;
+    let contentMaxY = systemContext.contentMaxY;
+
+    voices.forEach((voice, index) => {
       // Render against the octave-shifted notes so the heads sit near the
       // staff under the bracket. The original voice.notes is preserved on
       // the model for downstream consumers (playback, serialization).
@@ -1569,7 +1667,7 @@ export class NotationRenderer {
     // Render brace and shared barlines for staff groups
     for (const group of braceGroups) {
       const voiceIndices = group.voiceIds
-        .map((vid) => parsed.voices.findIndex((v) => v.id === vid))
+        .map((vid) => voices.findIndex((v) => v.id === vid))
         .filter((i) => i >= 0);
       if (voiceIndices.length < 2) continue;
 
@@ -1614,7 +1712,7 @@ export class NotationRenderer {
 
       // Shared barlines: collect X positions common across grouped voices
       const allBarlineXSets = voiceIndices.map((vi) => {
-        const vid = parsed.voices[vi].id;
+        const vid = voices[vi].id;
         return voiceBarlineXPositions.get(vid) || [];
       });
       // Use the first voice's barline positions (voices in a group share time sig)
@@ -1624,29 +1722,8 @@ export class NotationRenderer {
       }
     }
 
-    // Content-aware viewport grow. We started with [0, totalHeight] and
-    // tightened (contentMinY, contentMaxY) to the actual rendered content.
-    // Apply a small visual margin and rewrite width/height/viewBox so the
-    // SVG itself contains all rendered ink without consumer-side padding.
-    const MARGIN = 10;
-    const grownTop = Math.min(0, Math.floor(contentMinY - MARGIN));
-    const grownBottom = Math.max(totalHeight, Math.ceil(contentMaxY + MARGIN));
-    const grownHeight = grownBottom - grownTop;
-    if (grownTop < 0 || grownBottom > totalHeight) {
-      const widthAttr = this._svg.getAttribute('width');
-      const w = parseFloat(widthAttr);
-      this._svg.setAttribute('height', grownHeight);
-      this._svg.setAttribute(
-        'viewBox',
-        `${-bracketLeftMargin} ${grownTop} ${w} ${grownHeight}`
-      );
-    }
-
-    if (this._container) {
-      this._container.appendChild(this._svg);
-    }
-
-    return this._svg;
+    systemContext.contentMinY = contentMinY;
+    systemContext.contentMaxY = contentMaxY;
   }
 
   /**

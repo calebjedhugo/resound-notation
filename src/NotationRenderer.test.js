@@ -2615,4 +2615,20 @@ describe('NotationRenderer', () => {
       expect(after.perVoice[0].measures[0].contentNoteCount).toBe(1);
     });
   });
+
+  describe('single-system rendering (renderSystem seam)', () => {
+    it('renders one staff and one clef per voice for a single-system piece', () => {
+      const svg = ctx.render([
+        { pitch: 'C4', length: '1/4' },
+        { pitch: 'D4', length: '1/4' },
+        { pitch: 'E4', length: '1/4' },
+        { pitch: 'F4', length: '1/4' },
+      ]);
+
+      // Exactly one staff (one system, one voice)
+      expect(svg.querySelectorAll('.staff-lines')).toHaveLength(1);
+      // Exactly one clef glyph at the start of the (sole) system
+      expect(svg.querySelectorAll('.clef')).toHaveLength(1);
+    });
+  });
 });
