@@ -887,6 +887,10 @@ describe('NotationRenderer', () => {
   });
 
   describe('bar line rendering', () => {
+    // Counts in this block include the auto-appended thin final barline at
+    // the end of the system (Gould "Behind Bars": every system terminates
+    // at a barline, so the staff lines don't trail off into empty space).
+    // Internal/measure-boundary barlines are unchanged.
     it('does not render bar lines when no time signature is set', () => {
       ctx.render([
         { pitch: 'C4', length: '1/4' },
@@ -894,7 +898,8 @@ describe('NotationRenderer', () => {
         { pitch: 'G4', length: '1/4' },
         { pitch: 'C5', length: '1/4' },
       ]);
-      expect(ctx.getBarLines()).toHaveLength(0);
+      // Just the final barline (no measure boundaries without a time sig).
+      expect(ctx.getBarLines()).toHaveLength(1);
     });
 
     it('renders a bar line after one complete measure in 4/4', () => {
@@ -909,7 +914,8 @@ describe('NotationRenderer', () => {
           { pitch: 'G4', length: '1/4' },
         ],
       });
-      expect(ctx.getBarLines()).toHaveLength(1);
+      // 1 measure-boundary + 1 final barline.
+      expect(ctx.getBarLines()).toHaveLength(2);
     });
 
     it('renders two bar lines for two complete measures', () => {
@@ -929,7 +935,8 @@ describe('NotationRenderer', () => {
           { pitch: 'D5', length: '1/4' },
         ],
       });
-      expect(ctx.getBarLines()).toHaveLength(2);
+      // 2 measure-boundaries + 1 final barline.
+      expect(ctx.getBarLines()).toHaveLength(3);
     });
 
     it('renders bar lines in 3/4 time', () => {
@@ -943,7 +950,8 @@ describe('NotationRenderer', () => {
           { pitch: 'F4', length: '1/4' },
         ],
       });
-      expect(ctx.getBarLines()).toHaveLength(1);
+      // 1 measure-boundary + 1 final barline.
+      expect(ctx.getBarLines()).toHaveLength(2);
     });
 
     it('handles half notes in bar line tracking', () => {
@@ -956,7 +964,8 @@ describe('NotationRenderer', () => {
           { pitch: 'G4', length: '1/4' },
         ],
       });
-      expect(ctx.getBarLines()).toHaveLength(1);
+      // 1 measure-boundary + 1 final barline.
+      expect(ctx.getBarLines()).toHaveLength(2);
     });
 
     it('handles whole notes in bar line tracking', () => {
@@ -968,7 +977,8 @@ describe('NotationRenderer', () => {
           { pitch: 'G4', length: '1/4' },
         ],
       });
-      expect(ctx.getBarLines()).toHaveLength(1);
+      // 1 measure-boundary + 1 final barline.
+      expect(ctx.getBarLines()).toHaveLength(2);
     });
 
     it('handles eighth notes in bar line tracking', () => {
@@ -987,7 +997,8 @@ describe('NotationRenderer', () => {
           { pitch: 'D5', length: '1/4' },
         ],
       });
-      expect(ctx.getBarLines()).toHaveLength(1);
+      // 1 measure-boundary + 1 final barline.
+      expect(ctx.getBarLines()).toHaveLength(2);
     });
 
     it('tracks rests for bar line calculation', () => {
@@ -1002,7 +1013,8 @@ describe('NotationRenderer', () => {
           { pitch: 'G4', length: '1/4' },
         ],
       });
-      expect(ctx.getBarLines()).toHaveLength(1);
+      // 1 measure-boundary + 1 final barline.
+      expect(ctx.getBarLines()).toHaveLength(2);
     });
 
     it('renders no bar lines if music does not fill a complete measure', () => {
@@ -1013,7 +1025,9 @@ describe('NotationRenderer', () => {
           { pitch: 'D4', length: '1/4' },
         ],
       });
-      expect(ctx.getBarLines()).toHaveLength(0);
+      // No measure-boundaries (incomplete measure) but the final barline
+      // still terminates the system.
+      expect(ctx.getBarLines()).toHaveLength(1);
     });
 
     it('handles 6/8 time signature', () => {
@@ -1031,7 +1045,8 @@ describe('NotationRenderer', () => {
           { pitch: 'B4', length: '1/8' },
         ],
       });
-      expect(ctx.getBarLines()).toHaveLength(1);
+      // 1 measure-boundary + 1 final barline.
+      expect(ctx.getBarLines()).toHaveLength(2);
     });
   });
 
@@ -1669,7 +1684,8 @@ describe('NotationRenderer', () => {
         ],
       });
 
-      expect(ctx.getBarLines()).toHaveLength(1);
+      // 1 measure-boundary + 1 final barline (auto-appended).
+      expect(ctx.getBarLines()).toHaveLength(2);
     });
 
     it('highlights chord during playback', () => {
@@ -1902,9 +1918,11 @@ describe('NotationRenderer', () => {
         ],
       });
 
-      // Each voice generates its own bar line
+      // Each voice generates its own measure-boundary bar line plus the
+      // auto-appended final barline (Gould "Behind Bars": every system
+      // terminates at a barline) → 2 voices × 2 barlines = 4.
       const barLines = ctx.getBarLines();
-      expect(barLines).toHaveLength(2);
+      expect(barLines).toHaveLength(4);
     });
 
     it('renders chords in a multi-voice context', () => {
@@ -2313,6 +2331,61 @@ describe('NotationRenderer', () => {
       const minBreathingRoom = 9;
       const digitTopY = digitTopCenterY - halfDigitHeight;
       expect(digitTopY - beamOuterY).toBeGreaterThanOrEqual(minBreathingRoom);
+    });
+  });
+
+  // Per Gould "Behind Bars" (Barlines / Systems): a system terminates with a
+  // barline and the staff lines should end at that barline — the staff must
+  // not trail off into empty space past the last note. The default for an
+  // excerpt is a thin final barline (Bravura `barlineSingle`); a complete
+  // piece would use `barlineFinal`. These dev presets are excerpts, so the
+  // renderer auto-appends a thin final barline just past the last element
+  // and clips the 5 staff lines to that x.
+  describe('final barline + staff right-edge', () => {
+    it('appends a final thin barline just past the last note and clips the staff to it', () => {
+      ctx.render([
+        { pitch: 'C4', length: '1/4' },
+        { pitch: 'D4', length: '1/4' },
+        { pitch: 'E4', length: '1/4' },
+        { pitch: 'F4', length: '1/4' },
+      ]);
+
+      // Find the rightmost note (transform translate-x is the head x).
+      const noteGroups = ctx.container.querySelectorAll('.note');
+      expect(noteGroups.length).toBeGreaterThan(0);
+      let lastNoteX = -Infinity;
+      noteGroups.forEach((n) => {
+        const tr = n.getAttribute('transform') || '';
+        const m = tr.match(/translate\(\s*([-\d.]+)/);
+        if (m) {
+          const x = parseFloat(m[1]);
+          if (x > lastNoteX) lastNoteX = x;
+        }
+      });
+      expect(Number.isFinite(lastNoteX)).toBe(true);
+
+      // Internal/measure barlines + the new final barline are all `.bar-line`
+      // groups. The rightmost one should be the auto-appended final barline,
+      // sitting just past (within ~1.5 staff spaces / ~30px of) the last
+      // note's head x.
+      const barLines = ctx.container.querySelectorAll('.bar-line line');
+      expect(barLines.length).toBeGreaterThan(0);
+      let finalBarX = -Infinity;
+      barLines.forEach((bl) => {
+        const x = parseFloat(bl.getAttribute('x1'));
+        if (x > finalBarX) finalBarX = x;
+      });
+      expect(finalBarX).toBeGreaterThan(lastNoteX);
+      expect(finalBarX - lastNoteX).toBeLessThanOrEqual(30);
+
+      // Staff's 5 lines must terminate AT the final-barline x, not at the
+      // SVG's full width — otherwise the staff trails off meaninglessly.
+      const staffLines = ctx.container.querySelectorAll('.staff-lines .staff-line');
+      expect(staffLines).toHaveLength(5);
+      staffLines.forEach((line) => {
+        const x2 = parseFloat(line.getAttribute('x2'));
+        expect(x2).toBeCloseTo(finalBarX, 0);
+      });
     });
   });
 });
