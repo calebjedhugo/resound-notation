@@ -26,9 +26,13 @@ import {
 
 // Spacing between successive grace notes, and between the last grace and
 // the principal notehead. With Bravura's intrinsic glyph dimensions the
-// grace head is ~15.6px wide; 20px gives clean breathing room without
-// the flag colliding into the principal head.
-const GRACE_SPACING = 20;
+// grace head is ~15.6px wide; 22px gives ~1 staff space of breathing
+// room from the last grace to the principal head.
+const GRACE_SPACING = 22;
+
+// Lead-in pad reserved before the first grace note so the cluster
+// doesn't kiss the previous element (time signature, barline, etc.).
+const GRACE_LEAD_IN_PAD = 8;
 
 // Notehead half-width in screen px (195 fu × SMUFL_SCALE / 2).
 const GRACE_HEAD_HALF_WIDTH = 7.8;
@@ -37,8 +41,9 @@ const GRACE_HEAD_HALF_HEIGHT = 6.6;
 // Accidental scale relative to principal — engraver's convention is
 // roughly notehead size (which here is ~0.6 of principal).
 const GRACE_ACCIDENTAL_SCALE = 0.6;
-// Accidental offset to the left of the grace notehead center.
-const GRACE_ACCIDENTAL_OFFSET = 12;
+// Accidental offset to the left of the grace notehead center. Needs to
+// clear the grace head half-width (~7.8 px) plus ~6–8 px breathing room.
+const GRACE_ACCIDENTAL_OFFSET = 16;
 
 const ACCIDENTAL_TYPE_MAP = {
   '#': 'sharp',
@@ -64,6 +69,8 @@ function normalizeGrace(grace) {
  * @param {string} params.clef - Clef for Y positioning
  * @returns {{ element: SVGGElement, width: number }}
  */
+export { GRACE_LEAD_IN_PAD, GRACE_SPACING };
+
 export function renderGraceNotes({ grace, mainX, mainY, clef }) {
   const notes = normalizeGrace(grace);
   const isRun = notes.length > 1;

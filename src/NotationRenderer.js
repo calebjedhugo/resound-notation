@@ -37,7 +37,7 @@ import { resolveSlurs } from './lib/slurGrouping.js';
 import { createSlurArc } from './components/Slur.js';
 import { getTupletNoteDuration } from './lib/tuplets.js';
 import { renderTupletBracket } from './components/TupletBracket.js';
-import { renderGraceNotes } from './components/GraceNote.js';
+import { renderGraceNotes, GRACE_LEAD_IN_PAD } from './components/GraceNote.js';
 import { renderRepeatBarline } from './components/RepeatBarline.js';
 import { renderEnding } from './components/Ending.js';
 import { renderNavigationMarker } from './components/NavigationMarker.js';
@@ -808,9 +808,12 @@ export class NotationRenderer {
             const info = getDurationInfo(chordLength);
             const yPositions = chordNotes.map((n) => pitchToStaffY(n.pitch, clef));
 
-            // Grace notes on chord (from first note that has grace property)
+            // Grace notes on chord (from first note that has grace property).
+            // Push the principal cluster right by a lead-in pad so the first
+            // grace doesn't kiss the previous element (time sig, barline, etc.).
             const chordGrace = chordNotes.find((n) => n.grace);
             if (chordGrace) {
+              cursorX += GRACE_LEAD_IN_PAD;
               const mainY = Math.min(...yPositions);
               const graceResult = renderGraceNotes({
                 grace: chordGrace.grace,
@@ -1027,8 +1030,11 @@ export class NotationRenderer {
         } else {
           const noteY = pitchToStaffY(element.pitch, clef);
 
-          // Grace notes (render before the main note)
+          // Grace notes (render before the main note). Push principal right
+          // by a lead-in pad so the first grace doesn't kiss the previous
+          // element (time sig, barline, etc.).
           if (element.grace) {
+            cursorX += GRACE_LEAD_IN_PAD;
             const graceResult = renderGraceNotes({
               grace: element.grace,
               mainX: cursorX,
