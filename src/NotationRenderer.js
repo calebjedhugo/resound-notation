@@ -71,6 +71,15 @@ const STAFF_HEIGHT = 80; // 5 lines, 20px apart
 // Bravura sharp ≈ 20 wide, head half-width ≈ 12, plus ~5px breathing
 // room → 30 keeps the accidental clear of the head.
 const ACCIDENTAL_OFFSET = 30;
+// When the prior element is a beamed sibling (the same beam group's
+// previous note), there's no clef/barline/rest buffer between the two
+// noteheads, so the visual gap from the *prior* head to this accidental
+// reads tightest. Per Gould "Behind Bars" (Accidentals chapter),
+// breathing room from the preceding element is the priority — the
+// accidental's gap to its own notehead can shrink toward Gould's
+// minimum (~1/4 staff space). Pulling the accidental ~6px closer to
+// its own head buys ~6px of breathing room from the prior head.
+const ACCIDENTAL_OFFSET_BEAMED_PRIOR = ACCIDENTAL_OFFSET - 6;
 // Per-accidental cursor advance for the key signature. Matches
 // ACCIDENTAL_SPACING in KeySignature.js plus a little trailing room
 // before the time-signature.
@@ -896,7 +905,14 @@ export class NotationRenderer {
 
             staffGroup.appendChild(chordGroup);
 
-            // Accidentals (on staffGroup with absolute coords)
+            // Accidentals (on staffGroup with absolute coords). Use the
+            // wider beamed-prior offset when this chord is the non-first
+            // member of a beam group — same rationale as the single-note
+            // path below.
+            const chordBeamInfo = beamLookup.get(i);
+            const chordAccOffset = chordBeamInfo && !chordBeamInfo.isFirst
+              ? ACCIDENTAL_OFFSET_BEAMED_PRIOR
+              : ACCIDENTAL_OFFSET;
             for (let j = 0; j < chordNotes.length; j += 1) {
               const { accidental } = parsePitch(chordNotes[j].pitch);
               const accidentalType = ACCIDENTAL_TYPE_MAP[accidental];
@@ -904,7 +920,7 @@ export class NotationRenderer {
                 const accGroup = createAccidental(accidentalType);
                 accGroup.setAttribute(
                   'transform',
-                  `translate(${cursorX - ACCIDENTAL_OFFSET}, ${yPositions[j]})`
+                  `translate(${cursorX - chordAccOffset}, ${yPositions[j]})`
                 );
                 staffGroup.appendChild(accGroup);
               }
@@ -1070,14 +1086,21 @@ export class NotationRenderer {
             target.appendChild(graceResult.element);
           }
 
-          // Accidental (render before note, to the left)
+          // Accidental (render before note, to the left). When this note
+          // is the non-first member of a beam group, the prior element is
+          // a beamed sibling — no clef/barline/rest buffer between the
+          // two heads — so the visible gap reads tightest. Bump the
+          // offset there to keep ~1.5 staff spaces of breathing room.
           const { accidental } = parsePitch(element.pitch);
           const accidentalType = ACCIDENTAL_TYPE_MAP[accidental];
           if (accidentalType) {
+            const accOffset = isBeamed && !beamInfo.isFirst
+              ? ACCIDENTAL_OFFSET_BEAMED_PRIOR
+              : ACCIDENTAL_OFFSET;
             const accGroup = createAccidental(accidentalType);
             accGroup.setAttribute(
               'transform',
-              `translate(${cursorX - ACCIDENTAL_OFFSET}, ${noteY})`
+              `translate(${cursorX - accOffset}, ${noteY})`
             );
             target.appendChild(accGroup);
           }

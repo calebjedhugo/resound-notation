@@ -660,6 +660,52 @@ describe('NotationRenderer', () => {
       const noteX = parseFloat(note.getAttribute('transform').match(/translate\(([^,]+)/)[1]);
       expect(accX).toBeLessThan(noteX);
     });
+
+    // Per Gould "Behind Bars" (Accidentals chapter): an accidental needs
+    // legible breathing room from the preceding element. When the prior
+    // element is a beamed sibling (no clef/barline buffer in between), the
+    // gap looks tightest, so we require an extra-wide offset there — at
+    // least ~1.5 staff spaces (30px @ 20px/sp) between the prior
+    // notehead's right edge and the accidental's left edge. Notehead
+    // half-width ≈ 6px (SMuFL noteheadBlack); sharp glyph half-width
+    // ≈ 10px (bbox 0..249 × SMUFL_SCALE 0.08).
+    it('leaves a legible gap between a beamed note and the next note\'s accidental', () => {
+      // Pack the measure with 8 beamed eighths (matching the
+      // accidentals-sweep preset density) so the spacing between beamed
+      // siblings is tight — that's where the gap regression shows up.
+      ctx.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C4', length: '1/8' },
+          { pitch: 'C#4', length: '1/8' },
+          { pitch: 'D4', length: '1/8' },
+          { pitch: 'Eb4', length: '1/8' },
+          { pitch: 'E4', length: '1/8' },
+          { pitch: 'F4', length: '1/8' },
+          { pitch: 'F#4', length: '1/8' },
+          { pitch: 'G4', length: '1/8' },
+        ],
+      });
+
+      const notes = ctx.getNotes();
+      const accidental = ctx.container.querySelector('.accidental.sharp');
+      expect(accidental).not.toBeNull();
+
+      const prevNoteX = parseFloat(
+        notes[0].getAttribute('transform').match(/translate\(([^,]+)/)[1]
+      );
+      const accX = parseFloat(
+        accidental.getAttribute('transform').match(/translate\(([^,]+)/)[1]
+      );
+
+      const NOTEHEAD_HALF = 6;
+      const SHARP_HALF = 10;
+      const MIN_GAP = 30;
+      const prevRightEdge = prevNoteX + NOTEHEAD_HALF;
+      const accLeftEdge = accX - SHARP_HALF;
+      expect(accLeftEdge - prevRightEdge).toBeGreaterThanOrEqual(MIN_GAP);
+    });
   });
 
   describe('Level 2 input', () => {
