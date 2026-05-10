@@ -27,7 +27,13 @@ import { createBarLine } from './components/BarLine.js';
 import { createTimeSignature } from './components/TimeSignature.js';
 import { getKeySignature } from './lib/keySignatures.js';
 import { computeBeamGroups } from './lib/beaming.js';
-import { createBeams, computeBeamLine, beamLineYAt } from './components/Beam.js';
+import {
+  createBeams,
+  computeBeamLine,
+  beamLineYAt,
+  BEAM_THICKNESS,
+  BEAM_GAP,
+} from './components/Beam.js';
 import { resolveTies } from './lib/tieResolver.js';
 import { createTieArc } from './components/Tie.js';
 import { renderDynamic } from './components/Dynamic.js';
@@ -688,7 +694,17 @@ export class NotationRenderer {
               ? tupletYPositions.reduce((a, b) => a + b, 0) / tupletYPositions.length
               : MIDDLE_LINE_Y;
           const stemsDown = avgY <= MIDDLE_LINE_Y;
-          const bracketY = stemsDown ? 110 : -10;
+          // For fully-beamed tuplets the number sits adjacent to the
+          // beam stack. Push the bracketY further from the primary beam
+          // by the additional thickness contributed by secondary beams
+          // (16th = 1 extra level, 32nd = 2). Without this the "6" digit
+          // of a 16th sextuplet collides with the lower edge of the
+          // double-beam stack (Gould "Behind Bars", Tuplets ch.).
+          const maxBeams = fullyBeamed
+            ? Math.max(...tupletNoteData.map((n) => n.beams))
+            : 1;
+          const beamStackExtra = Math.max(0, maxBeams - 1) * (BEAM_THICKNESS + BEAM_GAP);
+          const bracketY = stemsDown ? 110 + beamStackExtra : -10 - beamStackExtra;
           const above = !stemsDown;
 
           tupletGroup.appendChild(

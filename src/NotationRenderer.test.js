@@ -2185,4 +2185,88 @@ describe('NotationRenderer', () => {
       expect(y2 - y1).toBeGreaterThan(160);
     });
   });
+
+  describe('tuplet number / beam clearance', () => {
+    // Helper: parse the max Y coordinate present in an SVG path's `d`
+    // attribute (treating each pair as x,y after the M/L command letter).
+    function maxYInPath(d) {
+      const tokens = d.split(/[\s,MLZ]+/).filter(Boolean).map(Number);
+      let maxY = -Infinity;
+      // tokens are alternating x,y after splitting out command letters.
+      for (let i = 1; i < tokens.length; i += 2) {
+        if (Number.isFinite(tokens[i]) && tokens[i] > maxY) maxY = tokens[i];
+      }
+      return maxY;
+    }
+
+    it('keeps the sextuplet "6" digit clear of the 16th-note double-beam stack', () => {
+      // High-pitched 16th-note sextuplet → stems down, beam stack and
+      // tuplet number both sit *below* the notes. With two beam levels the
+      // beam stack outer (lower) edge extends BEAM_THICKNESS + (numBeams-1)
+      // * (BEAM_THICKNESS + BEAM_GAP) below the primary-beam y. The tuplet
+      // number's Y offset must account for that thickness or it collides.
+      ctx.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          {
+            tuplet: [6, 4],
+            notes: [
+              { pitch: 'A5', length: '1/16' },
+              { pitch: 'G5', length: '1/16' },
+              { pitch: 'F5', length: '1/16' },
+              { pitch: 'E5', length: '1/16' },
+              { pitch: 'D5', length: '1/16' },
+              { pitch: 'C5', length: '1/16' },
+            ],
+          },
+        ],
+      });
+
+      const tupletGroup = ctx.container.querySelector(
+        '[data-tuplet="6:4"]'
+      );
+      expect(tupletGroup).not.toBeNull();
+
+      // Outer (lower) edge of the beam stack within this tuplet group.
+      const beamPaths = tupletGroup.querySelectorAll('path.beam');
+      expect(beamPaths.length).toBeGreaterThanOrEqual(2); // two beam levels for 16ths
+      let beamOuterY = -Infinity;
+      beamPaths.forEach((p) => {
+        const m = maxYInPath(p.getAttribute('d'));
+        if (m > beamOuterY) beamOuterY = m;
+      });
+      expect(Number.isFinite(beamOuterY)).toBe(true);
+
+      // The tuplet-number group contains one transformed glyph per digit.
+      // Each child's transform is `translate(cx, cy)` where cy is the
+      // digit's visible vertical center. Take the topmost (smallest y)
+      // child as a conservative proxy for the digit's vertical placement.
+      const numberGroup = tupletGroup.querySelector('.tuplet-number');
+      expect(numberGroup).not.toBeNull();
+      const digits = numberGroup.children;
+      expect(digits.length).toBeGreaterThan(0);
+      let digitTopCenterY = Infinity;
+      for (const d of digits) {
+        const tr = d.getAttribute('transform') || '';
+        const match = tr.match(/translate\(\s*[-\d.]+\s*,\s*([-\d.]+)\s*\)/);
+        expect(match).not.toBeNull();
+        const cy = parseFloat(match[1]);
+        if (cy < digitTopCenterY) digitTopCenterY = cy;
+      }
+
+      // The digit visible top sits roughly half a glyph height above its
+      // visible center. Bravura tuplet digits are ~375 fu × SMUFL_SCALE
+      // (0.08) ≈ 30px tall, so half-height ≈ 15px. Per Gould "Behind
+      // Bars" (Tuplets ch.) we want roughly ½ staff space (≈ 10px in
+      // this codebase) of clear space between the beam outer edge and
+      // the digit; a 9px floor here catches the prior bug (which yielded
+      // a -5px overlap on 16th sextuplets) while tolerating the digit
+      // glyph's slightly asymmetric bbox.
+      const halfDigitHeight = 15;
+      const minBreathingRoom = 9;
+      const digitTopY = digitTopCenterY - halfDigitHeight;
+      expect(digitTopY - beamOuterY).toBeGreaterThanOrEqual(minBreathingRoom);
+    });
+  });
 });
