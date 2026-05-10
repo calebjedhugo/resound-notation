@@ -2571,4 +2571,48 @@ describe('NotationRenderer', () => {
       expect(eightVbs).toHaveLength(2);
     });
   });
+
+  describe('intrinsic measure-width measurement pass', () => {
+    it('exposes a per-voice + combined intrinsic-width table after render', async () => {
+      const { default: preset } = await import(
+        '../dev/presets/single-voice-treble.js'
+      );
+      ctx.render(preset.song);
+      const widths = ctx.renderer.getIntrinsicWidths();
+
+      expect(widths).not.toBeNull();
+      expect(Array.isArray(widths.perVoice)).toBe(true);
+      expect(widths.perVoice).toHaveLength(1);
+
+      const v0 = widths.perVoice[0];
+      expect(v0.voiceId).toBe('0');
+      expect(Array.isArray(v0.measures)).toBe(true);
+      expect(v0.measures.length).toBeGreaterThan(0);
+      for (const m of v0.measures) {
+        expect(typeof m.measureIndex).toBe('number');
+        expect(typeof m.intrinsicWidth).toBe('number');
+        expect(m.intrinsicWidth).toBeGreaterThan(0);
+        expect(typeof m.contentNoteCount).toBe('number');
+      }
+
+      expect(Array.isArray(widths.combined)).toBe(true);
+      expect(widths.combined).toHaveLength(v0.measures.length);
+      for (let i = 0; i < widths.combined.length; i += 1) {
+        expect(widths.combined[i].measureIndex).toBe(i);
+        expect(widths.combined[i].intrinsicWidth).toBeGreaterThan(0);
+      }
+    });
+
+    it('clears the cached widths on clear() and on a fresh render', () => {
+      ctx.render([{ pitch: 'C4', length: '1/4' }]);
+      expect(ctx.renderer.getIntrinsicWidths()).not.toBeNull();
+      ctx.renderer.clear();
+      expect(ctx.renderer.getIntrinsicWidths()).toBeNull();
+
+      ctx.render([{ pitch: 'D4', length: '1/2' }]);
+      const after = ctx.renderer.getIntrinsicWidths();
+      expect(after).not.toBeNull();
+      expect(after.perVoice[0].measures[0].contentNoteCount).toBe(1);
+    });
+  });
 });

@@ -13,6 +13,7 @@ import {
   NOTEHEAD_X_BLACK_GLYPH,
 } from './assets/glyphs.js';
 import { parseNoteData } from './lib/dataParser.js';
+import { measureIntrinsicWidths } from './lib/measureIntrinsicWidths.js';
 import { inferClef } from './lib/clefInference.js';
 import { getDurationInfo, fractionToBeats } from './lib/durationSymbols.js';
 import { pitchToStaffY, parsePitch } from './lib/notePositions.js';
@@ -344,6 +345,25 @@ export class NotationRenderer {
     this._scale = scale || 1.0;
     this._svg = null;
     this._noteData = [];
+    this._intrinsicWidths = null;
+  }
+
+  /**
+   * Compute the intrinsic minimum width of each measure (per voice and
+   * combined). Foundation for upcoming responsive system breaking — this
+   * iteration only computes/caches the table; layout is unchanged.
+   * @private
+   */
+  _computeIntrinsicWidths(songData) {
+    this._intrinsicWidths = measureIntrinsicWidths(songData);
+  }
+
+  /**
+   * Return the cached intrinsic-width table from the most recent render.
+   * @returns {Object|null}
+   */
+  getIntrinsicWidths() {
+    return this._intrinsicWidths;
   }
 
   /**
@@ -353,6 +373,7 @@ export class NotationRenderer {
    */
   render(songData) {
     this.clear();
+    this._computeIntrinsicWidths(songData);
 
     const parsed = parseNoteData(songData);
     const voiceCount = parsed.voices.length;
@@ -1679,6 +1700,7 @@ export class NotationRenderer {
     }
     this._svg = null;
     this._noteData = [];
+    this._intrinsicWidths = null;
   }
 
   /**
