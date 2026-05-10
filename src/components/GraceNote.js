@@ -24,11 +24,12 @@ import {
   GRACE_NOTE_APPOGGIATURA_STEM_UP_GLYPH,
 } from '../assets/glyphs.js';
 
-// Spacing between successive grace notes, and between the last grace and
-// the principal notehead. With Bravura's intrinsic glyph dimensions the
-// grace head is ~15.6px wide; 22px gives ~1 staff space of breathing
-// room from the last grace to the principal head.
-const GRACE_SPACING = 22;
+// Spacing between successive grace notes, and between the last grace
+// and the principal notehead. Grace head is ~15.6 px wide and the 8th
+// flag juts up-and-RIGHT off the stem, so spacing has to clear both
+// the next head AND the flag overhang. 30 px (~1.5 staff space) keeps
+// the flag from poking into the next element.
+const GRACE_SPACING = 30;
 
 // Lead-in pad reserved before the first grace note so the cluster
 // doesn't kiss the previous element (time signature, barline, etc.).
