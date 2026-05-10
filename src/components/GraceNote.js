@@ -1,38 +1,55 @@
 /**
  * Grace note renderer.
  * Creates SVG elements for grace notes (acciaccatura and appoggiatura).
+ *
+ * Uses Bravura's dedicated grace-note glyphs (SMuFL U+E560..E563) which
+ * bake the notehead, stem, 8th-note flag, and acciaccatura slash at the
+ * engraver's intended grace size. Per engraving convention grace notes
+ * are stem-up regardless of pitch, so we always reach for the stem-up
+ * variant.
+ *
+ * Coordinate system: glyphs are rendered at SMUFL_SCALE (0.08 px/fu)
+ * with the notehead horizontally centered on local x=0 (via the glyph's
+ * `headCx`) and the notehead vertical center at local y=0. Translating
+ * to (graceX, pitchY) lands the head on the correct staff line.
  */
 
-import { createGroup, createLine, createPath } from '../lib/svgHelpers.js';
+import { createGroup, createPath } from '../lib/svgHelpers.js';
 import { pitchToStaffY, parsePitch } from '../lib/notePositions.js';
 import { createAccidental } from './Accidental.js';
-import { createSmuflGlyph, smuflTip, NOTEHEAD_BLACK_GLYPH } from '../assets/glyphs.js';
+import {
+  createSmuflGlyph,
+  SMUFL_SCALE,
+  GRACE_NOTE_ACCIACCATURA_STEM_UP_GLYPH,
+  GRACE_NOTE_APPOGGIATURA_STEM_UP_GLYPH,
+} from '../assets/glyphs.js';
 
-const GRACE_SCALE = 0.6;
-const GRACE_SPACING = 15;
-// Grace notes use SMuFL black notehead at GRACE_SCALE. Stem attach point
-// follows the engraved tip vertex (the GRACE_SCALE outer transform on the
-// graceGroup scales the same tip values to grace size).
-const BLACK_TIP = smuflTip(NOTEHEAD_BLACK_GLYPH);
-const HEAD_TIP_X = BLACK_TIP.x;
-const HEAD_TIP_Y = BLACK_TIP.y;
-// Black notehead bbox is 295 × 250 fu → 23.6 × 20 px at SMUFL_SCALE.
-const HEAD_HALF_WIDTH = 11.8;
-const HEAD_HALF_HEIGHT = 10;
-const STEM_LENGTH = 60;
-const MIDDLE_LINE_Y = 50;
-const ACCIDENTAL_OFFSET = 18;
+// Spacing between successive grace notes, and between the last grace and
+// the principal notehead. With Bravura's intrinsic glyph dimensions the
+// grace head is ~15.6px wide; 20px gives clean breathing room without
+// the flag colliding into the principal head.
+const GRACE_SPACING = 20;
+
+// Notehead half-width in screen px (195 fu × SMUFL_SCALE / 2).
+const GRACE_HEAD_HALF_WIDTH = 7.8;
+// Notehead half-height in screen px (~165 fu × SMUFL_SCALE / 2).
+const GRACE_HEAD_HALF_HEIGHT = 6.6;
+// Accidental scale relative to principal — engraver's convention is
+// roughly notehead size (which here is ~0.6 of principal).
+const GRACE_ACCIDENTAL_SCALE = 0.6;
+// Accidental offset to the left of the grace notehead center.
+const GRACE_ACCIDENTAL_OFFSET = 12;
 
 const ACCIDENTAL_TYPE_MAP = {
   '#': 'sharp',
   b: 'flat',
 };
 
-/**
- * Normalize grace input to an array.
- * @param {Object|Array} grace
- * @returns {Array}
- */
+const GLYPH_FOR_TYPE = {
+  acciaccatura: GRACE_NOTE_ACCIACCATURA_STEM_UP_GLYPH,
+  appoggiatura: GRACE_NOTE_APPOGGIATURA_STEM_UP_GLYPH,
+};
+
 function normalizeGrace(grace) {
   if (Array.isArray(grace)) return grace;
   return [grace];
@@ -63,59 +80,32 @@ export function renderGraceNotes({ grace, mainX, mainY, clef }) {
     const noteX = mainX - (notes.length - i) * GRACE_SPACING;
 
     const graceGroup = createGroup(`grace-note grace-note-${type}`, {
-      transform: `translate(${noteX}, ${noteY}) scale(${GRACE_SCALE})`,
+      transform: `translate(${noteX}, ${noteY})`,
     });
 
-    // Note head — SMuFL Bravura black notehead, scaled by GRACE_SCALE on
-    // the parent group.
-    graceGroup.appendChild(createSmuflGlyph(NOTEHEAD_BLACK_GLYPH, 'note-head'));
+    // SMuFL grace-note glyph — head + stem + flag + (slash for
+    // acciaccatura) baked in at engraver's grace size.
+    const glyph = GLYPH_FOR_TYPE[type] || GLYPH_FOR_TYPE.acciaccatura;
+    graceGroup.appendChild(createSmuflGlyph(glyph, 'grace-note-glyph'));
 
-    // Stem — anchored at the head's long-axis tip.
-    // Engraving convention: grace notes are always stem-up regardless of pitch.
-    const stemDown = false;
-    const stemX = stemDown ? -HEAD_TIP_X : HEAD_TIP_X;
-    const stemY1 = stemDown ? -HEAD_TIP_Y : HEAD_TIP_Y;
-    const stemY2 = stemDown ? -HEAD_TIP_Y + STEM_LENGTH : HEAD_TIP_Y - STEM_LENGTH;
-    graceGroup.appendChild(
-      createLine(stemX, stemY1, stemX, stemY2, {
-        class: 'note-stem',
-        stroke: 'currentColor',
-      })
-    );
-
-    // 8th-note flag at the stem tip — same hand-rolled curve as Note.js
-    // so grace flags match principal-note flag shapes. Curls outward
-    // from the stem tip (right for stem-up, left for stem-down... but
-    // engraving convention curls the same direction; flag-down mirrors
-    // the curl across the stem tip in y).
-    const flagPath = stemDown
-      ? `M ${stemX} ${stemY2} c 8 4 12 12 8 20`
-      : `M ${stemX} ${stemY2} c 8 -4 12 -12 8 -20`;
-    graceGroup.appendChild(
-      createPath(flagPath, { class: 'note-flag', fill: 'currentColor' })
-    );
-
-    // Slash for acciaccatura — crosses both stem and flag at ~30°.
-    // Span: from below the head toward / beyond the flag tip so the
-    // slash visibly intersects the flag curl, not just the bare stem.
+    // Acciaccatura slash is baked into the glyph; expose a marker
+    // element so callers (and tests) can confirm the slash is present
+    // without inspecting path geometry.
     if (type === 'acciaccatura') {
-      const slashY1 = stemDown ? STEM_LENGTH * 0.85 : -STEM_LENGTH * 0.85;
-      const slashY2 = stemDown ? STEM_LENGTH * 0.25 : -STEM_LENGTH * 0.25;
-      graceGroup.appendChild(
-        createLine(stemX - 8, slashY1, stemX + 12, slashY2, {
-          class: 'grace-slash',
-          stroke: 'currentColor',
-          'stroke-width': '2',
-        })
-      );
+      const marker = createGroup('grace-slash');
+      graceGroup.appendChild(marker);
     }
 
-    // Accidental
+    // Accidental — positioned to the left of the grace head and
+    // shrunk to grace-note proportions.
     const { accidental } = parsePitch(gn.pitch);
     const accType = ACCIDENTAL_TYPE_MAP[accidental];
     if (accType) {
       const accGroup = createAccidental(accType);
-      accGroup.setAttribute('transform', `translate(${-ACCIDENTAL_OFFSET}, 0)`);
+      accGroup.setAttribute(
+        'transform',
+        `translate(${-GRACE_ACCIDENTAL_OFFSET}, 0) scale(${GRACE_ACCIDENTAL_SCALE})`
+      );
       graceGroup.appendChild(accGroup);
     }
 
@@ -123,27 +113,30 @@ export function renderGraceNotes({ grace, mainX, mainY, clef }) {
     graceNoteData.push({ x: noteX, y: noteY });
   }
 
-  // Slur from last grace note to main note.
-  // Grace notes are always stem-up, so the slur arcs ABOVE the heads.
-  // Both endpoints sit at a common height above whichever of the grace/main
-  // head is highest, so the curve reads as a clean, nearly-symmetric arc
-  // rather than a diagonal smear when grace and principal pitches differ.
+  // Slur from last grace head to the principal head. Grace notes are
+  // stem-up, so the slur arcs ABOVE the heads. Endpoints sit at the
+  // outer edge of each notehead vertically just above the higher head;
+  // the arc depth gives a clearly visible curve rather than a flat line.
   const lastGrace = graceNoteData[graceNoteData.length - 1];
-  const slurStartX = lastGrace.x + HEAD_HALF_WIDTH * GRACE_SCALE;
-  const slurEndX = mainX - HEAD_HALF_WIDTH;
-  const topY = Math.min(lastGrace.y, mainY) - HEAD_HALF_HEIGHT - 4;
-  const slurStartY = topY;
-  const slurEndY = topY;
+  const slurStartX = lastGrace.x + GRACE_HEAD_HALF_WIDTH;
+  const slurEndX = mainX - 8; // principal head half-width ≈ 11.8; pull in slightly
+  const topHeadY = Math.min(lastGrace.y, mainY);
+  const slurY = topHeadY - GRACE_HEAD_HALF_HEIGHT - 4;
+  const arcDepth = 6;
   const cpX = (slurStartX + slurEndX) / 2;
-  const cpY = topY - 8;
+  const cpY = slurY - arcDepth;
 
   container.appendChild(
-    createPath(`M ${slurStartX} ${slurStartY} Q ${cpX} ${cpY} ${slurEndX} ${slurEndY}`, {
-      class: 'grace-slur',
-      fill: 'none',
-      stroke: 'currentColor',
-      'stroke-width': '1.5',
-    })
+    createPath(
+      `M ${slurStartX} ${slurY} Q ${cpX} ${cpY} ${slurEndX} ${slurY}`,
+      {
+        class: 'grace-slur',
+        fill: 'none',
+        stroke: 'currentColor',
+        'stroke-width': '1.5',
+        'stroke-linecap': 'round',
+      }
+    )
   );
 
   return {

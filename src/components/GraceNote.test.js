@@ -134,13 +134,12 @@ describe('grace note rendering', () => {
     });
   });
 
-  describe('grace note rendering at 60% scale', () => {
-    it('renders grace notes with scale(0.6) transform', () => {
+  describe('grace note glyph', () => {
+    it('renders the SMuFL grace-note glyph as a child of the grace note group', () => {
       ctx.render([{ pitch: 'D4', length: '1/4', grace: { pitch: 'C4', type: 'acciaccatura' } }]);
 
-      const graceNote = ctx.getGraceNotes()[0];
-      const transform = graceNote.getAttribute('transform');
-      expect(transform).toContain('scale(0.6)');
+      const glyph = ctx.container.querySelector('.grace-note-glyph');
+      expect(glyph).not.toBeNull();
     });
   });
 });
