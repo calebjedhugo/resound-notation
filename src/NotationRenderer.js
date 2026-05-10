@@ -91,13 +91,6 @@ const TIME_SIG_PADDING = 25;
 // barline room to read as a measure boundary instead of crowding the
 // last/first notes of adjacent measures.
 const BAR_LINE_PADDING = 12;
-// Padding (px) between the rightmost note/element and the final barline at
-// the end of the system. Per Gould "Behind Bars" (Barlines / Systems), the
-// staff terminates at a barline rather than trailing off into empty space;
-// ~1 staff space of breathing room past the last head reads as a measure
-// boundary without crowding it. Mirrors BAR_LINE_PADDING for visual symmetry
-// with internal barlines.
-const FINAL_BARLINE_PADDING = 12;
 const MIDDLE_LINE_Y = 50;
 // SMuFL Bravura black notehead stem-up tip (in local pixel coords). All
 // chord rendering paths use the black-notehead tip; quarter/8th/16th heads
@@ -418,11 +411,7 @@ export class NotationRenderer {
         transform: `translate(0, ${voiceY})`,
       });
 
-      // Staff lines: created here as a placeholder so subsequent appends
-      // sit on top in z-order, but its right-edge width is patched in below
-      // once we know the final-barline x. Per Gould "Behind Bars" (Barlines
-      // / Systems) the 5 lines must terminate at the final barline, not
-      // trail off into empty staff past the last note.
+      // Staff lines
       const lines = createStaffLines(this._width);
       lines.setAttribute('transform', `translate(0, ${STAFF_TOP_OFFSET})`);
       staffGroup.appendChild(lines);
@@ -502,13 +491,6 @@ export class NotationRenderer {
 
       // Track note X positions for tie rendering
       const noteXPositions = new Map();
-      // Track the rightmost rendered visible-element x (note/rest/chord/
-      // tuplet member). Used to anchor the final barline at the end of the
-      // system so the staff doesn't trail off past the music. Updated at
-      // each cursorX-advance where a head/rest/chord/tuplet sub-note was
-      // just placed (NOT after barline padding, which would push past the
-      // last note).
-      let lastElementX = -Infinity;
       let beatPosition = 0;
 
       // Marker tracking for post-processing
@@ -608,7 +590,6 @@ export class NotationRenderer {
                 }
 
                 tupletGroup.appendChild(chordGroup);
-                if (cursorX > lastElementX) lastElementX = cursorX;
 
                 const effectiveBeats = getTupletNoteDuration(
                   chordLength,
@@ -632,7 +613,6 @@ export class NotationRenderer {
               const restGroup = createRest({ length: tEl.length, x: cursorX });
               restGroup.setAttribute('data-beat', String(beatPosition));
               tupletGroup.appendChild(restGroup);
-              if (cursorX > lastElementX) lastElementX = cursorX;
 
               const info = getDurationInfo(tEl.length);
               const effectiveBeats = getTupletNoteDuration(
@@ -680,7 +660,6 @@ export class NotationRenderer {
 
               tupletGroup.appendChild(noteGroup);
               tupletNoteData.push({ x: cursorX, y: noteY, beams: info.beams });
-              if (cursorX > lastElementX) lastElementX = cursorX;
 
               // Ledger lines
               const ledgerGroup = createLedgerLines({ x: cursorX, y: noteY });
@@ -957,7 +936,6 @@ export class NotationRenderer {
 
             // Record positions for ties
             noteXPositions.set(i, cursorX);
-            if (cursorX > lastElementX) lastElementX = cursorX;
 
             // Store note data for playback
             const chordBeats = fractionToBeats(chordLength) * (chordNotes[0].dotted ? 1.5 : 1);
@@ -1012,7 +990,6 @@ export class NotationRenderer {
 
         // Record position for tie rendering
         noteXPositions.set(i, cursorX);
-        if (cursorX > lastElementX) lastElementX = cursorX;
 
         const currentBeat = beatPosition;
         let elementBeats = 0;
@@ -1393,29 +1370,6 @@ export class NotationRenderer {
 
         staffGroup.appendChild(lyricsGroup);
       }
-
-      // Final barline: anchor the staff's right edge at a thin barline
-      // placed FINAL_BARLINE_PADDING past the rightmost rendered head.
-      // Without this the staff's 5 lines trail off into empty space past
-      // the music — Gould "Behind Bars" calls for a barline at the end of
-      // every system. Excerpt default is `barlineSingle` (thin); a complete
-      // piece would use `barlineFinal` (thin + thick).
-      // Use lastElementX (rightmost head/rest) rather than cursorX, since
-      // cursorX may already include BAR_LINE_PADDING from a just-drawn
-      // measure barline — adding another full padding past that would
-      // produce a redundant barline 24 px past the existing one.
-      const finalAnchorX = Number.isFinite(lastElementX) ? lastElementX : cursorX;
-      const finalBarlineX = finalAnchorX + FINAL_BARLINE_PADDING;
-      staffGroup.appendChild(createBarLine(finalBarlineX));
-      // Track the final-barline X so brace-group shared-barline rendering
-      // below can draw a tall shared final barline that aligns.
-      barlineXs.push(finalBarlineX);
-
-      // Clip the 5 staff lines (and only those) to end at the final
-      // barline. Leave the system-start barline alone (its x2 is 0).
-      lines.querySelectorAll('.staff-line').forEach((line) => {
-        line.setAttribute('x2', String(finalBarlineX));
-      });
 
       this._svg.appendChild(staffGroup);
     });
