@@ -218,6 +218,40 @@ export const HALF_NOTEHEAD_GLYPH = {
   tipVbY: 0.288,
 };
 
+// Bravura grace-note glyphs (U+E560..E563). Each glyph bakes the notehead +
+// stem + 8th-note flag (and slash for acciaccatura) at the engraver's intended
+// grace size. Registration point is the notehead center: notehead extent in
+// font-unit y is approximately [-83, 82], i.e. centered on y=0 — so the
+// renderer translates to (graceX, pitchY) and the head lands on the correct
+// staff line. Path data verbatim from
+// ~/Desktop/smufl-glyphs/bravura/graceNote*.svg.
+export const GRACE_NOTE_ACCIACCATURA_STEM_UP_GLYPH = {
+  d: 'M353 386C350 390 345 393 340 393C337 393 334 391 331 389L279 350C272 361 265 373 257 383C229 424 205 466 195 514C194 523 188 524 184 524H179C175 524 172 524 172 518V267L92 206C88 203 85 198 85 193C85 190 87 187 89 184C92 180 97 177 102 177C105 177 108 178 111 181L172 227V71C161 78 147 82 131 82C58 82 0 29 0 -28C0 -63 28 -83 64 -83C121 -83 191 -32 195 22V245L274 306C290 274 298 241 298 205C298 182 294 158 285 136C284 133 283 130 283 128C283 120 288 115 292 113C293 112 295 112 296 112C300 112 305 115 308 123C311 128 323 173 323 206V210C321 249 311 286 294 321L350 364C354 367 357 372 357 377C357 380 355 383 353 386ZM195 285V373C212 369 236 359 257 333Z',
+  bbox: { xMin: 0, yMin: -83, xMax: 357, yMax: 524 },
+  // Notehead horizontal extent in font units: approximately 0..195. Stem rises
+  // to the right on the up-stem variant; for x-centering we want the NOTEHEAD
+  // centered on local x=0, not the full glyph bbox. headCx encodes that.
+  headCx: 97.5,
+};
+
+export const GRACE_NOTE_ACCIACCATURA_STEM_DOWN_GLYPH = {
+  d: 'M183 -395 115 -343C140 -300 156 -253 156 -204C156 -166 137 -105 135 -100C131 -93 127 -90 123 -90H119C116 -92 110 -97 110 -105C110 -107 110 -109 112 -112C122 -138 127 -170 127 -199C127 -245 119 -287 91 -324L23 -272V-72C34 -79 48 -83 64 -83C122 -83 195 -28 195 28C195 62 169 83 130 83C59 83 2 32 0 -24V-254L-58 -210C-61 -208 -64 -207 -68 -207C-73 -207 -77 -209 -80 -213C-83 -216 -84 -219 -84 -223C-84 -228 -82 -233 -77 -236L0 -295V-516C0 -522 5 -525 8 -525C13 -525 19 -517 20 -511C30 -462 58 -423 88 -384L98 -370L164 -421C167 -423 171 -424 174 -424C179 -424 183 -422 186 -418C188 -415 189 -411 189 -408C189 -403 187 -398 183 -395ZM23 -372V-313L70 -348C53 -363 36 -369 23 -372Z',
+  bbox: { xMin: -84, yMin: -525, xMax: 195, yMax: 83 },
+  headCx: 97.5,
+};
+
+export const GRACE_NOTE_APPOGGIATURA_STEM_UP_GLYPH = {
+  d: 'M257 385C229 426 205 468 195 516C194 525 188 526 184 526H179C175 526 172 526 172 520V73C161 80 147 84 131 84C58 84 0 31 0 -26C0 -61 28 -81 64 -81C121 -81 191 -30 195 24V375C267 358 298 274 298 207C298 184 294 160 285 138C284 135 283 132 283 130C283 122 288 117 292 115C293 114 295 114 296 114C300 114 305 117 308 125C311 130 323 175 323 208V212C320 276 293 336 257 385Z',
+  bbox: { xMin: 0, yMin: -81, xMax: 323, yMax: 526 },
+  headCx: 97.5,
+};
+
+export const GRACE_NOTE_APPOGGIATURA_STEM_DOWN_GLYPH = {
+  d: 'M64 -86C122 -86 195 -31 195 25C195 59 169 80 130 80C59 80 2 29 0 -27V-519C0 -525 5 -528 8 -528C13 -528 19 -520 20 -514C30 -465 58 -426 88 -387C127 -334 156 -273 156 -207C156 -169 137 -108 135 -103C131 -96 127 -93 123 -93H119C116 -95 110 -100 110 -108C110 -110 110 -112 112 -115C122 -141 127 -173 127 -202C127 -272 100 -357 23 -375V-75C34 -82 48 -86 64 -86Z',
+  bbox: { xMin: 0, yMin: -528, xMax: 195, yMax: 80 },
+  headCx: 97.5,
+};
+
 // Bravura U+E000 brace. Drawn at unit reference height — caller stretches
 // vertically (via scale Y) to match the desired group span.
 export const BRACE_GLYPH = {
@@ -286,7 +320,12 @@ export function glyphTip(glyph, targetHeight) {
  * @returns {SVGGElement}
  */
 export function createSmuflGlyph(glyph, className) {
-  const cx = (glyph.bbox.xMin + glyph.bbox.xMax) / 2;
+  // Grace-note glyphs (and any glyph with a `headCx`) center on the notehead
+  // x-center, not the full bbox center, so the head lands at local x=0 and
+  // the stem/flag overhang to one side.
+  const cx = typeof glyph.headCx === 'number'
+    ? glyph.headCx
+    : (glyph.bbox.xMin + glyph.bbox.xMax) / 2;
   const wrapper = createGroup(className);
   const inner = createGroup('', {
     transform: `translate(${-cx * SMUFL_SCALE}, 0) scale(${SMUFL_SCALE}, ${-SMUFL_SCALE})`,
