@@ -279,7 +279,7 @@ export class NotationRenderer {
     // headroom at the top so the upper hook doesn't get clipped by
     // SVG y=0. Bottom hook fits in the existing trailing margin.
     const hasBracketGroup = staffGroups.some((g) => g.type === 'bracket');
-    const bracketTopMargin = hasBracketGroup ? 24 : 0;
+    const bracketTopMargin = hasBracketGroup ? 35 : 0;
 
     // Compute Y positions for each voice
     const voiceYPositions = [];
@@ -1336,14 +1336,20 @@ export class NotationRenderer {
       const groupHeight = bottomY - topY;
       let groupEl;
       if (group.type === 'bracket') {
-        groupEl = createBracket({ height: groupHeight });
+        // Engraving convention: bracket trunk extends ~0.5 staff space
+        // above the top staff and below the bottom staff (equal padding).
+        const PAD = 10;
+        const bracketTopY = topY - PAD;
+        const bracketBottomY = bottomY + PAD;
+        const bracketHeight = bracketBottomY - bracketTopY;
+        groupEl = createBracket({ height: bracketHeight });
         // Engraver's "contain" layout: trunk sits to the LEFT of the staff
         // with a ~3 px padding gap, and the hook curls reach RIGHTWARD
         // INTO the staff area to grasp it. Local footprint: trunk
         // x=[0,10], hook tips at x≈37.5. With translate x=-13, the
         // trunk's right edge lands at x=-3 (3 px before staff lines at
         // x=0) and hook tips reach x≈24.5 — overlapping the staff.
-        groupEl.setAttribute('transform', `translate(-13, ${topY})`);
+        groupEl.setAttribute('transform', `translate(-13, ${bracketTopY})`);
       } else {
         groupEl = createBrace({ height: groupHeight });
         // Brace sits OUTSIDE the staff with a ~2 px gap. Brace local x
