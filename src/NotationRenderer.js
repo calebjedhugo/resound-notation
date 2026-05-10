@@ -1336,20 +1336,20 @@ export class NotationRenderer {
       const groupHeight = bottomY - topY;
       let groupEl;
       if (group.type === 'bracket') {
-        // Engraving convention: bracket trunk extends ~0.5 staff space
-        // above the top staff and below the bottom staff (equal padding).
-        const PAD = 10;
+        // Engraver's "contain" layout: trunk sits OUTSIDE the staff with
+        // equal 4 px padding on all sides — vertical padding above/below
+        // the staff edges, horizontal padding between trunk's right edge
+        // and the staff lines' left edge. Hook curls reach RIGHTWARD
+        // INTO the staff area to grasp it.
+        // Local footprint: trunk x=[0,10], hook tips at x≈37.5. With
+        // translate x=-14, the trunk's right edge lands at x=-4 (4 px
+        // before staff lines at x=0); hook tips reach x≈23.5 — overlapping.
+        const PAD = 4;
         const bracketTopY = topY - PAD;
         const bracketBottomY = bottomY + PAD;
         const bracketHeight = bracketBottomY - bracketTopY;
         groupEl = createBracket({ height: bracketHeight });
-        // Engraver's "contain" layout: trunk sits to the LEFT of the staff
-        // with a ~3 px padding gap, and the hook curls reach RIGHTWARD
-        // INTO the staff area to grasp it. Local footprint: trunk
-        // x=[0,10], hook tips at x≈37.5. With translate x=-13, the
-        // trunk's right edge lands at x=-3 (3 px before staff lines at
-        // x=0) and hook tips reach x≈24.5 — overlapping the staff.
-        groupEl.setAttribute('transform', `translate(-13, ${bracketTopY})`);
+        groupEl.setAttribute('transform', `translate(-14, ${bracketTopY})`);
       } else {
         groupEl = createBrace({ height: groupHeight });
         // Brace sits OUTSIDE the staff with a ~2 px gap. Brace local x
