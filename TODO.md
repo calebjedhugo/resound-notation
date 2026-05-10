@@ -24,6 +24,12 @@ Visual issues caught in the dev playground after the SMuFL Bravura swap (commits
 - [ ] Re-run a sweep through every preset, snapping each, eyeballing for new regressions introduced by the SMuFL swap (ties/slurs, grace notes, percussion, multi-voice independent, key-signatures, ledger-lines-extreme).
 - [ ] Consider exposing a Petaluma variant — `~/Desktop/smufl-glyphs/petaluma/` is the same 83 glyphs in handwritten/jazz style.
 
+## System layout — deferred from the responsive-layout work
+
+- [ ] **Final-system justification is too coarse.** Current Gould rule (don't justify if 1 measure final OR stretch >1.5) leaves visually short last systems ragged. Some short-last-system cases should still justify (Gould has nuanced sub-cases). Look at how Lilypond / Dorico decide.
+- [ ] **Backflow when the final system is very short.** When the last system contains far less content than the prior systems, an optimal break would pull a measure from system N-1 to balance. Requires Knuth-Plass-style optimal break-point selection (sketched as "Iteration E" in the responsive-layout plan) — DP across all candidate break points minimizing total badness.
+- [ ] **Cross-system ties and slurs.** Currently truncated at boundaries with a `console.warn`. Engraving convention is a half-tie at end of system N and a half-tie at start of system N+1 reconnecting the same pitch. Needs a per-system handoff state in `_renderSystem` and a new tie-fragment renderer.
+
 ## Notes
 
 - 520/520 tests passing as of commit `7cd6a84`.
