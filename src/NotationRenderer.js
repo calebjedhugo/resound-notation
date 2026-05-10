@@ -67,6 +67,11 @@ const VOICE_HEIGHT = 200;
 const VOICE_GAP = 40;
 const GRAND_STAFF_GAP = 60;
 const STAFF_HEIGHT = 80; // 5 lines, 20px apart
+// Vertical gap between stacked staff systems when long pieces wrap onto
+// multiple systems. Per Gould "Behind Bars" (Systems chapter), 4 staff
+// spaces of breathing room reads as a clear system break without wasting
+// vertical real estate.
+const SYSTEM_GAP = 80;
 // Distance (px) from notehead center back to accidental center.
 // Bravura sharp ≈ 20 wide, head half-width ≈ 12, plus ~5px breathing
 // room → 30 keeps the accidental clear of the head.
@@ -326,18 +331,18 @@ export class NotationRenderer {
     }
 
     const hasBraceGroups = braceGroups.length > 0;
-    let totalHeight;
+    let baseTotalHeight;
     if (voiceCount <= 1) {
-      totalHeight = this._height;
+      baseTotalHeight = this._height;
     } else if (hasBraceGroups) {
       // Dynamic height for grouped staves. The trailing 40 covers
       // descenders and bracket bottom hooks.
       const lastVoiceBottom =
         voiceYPositions[voiceCount - 1] + STAFF_TOP_OFFSET + STAFF_HEIGHT + 40;
-      totalHeight = lastVoiceBottom;
+      baseTotalHeight = lastVoiceBottom;
     } else {
       // Legacy formula for independent staves
-      totalHeight = voiceCount * VOICE_HEIGHT + (voiceCount - 1) * VOICE_GAP;
+      baseTotalHeight = voiceCount * VOICE_HEIGHT + (voiceCount - 1) * VOICE_GAP;
     }
 
     // Extend the viewBox to the left when a bracket OR brace is present so
@@ -372,11 +377,15 @@ export class NotationRenderer {
       braceLeftMargin = Math.ceil(2 + maxBraceWidth + 4);
     }
     const bracketLeftMargin = hasBracketGroup ? 50 : braceLeftMargin;
+    // SVG dimensions are finalized below, once we know how many staff
+    // systems the music wraps onto. Initial values use baseTotalHeight
+    // (single-system height); we patch height/viewBox after computing
+    // systemBreakBeats.
     this._svg = createSvgElement('svg', {
       class: 'notation',
       width: this._width + bracketLeftMargin,
-      height: totalHeight,
-      viewBox: `${-bracketLeftMargin} 0 ${this._width + bracketLeftMargin} ${totalHeight}`,
+      height: baseTotalHeight,
+      viewBox: `${-bracketLeftMargin} 0 ${this._width + bracketLeftMargin} ${baseTotalHeight}`,
     });
 
     // Pre-pass: compute the shared music-start X (max over voices of
@@ -405,32 +414,137 @@ export class NotationRenderer {
       : null;
     const beatToX = computeBeatLayout(parsed.voices, musicStartX);
 
+    // Compute system breaks (Gould "Behind Bars", Systems chapter): when
+    // music exceeds the configured width, wrap onto a new staff system at
+    // a measure boundary. Decision made globally so multi-voice scores
+    // wrap as a synchronized group (all voices break at the same barline).
+    //
+    // Algorithm: walk measure boundaries left-to-right, tracking the
+    // running "right edge" of each measure (= beatToX(measureEnd) +
+    // accumulated barline padding). When the next measure's right edge
+    // would exceed width, that measure starts a new system.
+    //
+    // `systemBreakBeats` is a Set of beat values AT WHICH a new system
+    // begins (i.e., measure-start beats that should land on a fresh
+    // staff). The first measure (beat 0) is implicitly a system start.
+    const systemBreakBeats = new Set();
+    if (sharedMeasureLength) {
+      const allBeats = [...beatToX.keys()].sort((a, b) => a - b);
+      const totalBeats = allBeats.length > 0 ? allBeats[allBeats.length - 1] : 0;
+      // Build the list of completed-measure boundary beats. We include
+      // the final boundary even if it equals totalBeats — its right
+      // edge needs to be tested against the available width to decide
+      // whether the LAST measure wraps onto a new system. The wrap
+      // itself never targets the final boundary (no music after it),
+      // only earlier boundaries.
+      const measureBoundaryBeats = [];
+      for (let b = sharedMeasureLength; b <= totalBeats + 0.001; b += sharedMeasureLength) {
+        measureBoundaryBeats.push(b);
+      }
+      // Available width per system: the SVG width, minus the header
+      // (which is reprised at the start of every system) and minus
+      // breathing room for the final barline.
+      const headerWidth = musicStartX; // STAFF_START_X + CLEF + keysig + timesig
+      const availableMusicWidth = this._width - headerWidth - FINAL_BARLINE_PADDING - 4;
+      let systemStartLayoutX = musicStartX;
+      let cumulativeBarlinePadding = 0;
+      let measuresOnCurrentSystem = 0;
+      for (let mi = 0; mi < measureBoundaryBeats.length; mi += 1) {
+        const measureEndBeat = measureBoundaryBeats[mi];
+        // Right edge of this measure in single-line layout coords:
+        // beatToX(measureEnd) plus accumulated barline padding plus
+        // half a barline-padding allowance for the barline itself.
+        const measureEndLayoutX = (beatToX.get(measureEndBeat) || 0)
+          + cumulativeBarlinePadding + BAR_LINE_PADDING;
+        const widthFromSystemStart = measureEndLayoutX - systemStartLayoutX;
+        if (
+          measuresOnCurrentSystem > 0
+          && widthFromSystemStart > availableMusicWidth
+        ) {
+          // Wrap: the previous measure was the last that fit. Break at
+          // its boundary (= measureBoundaryBeats[mi-1]).
+          const wrapBeat = measureBoundaryBeats[mi - 1];
+          systemBreakBeats.add(wrapBeat);
+          systemStartLayoutX = (beatToX.get(wrapBeat) || 0)
+            + cumulativeBarlinePadding;
+          measuresOnCurrentSystem = 1;
+        } else {
+          measuresOnCurrentSystem += 1;
+        }
+        cumulativeBarlinePadding += BAR_LINE_PADDING * 2;
+      }
+    }
+
+    const totalSystems = systemBreakBeats.size + 1;
+
+    // Per-voice stride between successive systems: the height of the
+    // voice's own staff allocation plus SYSTEM_GAP. For multi-voice
+    // pieces, each system stacks ALL voices before the next system
+    // begins, so the per-system stride is the full multi-voice block.
+    const lastVoiceBottomY = voiceCount > 0
+      ? voiceYPositions[voiceCount - 1] + STAFF_TOP_OFFSET + STAFF_HEIGHT
+      : STAFF_HEIGHT;
+    const firstVoiceTopY = voiceCount > 0
+      ? voiceYPositions[0] + STAFF_TOP_OFFSET
+      : 0;
+    const systemBlockHeight = lastVoiceBottomY - firstVoiceTopY;
+    const systemStride = systemBlockHeight + SYSTEM_GAP;
+
+    // Now that we know totalSystems, patch the SVG to fit them.
+    if (totalSystems > 1) {
+      const finalHeight = baseTotalHeight + (totalSystems - 1) * systemStride;
+      this._svg.setAttribute('height', String(finalHeight));
+      this._svg.setAttribute(
+        'viewBox',
+        `${-bracketLeftMargin} 0 ${this._width + bracketLeftMargin} ${finalHeight}`,
+      );
+    }
+
     // Track per-voice barline X positions for shared barlines
     const voiceBarlineXPositions = new Map();
+    // Track per-voice, per-system barline X positions and topY/bottomY,
+    // so brace and shared-barline rendering can repeat per system.
+    const voiceSystemData = new Map(); // voiceId -> [{ barlineXs, topY, bottomY }, ...]
 
     parsed.voices.forEach((voice, index) => {
       const clef = voice.clef || inferClef(voice.notes);
       const voiceY = voiceYPositions[index];
 
-      const staffGroup = createGroup(`staff staff-${index}`, {
-        'data-voice-id': voice.id,
-        'data-clef': clef,
-        transform: `translate(0, ${voiceY})`,
+      // System-tracking state. Each voice may render across multiple
+      // staff systems if the music exceeds the configured width. Per
+      // Gould "Behind Bars" (Systems chapter), wraps happen at measure
+      // boundaries; voices in a multi-voice score wrap as a synchronized
+      // group (driven by the shared systemBreakBeats set computed above).
+      let currentSystemIndex = 0;
+      const systemRecords = []; // { staffGroup, lines, lastElementX, finalBarlineX, barlineXs, systemY }
+      const allBarlineXs = []; // flattened across systems for legacy callers
+
+      const makeSystem = (sysIdx) => {
+        const sysY = voiceY + sysIdx * systemStride;
+        const sg = createGroup(`staff staff-${index}`, {
+          'data-voice-id': voice.id,
+          'data-clef': clef,
+          'data-system-index': String(sysIdx),
+          transform: `translate(0, ${sysY})`,
+        });
+        const ln = createStaffLines(this._width);
+        ln.setAttribute('transform', `translate(0, ${STAFF_TOP_OFFSET})`);
+        sg.appendChild(ln);
+        const cg = createClef(clef);
+        cg.setAttribute('transform', `translate(${STAFF_START_X}, 0)`);
+        sg.appendChild(cg);
+        return { staffGroup: sg, lines: ln, systemY: sysY, barlineXs: [] };
+      };
+
+      const initial = makeSystem(0);
+      let staffGroup = initial.staffGroup;
+      let lines = initial.lines;
+      systemRecords.push({
+        staffGroup,
+        lines,
+        systemY: initial.systemY,
+        barlineXs: initial.barlineXs,
       });
-
-      // Staff lines: created here as a placeholder so subsequent appends
-      // sit on top in z-order, but its right-edge width is patched in below
-      // once we know the final-barline x. Per Gould "Behind Bars" (Barlines
-      // / Systems) the 5 lines must terminate at the final barline, not
-      // trail off into empty staff past the last note.
-      const lines = createStaffLines(this._width);
-      lines.setAttribute('transform', `translate(0, ${STAFF_TOP_OFFSET})`);
-      staffGroup.appendChild(lines);
-
-      // Clef
-      const clefGroup = createClef(clef);
-      clefGroup.setAttribute('transform', `translate(${STAFF_START_X}, 0)`);
-      staffGroup.appendChild(clefGroup);
 
       let cursorX = STAFF_START_X + CLEF_WIDTH;
 
@@ -464,14 +578,28 @@ export class NotationRenderer {
       // padding applied per voice as it crosses measure boundaries).
       cursorX = musicStartX;
       let barlineOffset = 0;
+      // Per-system X shift: the absolute layout-X at which the current
+      // system started. Subtracted from beatToX values so that, after a
+      // system wrap, beats look up their position relative to the new
+      // system's left edge instead of the original single-line layout.
+      let systemXShift = 0;
       const xForBeat = (beat) => {
         const base = beatToX.get(beat);
-        return (base !== undefined ? base : cursorX) + barlineOffset;
+        return (base !== undefined ? base : cursorX) + barlineOffset - systemXShift;
       };
 
-      // Track barline X positions for shared barlines in brace groups
-      const barlineXs = [];
-      voiceBarlineXPositions.set(voice.id, barlineXs);
+      // Track barline X positions for shared barlines in brace groups.
+      // Pushes record to both the current system's array (for per-
+      // system shared-barline rendering) and a flat list (legacy).
+      const pushBarlineX = (x) => {
+        systemRecords[currentSystemIndex].barlineXs.push(x);
+        allBarlineXs.push(x);
+      };
+      // Legacy single-array reference for callers that read X positions.
+      // Since wrap behavior splits these across systems, the flat
+      // allBarlineXs is what multi-system consumers actually want.
+      const barlineXs = { push: pushBarlineX };
+      voiceBarlineXPositions.set(voice.id, allBarlineXs);
 
       // Pre-compute beam groups
       const beamGroups = timeSignature ? computeBeamGroups(voice.notes, timeSignature) : [];
@@ -510,6 +638,57 @@ export class NotationRenderer {
       // last note).
       let lastElementX = -Infinity;
       let beatPosition = 0;
+
+      // Finalize the current system: append a final thin barline just
+      // past the last rendered element and clip the 5 staff lines to it.
+      // Per Gould "Behind Bars" (Barlines / Systems), every system
+      // terminates at a barline rather than trailing off into empty
+      // staff. Returns the finalBarlineX so the caller can record it.
+      const finalizeCurrentSystem = (cursorXAtEnd) => {
+        const finalAnchorX = Number.isFinite(lastElementX) ? lastElementX : cursorXAtEnd;
+        const finalBarlineX = finalAnchorX + FINAL_BARLINE_PADDING;
+        staffGroup.appendChild(createBarLine(finalBarlineX));
+        pushBarlineX(finalBarlineX);
+        lines.querySelectorAll('.staff-line').forEach((line) => {
+          line.setAttribute('x2', String(finalBarlineX));
+        });
+        return finalBarlineX;
+      };
+
+      // Switch to a new staff system. Called when the renderer crosses
+      // a measure boundary listed in systemBreakBeats. Effects: closes
+      // out the current system (final barline + staff-line clipping),
+      // creates a new staffGroup at +systemStride Y, renders fresh
+      // staff-lines + clef, and resets cursorX to musicStartX while
+      // accumulating systemXShift so xForBeat returns positions
+      // relative to the new system's left edge.
+      const wrapToNewSystem = () => {
+        finalizeCurrentSystem(cursorX);
+        this._svg.appendChild(staffGroup);
+
+        currentSystemIndex += 1;
+        const next = makeSystem(currentSystemIndex);
+        staffGroup = next.staffGroup;
+        lines = next.lines;
+        systemRecords.push({
+          staffGroup,
+          lines,
+          systemY: next.systemY,
+          barlineXs: next.barlineXs,
+        });
+
+        // Subtract everything to the left of where the new system
+        // resumes, so xForBeat lands at musicStartX again. cursorX is
+        // currently the absolute layout-X of the just-drawn measure
+        // barline (the wrap point, in old-coords) + barlineOffset; for
+        // the new system we want it at musicStartX (header-relative).
+        const wrapAbsX = cursorX; // already in the OLD system's local coord (== absolute layout-X minus prior systemXShift, plus barlineOffset)
+        const targetX = musicStartX;
+        const delta = wrapAbsX - targetX;
+        systemXShift += delta;
+        cursorX = targetX;
+        lastElementX = -Infinity;
+      };
 
       // Marker tracking for post-processing
       const pendingDynamics = [];
@@ -980,18 +1159,29 @@ export class NotationRenderer {
             if (measureLength && chordElementBeats > 0) {
               cumulativeBeats += chordAdjBeats;
               while (cumulativeBeats >= measureLength - 0.001) {
-                barlineOffset += BAR_LINE_PADDING;
-                const barlineX = xForBeat(beatPosition);
-                staffGroup.appendChild(createBarLine(barlineX));
-                barlineXs.push(barlineX);
-                barlineOffset += BAR_LINE_PADDING;
+                const isWrapPoint = systemBreakBeats.has(beatPosition)
+                  && Math.abs(cumulativeBeats - measureLength) < 0.001;
+                if (!isWrapPoint) {
+                  barlineOffset += BAR_LINE_PADDING;
+                  const barlineX = xForBeat(beatPosition);
+                  staffGroup.appendChild(createBarLine(barlineX));
+                  barlineXs.push(barlineX);
+                  barlineOffset += BAR_LINE_PADDING;
+                } else {
+                  barlineOffset += BAR_LINE_PADDING * 2;
+                }
                 cumulativeBeats -= measureLength;
               }
               if (Math.abs(cumulativeBeats) < 0.001) {
                 cumulativeBeats = 0;
               }
             }
-            cursorX = xForBeat(beatPosition);
+            if (systemBreakBeats.has(beatPosition)) {
+              cursorX = xForBeat(beatPosition);
+              wrapToNewSystem();
+            } else {
+              cursorX = xForBeat(beatPosition);
+            }
           }
           // eslint-disable-next-line no-continue
           continue;
@@ -1221,19 +1411,41 @@ export class NotationRenderer {
         if (measureLength && elementBeats > 0) {
           cumulativeBeats += elementBeats;
           while (cumulativeBeats >= measureLength - 0.001) {
-            barlineOffset += BAR_LINE_PADDING;
-            const barlineX = xForBeat(beatPosition);
-            staffGroup.appendChild(createBarLine(barlineX));
-            barlineXs.push(barlineX);
-            barlineOffset += BAR_LINE_PADDING;
+            // If THIS measure boundary is a system break, skip emitting
+            // the internal barline — the finalizeCurrentSystem call
+            // inside wrapToNewSystem will emit the system-end barline.
+            const isWrapPoint = systemBreakBeats.has(beatPosition)
+              && Math.abs(cumulativeBeats - measureLength) < 0.001;
+            if (!isWrapPoint) {
+              barlineOffset += BAR_LINE_PADDING;
+              const barlineX = xForBeat(beatPosition);
+              staffGroup.appendChild(createBarLine(barlineX));
+              barlineXs.push(barlineX);
+              barlineOffset += BAR_LINE_PADDING;
+            } else {
+              // Still account for the barline padding in the layout so
+              // post-wrap beats stay aligned with the original beatToX
+              // map. (The actual barline glyph for this measure is the
+              // finalize-emitted one in finalizeCurrentSystem.)
+              barlineOffset += BAR_LINE_PADDING * 2;
+            }
             cumulativeBeats -= measureLength;
           }
           if (Math.abs(cumulativeBeats) < 0.001) {
             cumulativeBeats = 0;
           }
         }
-        // Advance cursor to next beat's shared X (with current barline offset).
-        cursorX = xForBeat(beatPosition);
+        // System wrap: when this measure boundary is a system break,
+        // close out the current system and start a fresh one with its
+        // own staff lines + clef. Driven by the global systemBreakBeats
+        // set so multi-voice scores stay synchronized.
+        if (systemBreakBeats.has(beatPosition)) {
+          cursorX = xForBeat(beatPosition);
+          wrapToNewSystem();
+        } else {
+          // Advance cursor to next beat's shared X (with current barline offset).
+          cursorX = xForBeat(beatPosition);
+        }
       }
 
       // Tie rendering pass (after all notes so ties draw on top)
@@ -1394,30 +1606,19 @@ export class NotationRenderer {
         staffGroup.appendChild(lyricsGroup);
       }
 
-      // Final barline: anchor the staff's right edge at a thin barline
-      // placed FINAL_BARLINE_PADDING past the rightmost rendered head.
-      // Without this the staff's 5 lines trail off into empty space past
-      // the music — Gould "Behind Bars" calls for a barline at the end of
-      // every system. Excerpt default is `barlineSingle` (thin); a complete
-      // piece would use `barlineFinal` (thin + thick).
-      // Use lastElementX (rightmost head/rest) rather than cursorX, since
-      // cursorX may already include BAR_LINE_PADDING from a just-drawn
-      // measure barline — adding another full padding past that would
-      // produce a redundant barline 24 px past the existing one.
-      const finalAnchorX = Number.isFinite(lastElementX) ? lastElementX : cursorX;
-      const finalBarlineX = finalAnchorX + FINAL_BARLINE_PADDING;
-      staffGroup.appendChild(createBarLine(finalBarlineX));
-      // Track the final-barline X so brace-group shared-barline rendering
-      // below can draw a tall shared final barline that aligns.
-      barlineXs.push(finalBarlineX);
-
-      // Clip the 5 staff lines (and only those) to end at the final
-      // barline. Leave the system-start barline alone (its x2 is 0).
-      lines.querySelectorAll('.staff-line').forEach((line) => {
-        line.setAttribute('x2', String(finalBarlineX));
-      });
+      // Final barline for the LAST system. (Earlier systems were
+      // finalized by wrapToNewSystem.) Per Gould "Behind Bars"
+      // (Barlines / Systems), every system terminates at a barline so
+      // the staff lines don't trail off past the music.
+      finalizeCurrentSystem(cursorX);
 
       this._svg.appendChild(staffGroup);
+
+      // Record per-system data for brace / shared-barline rendering.
+      voiceSystemData.set(voice.id, systemRecords.map((r) => ({
+        barlineXs: r.barlineXs,
+        systemY: r.systemY,
+      })));
     });
 
     // Render brace and shared barlines for staff groups

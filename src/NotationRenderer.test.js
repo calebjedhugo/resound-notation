@@ -2388,4 +2388,79 @@ describe('NotationRenderer', () => {
       });
     });
   });
+
+  // Per Gould "Behind Bars" (Systems chapter): when music exceeds the
+  // available staff width, it must break onto a new staff system at a
+  // barline (never mid-measure). Each system gets its own clef and a fresh
+  // run of staff lines, stacked below the previous one.
+  describe('system wrapping (long pieces)', () => {
+    it('wraps long pieces onto multiple staff systems at measure boundaries', () => {
+      // Build a single-voice piece long enough that at width=400 it must
+      // break onto multiple systems. Eight 4/4 measures of quarter notes.
+      const notes = [];
+      for (let m = 0; m < 8; m += 1) {
+        notes.push({ pitch: 'C5', length: '1/4' });
+        notes.push({ pitch: 'D5', length: '1/4' });
+        notes.push({ pitch: 'E5', length: '1/4' });
+        notes.push({ pitch: 'F5', length: '1/4' });
+      }
+      // Shrink the renderer's width so wrapping is forced.
+      ctx.renderer._width = 400;
+      ctx.render({
+        timeSignature: [4, 4],
+        keySignature: 'C',
+        notes,
+      });
+
+      // (a) More than one .staff-lines element means we got more than one
+      // system (with a single voice, each system contributes one staff).
+      const staffLines = ctx.container.querySelectorAll('.staff-lines');
+      expect(staffLines.length).toBeGreaterThan(1);
+
+      // (c) Each system has its own clef.
+      const clefs = ctx.container.querySelectorAll('.clef');
+      expect(clefs.length).toBe(staffLines.length);
+
+      // (b) Later notes should appear at smaller X (the wrap reset cursorX)
+      // OR at a larger Y (stacked below). Read all .note groups, sort by
+      // DOM order (== render order == musical order), and assert that the
+      // last note has a Y strictly greater than the first note's Y — this
+      // proves at least one system break translated content downward.
+      const noteGroups = Array.from(ctx.container.querySelectorAll('.note'));
+      expect(noteGroups.length).toBe(32);
+
+      // Each note lives inside a `.staff` group whose transform carries
+      // the system's Y offset (notes' own transforms are pitch-dependent
+      // Y, so we read the staff group's Y rather than walking the whole
+      // ancestor chain). Read the system index off `data-system-index`.
+      const noteSystem = (n) => {
+        const staff = n.closest('.staff');
+        return parseInt(staff.getAttribute('data-system-index') || '0', 10);
+      };
+      const noteX = (n) => {
+        const tr = n.getAttribute('transform') || '';
+        const m = tr.match(/translate\(\s*([-\d.]+)/);
+        return m ? parseFloat(m[1]) : 0;
+      };
+
+      // (b) Last note's system index must be greater than first note's.
+      const firstSys = noteSystem(noteGroups[0]);
+      const lastSys = noteSystem(noteGroups[noteGroups.length - 1]);
+      expect(lastSys).toBeGreaterThan(firstSys);
+
+      // The last system must have reset its X cursor: notes in the
+      // final system should land at smaller X than notes in the first
+      // system (proving the wrap pulled content back left rather than
+      // just continuing rightward).
+      const firstSystemNoteXs = Array.from(noteGroups)
+        .filter((n) => noteSystem(n) === firstSys)
+        .map(noteX);
+      const lastSystemNoteXs = Array.from(noteGroups)
+        .filter((n) => noteSystem(n) === lastSys)
+        .map(noteX);
+      expect(Math.min(...lastSystemNoteXs)).toBeLessThan(
+        Math.max(...firstSystemNoteXs),
+      );
+    });
+  });
 });
