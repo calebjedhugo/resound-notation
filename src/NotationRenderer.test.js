@@ -2485,6 +2485,76 @@ describe('NotationRenderer', () => {
       expect(ctx.getLedgerLines().length).toBeGreaterThan(10);
     });
 
+    it('clears the bracket above the highest notehead in an 8va segment (and below the lowest for 8vb)', () => {
+      // 8va segment whose highest in-bracket pitch (after shift) lands above
+      // the top staff line with ledger lines. D7 shifts down to D6 — D6 has
+      // 2 ledger lines above the staff. Per Gould "Behind Bars" (Ottava,
+      // p. 75), the bracket sits clear of the highest content by ~1 staff
+      // space (≥20px). Old behavior used a fixed -50 offset, which the D6
+      // notehead (staff Y = -50) crashed straight into.
+      ctx.render([
+        { pitch: 'D7', length: '1/4' },
+        { pitch: 'C7', length: '1/4' },
+        { pitch: 'B6', length: '1/4' },
+        { pitch: 'A6', length: '1/4' },
+      ]);
+      const va = ctx.container.querySelector('.ottava-bracket.ottava-8va');
+      expect(va).not.toBeNull();
+      const vaGlyph = va.querySelector('.ottava-glyph');
+      const vaGlyphY = parseFloat(/translate\([^,]+,\s*([-\d.]+)\)/.exec(
+        vaGlyph.getAttribute('transform')
+      )[1]);
+      const vaLine = va.querySelector('.ottava-line');
+      const vaLineY = parseFloat(vaLine.getAttribute('y1'));
+
+      // Highest notehead Y (smallest Y in SVG coords) in the staff-local
+      // frame is on the `.note` group transform.
+      const notes = ctx.container.querySelectorAll('.note');
+      const noteYs = [];
+      notes.forEach((n) => {
+        const m = /translate\([^,]+,\s*([-\d.]+)\)/.exec(n.getAttribute('transform') || '');
+        if (m) noteYs.push(parseFloat(m[1]));
+      });
+      const highestNoteY = Math.min(...noteYs);
+
+      // Bracket must clear the highest notehead by at least one staff space.
+      expect(vaGlyphY).toBeLessThanOrEqual(highestNoteY - 20);
+      expect(vaLineY).toBeLessThanOrEqual(highestNoteY - 20);
+
+      // Mirror: 8vb segment with a very low in-bracket pitch. A2 shifts up
+      // to A3 — well below the bottom staff line.
+      ctx.renderer.clear();
+      ctx.render({
+        voices: [{
+          id: 'lo', clef: 'treble', notes: [
+            { pitch: 'D2', length: '1/4' },
+            { pitch: 'E2', length: '1/4' },
+            { pitch: 'F2', length: '1/4' },
+            { pitch: 'G2', length: '1/4' },
+          ],
+        }],
+      });
+      const vb = ctx.container.querySelector('.ottava-bracket.ottava-8vb');
+      expect(vb).not.toBeNull();
+      const vbGlyph = vb.querySelector('.ottava-glyph');
+      const vbGlyphY = parseFloat(/translate\([^,]+,\s*([-\d.]+)\)/.exec(
+        vbGlyph.getAttribute('transform')
+      )[1]);
+      const vbLine = vb.querySelector('.ottava-line');
+      const vbLineY = parseFloat(vbLine.getAttribute('y1'));
+
+      const lowNotes = ctx.container.querySelectorAll('.note');
+      const lowYs = [];
+      lowNotes.forEach((n) => {
+        const m = /translate\([^,]+,\s*([-\d.]+)\)/.exec(n.getAttribute('transform') || '');
+        if (m) lowYs.push(parseFloat(m[1]));
+      });
+      const lowestNoteY = Math.max(...lowYs);
+
+      expect(vbGlyphY).toBeGreaterThanOrEqual(lowestNoteY + 20);
+      expect(vbLineY).toBeGreaterThanOrEqual(lowestNoteY + 20);
+    });
+
     it('ottava-showcase preset renders the expected bracket population', async () => {
       const { default: preset } = await import(
         '../dev/presets/ottava-showcase.js'

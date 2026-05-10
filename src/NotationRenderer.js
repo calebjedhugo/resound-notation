@@ -1494,19 +1494,43 @@ export class NotationRenderer {
         }
       }
 
-      // Ottava brackets for this voice. Position 8va ~3 staff spaces above
-      // the top staff line; 8vb the same distance below the bottom line.
-      // The notehead Y is already shifted into the staff, so the bracket
-      // glyph/dashed line sits in clean air.
+      // Ottava brackets for this voice. Per Gould "Behind Bars" (Ottava,
+      // p. 75), the bracket sits clear of the highest content within the
+      // segment (or lowest, for 8vb), not at a fixed offset from the staff
+      // — otherwise high-shifted noteheads (e.g. D7→D6 with two ledger
+      // lines) cross through the dashed line. We compute the segment's
+      // content extent from the *shifted* pitches and place the bracket
+      // ~1 staff space clear, falling back to the previous fixed minimum
+      // (~3 spaces from the staff) when the shifted content stays inside
+      // the staff.
+      const BRACKET_CLEARANCE = 20; // one staff space
+      const DEFAULT_VA_Y = STAFF_TOP_OFFSET - 50;
+      const DEFAULT_VB_Y = STAFF_TOP_OFFSET + STAFF_HEIGHT + 60;
       const ottavaSegs = ottavaSegmentsPerVoice[index] || [];
       if (ottavaSegs.length > 0) {
         for (const seg of ottavaSegs) {
           const startX = noteXPositions.get(seg.startIndex);
           const endX = noteXPositions.get(seg.endIndex);
           if (startX === undefined || endX === undefined) continue;
+          // Walk the segment's (already shifted) notes and capture the
+          // top/bottom pitched-Y. Chords contribute every member.
+          let segMinY = Infinity;
+          let segMaxY = -Infinity;
+          for (let i = seg.startIndex; i <= seg.endIndex; i += 1) {
+            const el = voice.notes[i];
+            if (!el) continue;
+            const pitches = Array.isArray(el)
+              ? el.filter((n) => n && n.pitch).map((n) => n.pitch)
+              : (el && el.pitch ? [el.pitch] : []);
+            for (const p of pitches) {
+              const py = pitchToStaffY(p, clef);
+              if (py < segMinY) segMinY = py;
+              if (py > segMaxY) segMaxY = py;
+            }
+          }
           const bracketY = seg.kind === '8va'
-            ? STAFF_TOP_OFFSET - 50 // ~3 spaces above top line (which is at STAFF_TOP_OFFSET)
-            : STAFF_TOP_OFFSET + STAFF_HEIGHT + 60; // ~3 spaces below bottom
+            ? Math.min(segMinY - BRACKET_CLEARANCE, DEFAULT_VA_Y)
+            : Math.max(segMaxY + BRACKET_CLEARANCE, DEFAULT_VB_Y);
           staffGroup.appendChild(
             createOttavaBracket({ kind: seg.kind, startX, endX, y: bracketY })
           );
