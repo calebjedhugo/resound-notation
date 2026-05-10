@@ -2441,5 +2441,64 @@ describe('NotationRenderer', () => {
       expect(brackets).toHaveLength(0);
       warnSpy.mockRestore();
     });
+
+    it('renders an 8vb bracket for a bass-clef voice descending below F1', () => {
+      // New in this iteration: bass clef runs the 8vb pass with bass-specific
+      // thresholds (trigger = F1 MIDI 29, in-range edge = G1 MIDI 31).
+      ctx.render({
+        voices: [{
+          id: 'lo', clef: 'bass', notes: [
+            { pitch: 'F1', length: '1/4' },
+            { pitch: 'E1', length: '1/4' },
+            { pitch: 'D1', length: '1/4' },
+            { pitch: 'C1', length: '1/4' },
+          ],
+        }],
+      });
+      const brackets = ctx.container.querySelectorAll('.ottava-bracket');
+      expect(brackets).toHaveLength(1);
+      expect(brackets[0].classList.contains('ottava-8vb')).toBe(true);
+    });
+
+    it('does NOT render 8va on a bass-clef voice even when pitches are high', () => {
+      // Bass + 8va is the engraving anti-pattern the analyzer must suppress.
+      ctx.render({
+        voices: [{
+          id: 'hi', clef: 'bass', notes: [
+            { pitch: 'G6', length: '1/4' },
+            { pitch: 'A6', length: '1/4' },
+            { pitch: 'B6', length: '1/4' },
+            { pitch: 'C7', length: '1/4' },
+          ],
+        }],
+      });
+      expect(ctx.container.querySelectorAll('.ottava-bracket')).toHaveLength(0);
+    });
+
+    it('ledger-lines-extreme preset renders zero ottava brackets (the in-range limit)', async () => {
+      const { default: preset } = await import(
+        '../dev/presets/ledger-lines-extreme.js'
+      );
+      ctx.render(preset.song);
+      expect(ctx.container.querySelectorAll('.ottava-bracket')).toHaveLength(0);
+      // Many ledger lines (the whole point of the preset).
+      expect(ctx.getLedgerLines().length).toBeGreaterThan(10);
+    });
+
+    it('ottava-showcase preset renders the expected bracket population', async () => {
+      const { default: preset } = await import(
+        '../dev/presets/ottava-showcase.js'
+      );
+      ctx.render(preset.song);
+      const brackets = ctx.container.querySelectorAll('.ottava-bracket');
+      // Treble: 2 x 8va + 1 x 8vb; bass: 1 x 8vb. Total = 4.
+      // (Bar 5's isolated G6 must be suppressed; bar 7-8 context-pull must
+      // produce a single continuous segment.)
+      expect(brackets).toHaveLength(4);
+      const eightVas = ctx.container.querySelectorAll('.ottava-bracket.ottava-8va');
+      const eightVbs = ctx.container.querySelectorAll('.ottava-bracket.ottava-8vb');
+      expect(eightVas).toHaveLength(2);
+      expect(eightVbs).toHaveLength(2);
+    });
   });
 });

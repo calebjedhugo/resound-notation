@@ -9,12 +9,13 @@ Design spec for Iteration C TDD. Decides which notes in a treble-clef voice rend
 ## 1. Scope
 
 **In:**
-- Treble clef voices only.
+- Treble clef voices: both 8va and 8vb.
+- Bass clef voices: 8vb only (very low pitches below G1).
 - Choosing the **segments** (contiguous ranges of note indices, with rests silently spanned) that should render under an `8va` (above) or `8vb` (below) bracket.
 - The segmentation output is consumed by a renderer that (a) draws the bracket + dashed continuation and (b) transposes the noteheads under it by an octave so they sit on the staff.
 
 **Out:**
-- Bass clef. Bass voices must short-circuit to "no ottava" — this is an engraving anti-pattern (Gould §9.4); cases that musically need it use tenor clef instead, which is not yet implemented.
+- Bass clef 8va. Bass-clef-above-an-octave is an engraving anti-pattern (Gould §9.4); cases that musically need it use tenor or treble clef instead. The analyzer skips the 8va direction for bass voices.
 - `15ma` / `15mb` (double ottava). Same algorithm shape applies later, but this spec doesn't address two-octave segments.
 - Multi-staff piano grand-staff splitting (left vs. right hand assignment). Per-voice only.
 - Rendering of the bracket glyph itself, the dashed line, the "8" digit, the hook. Those live in a separate component (`OttavaBracket.js`-to-be).
@@ -23,14 +24,14 @@ Design spec for Iteration C TDD. Decides which notes in a treble-clef voice rend
 
 Pitches are referenced by scientific pitch name (`C4` = middle C) and MIDI number.
 
-| Concept | Treble 8va (above) | Treble 8vb (below) |
-|---|---|---|
-| **Last in-range pitch** (highest/lowest pitch still drawn cleanly on the staff with ledger lines) | **F6** (MIDI 89) | **E3** (MIDI 52) |
-| **Trigger threshold** (one octave past the last in-range pitch — first pitch that prefers an 8va) | **G6** (MIDI 91) and higher | **D3** (MIDI 50) and lower |
-| **In-range zone** (won't, by itself, force or sustain a bracket) | MIDI ≤ 89 for 8va analysis | MIDI ≥ 52 for 8vb analysis |
-| **Out-of-range zone** (trigger zone) | MIDI ≥ 91 | MIDI ≤ 50 |
+| Concept | Treble 8va (above) | Treble 8vb (below) | Bass 8vb (below) |
+|---|---|---|---|
+| **Last in-range pitch** (highest/lowest pitch still drawn cleanly on the staff with ledger lines) | **F6** (MIDI 89) | **E3** (MIDI 52) | **G1** (MIDI 31) |
+| **Trigger threshold** (one octave past the last in-range pitch) | **G6** (MIDI 91) and higher | **D3** (MIDI 50) and lower | **F1** (MIDI 29) and lower |
+| **In-range zone** (won't, by itself, force or sustain a bracket) | MIDI ≤ 89 | MIDI ≥ 52 | MIDI ≥ 31 |
+| **Out-of-range zone** (trigger zone) | MIDI ≥ 91 | MIDI ≤ 50 | MIDI ≤ 29 |
 
-Note that MIDI 90 (F♯6 / G♭6) sits in the gap between F6 and G6. Pragmatically: treat MIDI 90 as **in-range** for entry decisions (it isn't a trigger), but **as "neutral"** for exit decisions (it does not count toward the 3-consecutive in-range exit requirement). Mirror for MIDI 51 on the 8vb side. This avoids the pathological case where a chromatic neighbor toggles the bracket. See §5 OQ-1.
+Note that MIDI 90 (F♯6 / G♭6) sits in the gap between F6 and G6. Pragmatically: treat MIDI 90 as **in-range** for entry decisions (it isn't a trigger), but **as "neutral"** for exit decisions (it does not count toward the 3-consecutive in-range exit requirement). Mirror for MIDI 51 on the treble 8vb side, and MIDI 30 (F♯1 / G♭1) on the bass 8vb side. This avoids the pathological case where a chromatic neighbor toggles the bracket. See §5 OQ-1.
 
 **Rest.** A rest is treated as a transparent token: it neither triggers entry nor counts toward the exit dip. It is *silently spanned* if it falls between two in-bracket notes.
 
@@ -118,12 +119,15 @@ CP-1(a) is the primary rule. CP-1(b) is a safety net. CP-2 is the "absorb the pi
 
 #### 3.1.4 8vb mirror
 
-Run §3.1.1 / §3.1.2 / §3.1.3 again with all MIDI comparisons mirrored:
-- `TRIGGER_VB = 50` (D3), `IN_RANGE_MIN_VB = 52` (E3).
-- Compare `midi(e) <= TRIGGER_VB` for entry, `midi(e) >= IN_RANGE_MIN_VB` for exit-dip increment.
-- "Within an octave of TRIGGER" in CP-1(a) becomes `midi <= TRIGGER_VB + 12`.
+Run §3.1.1 / §3.1.2 / §3.1.3 again with all MIDI comparisons mirrored. Threshold constants are **per-clef**:
+- **Treble:** `TRIGGER_VB_TREBLE = 50` (D3), `IN_RANGE_VB_TREBLE = 52` (E3).
+- **Bass:** `TRIGGER_VB_BASS = 29` (F1), `IN_RANGE_VB_BASS = 31` (G1).
 
-The two passes cannot produce overlapping segments because 50 and 91 are 41 semitones apart.
+The analyzer picks the constants from `input.clef`. With either set:
+- Compare `midi(e) <= TRIGGER_VB_*` for entry, `midi(e) >= IN_RANGE_VB_*` for exit-dip increment.
+- "Within an octave of TRIGGER" in CP-1(a) becomes `midi <= TRIGGER_VB_* + 12`.
+
+For treble voices the 8va and 8vb passes cannot produce overlapping segments (their trigger zones are 41 semitones apart). Bass voices do not run the 8va pass at all (see §1 Scope).
 
 ### 3.2 Pass B — boundary snapping
 
@@ -228,7 +232,7 @@ A more interesting case: `E6 F6 | G6 A6 B6 C7` — raw starts at index 2 (G6). B
 - **OQ-5 (Chord notes).** Treble chord with one note in 8va range and the rest in-range — spec assumes monophonic voices. If a model chord straddles the threshold, treat its highest pitch as the chord's representative pitch for 8va analysis. Re-examine in iteration C.
 - **OQ-6 (Voice ends mid-segment).** Spec closes at the last non-rest index. Should the bracket also extend across trailing rests? Engraving convention: no — end at the last sounding note. Confirmed by §3.1.1.
 - **OQ-7 (8va of 0 notes).** Disallow. Single-note suppression handles the "1 note" case; a 0-note segment cannot be produced by the algorithm as written.
-- **OQ-8 (Bass clef call site).** The function should accept a clef hint and return `[]` immediately for bass-clef voices. Document but do not validate against the underlying note model — that's the caller's job.
+- **OQ-8 (Clef gating).** The function accepts a clef hint. Treble voices return both 8va and 8vb segments; bass voices return only 8vb segments (run with bass-specific thresholds). Other clefs (alto, tenor, percussion) return `[]`. Bass-clef 8va is suppressed at the analyzer level — the kind list never includes `'8va'` for bass input.
 
 ## 6. API surface
 

@@ -21,8 +21,15 @@
 
 const TRIGGER_VA = 91; // G6
 const IN_RANGE_MAX_VA = 89; // F6
-const TRIGGER_VB = 50; // D3
-const IN_RANGE_MIN_VB = 52; // E3
+// 8vb thresholds differ per clef. Treble's bottom edge is E3 (MIDI 52); the
+// trigger is D3 (MIDI 50). Bass clef's bottom edge is G2 (MIDI 43) — one
+// octave below the bottom staff line — and the trigger is F1 (MIDI 29);
+// G1 (MIDI 31) is the last in-range pitch cleanly drawn with ledger lines,
+// and F#1/Gb1 (MIDI 30) is the chromatic-gap "neutral" mirror of MIDI 51.
+const TRIGGER_VB_TREBLE = 50; // D3
+const IN_RANGE_VB_TREBLE = 52; // E3
+const TRIGGER_VB_BASS = 29; // F1
+const IN_RANGE_VB_BASS = 31; // G1
 const EXIT_DIP = 3;
 const CONTEXT_PULL_WINDOW = 4;
 const SNAP_BUDGET = 2;
@@ -31,10 +38,10 @@ function notesOnly(events) {
   return events.filter((e) => e.kind === 'note');
 }
 
-function segmentDirection(events, kind) {
+function segmentDirection(kind, clef) {
   // 8va vs 8vb direction parameterization. Returns trigger predicate,
   // in-range predicate (for exit-dip count), and the "within 12 of trigger"
-  // predicate used by CP-1(a).
+  // predicate used by CP-1(a). 8vb thresholds depend on clef.
   if (kind === '8va') {
     return {
       isTrigger: (m) => m >= TRIGGER_VA,
@@ -43,16 +50,18 @@ function segmentDirection(events, kind) {
       trigger: TRIGGER_VA,
     };
   }
+  const trigger = clef === 'bass' ? TRIGGER_VB_BASS : TRIGGER_VB_TREBLE;
+  const inRange = clef === 'bass' ? IN_RANGE_VB_BASS : IN_RANGE_VB_TREBLE;
   return {
-    isTrigger: (m) => m <= TRIGGER_VB,
-    isInRange: (m) => m >= IN_RANGE_MIN_VB,
-    isNearTrigger: (m) => m <= TRIGGER_VB + 12,
-    trigger: TRIGGER_VB,
+    isTrigger: (m) => m <= trigger,
+    isInRange: (m) => m >= inRange,
+    isNearTrigger: (m) => m <= trigger + 12,
+    trigger,
   };
 }
 
-function rawSegmentation(events, kind) {
-  const dir = segmentDirection(events, kind);
+function rawSegmentation(events, kind, clef) {
+  const dir = segmentDirection(kind, clef);
   const segments = [];
   let state = 'OUT';
   let segStart = null;
@@ -169,8 +178,8 @@ function singleNoteSuppression(events, segments) {
   });
 }
 
-function contextPullMerge(events, segments, kind) {
-  const dir = segmentDirection(events, kind);
+function contextPullMerge(events, segments, kind, clef) {
+  const dir = segmentDirection(kind, clef);
   if (segments.length < 2) return segments;
 
   const out = [];
@@ -203,11 +212,11 @@ function contextPullMerge(events, segments, kind) {
   return out;
 }
 
-function contextPullAbsorb(events, segments, kind) {
+function contextPullAbsorb(events, segments, kind, clef) {
   // CP-2: absorb a leading/trailing in-range run (≤ CONTEXT_PULL_WINDOW)
   // where every note is within 12 semitones of TRIGGER, bounded by voice
   // start/end or a barline.
-  const dir = segmentDirection(events, kind);
+  const dir = segmentDirection(kind, clef);
 
   return segments.map((seg, segIdx) => {
     let { startIndex, endIndex } = seg;
@@ -313,23 +322,30 @@ function boundarySnap(events, segments) {
 }
 
 /**
- * Single-voice Pass A + Pass B. Returns [] for non-treble clefs (8vb is
- * also runnable on treble; bass voices short-circuit per the spec).
+ * Single-voice Pass A + Pass B.
+ *
+ * Treble voices run both 8va and 8vb analyses. Bass voices run only the
+ * 8vb analysis (with bass-specific thresholds) — bass + 8va is an
+ * engraving anti-pattern (Gould §9.4); use tenor clef instead. Other
+ * clefs (alto, tenor, percussion) short-circuit to [].
  */
 export function segmentOttava(input) {
   if (!input || !input.events) return [];
-  if (input.clef && input.clef !== 'treble') return [];
+  const clef = input.clef || 'treble';
+  if (clef !== 'treble' && clef !== 'bass') return [];
 
   const { events, voiceId } = input;
 
-  // Pass A: run 8va and 8vb directions independently; they cannot overlap
-  // because their trigger zones are 41 semitones apart.
+  // Pass A: run direction(s) appropriate for the clef. Treble runs both
+  // 8va and 8vb; bass runs only 8vb. Where both directions run, their
+  // trigger zones do not overlap.
+  const kinds = clef === 'bass' ? ['8vb'] : ['8va', '8vb'];
   let segments = [];
-  for (const kind of ['8va', '8vb']) {
-    let raw = rawSegmentation(events, kind);
+  for (const kind of kinds) {
+    let raw = rawSegmentation(events, kind, clef);
     raw = singleNoteSuppression(events, raw);
-    raw = contextPullMerge(events, raw, kind);
-    raw = contextPullAbsorb(events, raw, kind);
+    raw = contextPullMerge(events, raw, kind, clef);
+    raw = contextPullAbsorb(events, raw, kind, clef);
     segments = segments.concat(raw);
   }
   segments.sort((a, b) => a.startIndex - b.startIndex);
