@@ -82,15 +82,29 @@ export function renderGraceNotes({ grace, mainX, mainY, clef }) {
       })
     );
 
-    // Slash for acciaccatura
+    // 8th-note flag at the stem tip — same hand-rolled curve as Note.js
+    // so grace flags match principal-note flag shapes. Curls outward
+    // from the stem tip (right for stem-up, left for stem-down... but
+    // engraving convention curls the same direction; flag-down mirrors
+    // the curl across the stem tip in y).
+    const flagPath = stemDown
+      ? `M ${stemX} ${stemY2} c 8 4 12 12 8 20`
+      : `M ${stemX} ${stemY2} c 8 -4 12 -12 8 -20`;
+    graceGroup.appendChild(
+      createPath(flagPath, { class: 'note-flag', fill: 'currentColor' })
+    );
+
+    // Slash for acciaccatura — crosses both stem and flag at ~30°.
+    // Span: from below the head toward / beyond the flag tip so the
+    // slash visibly intersects the flag curl, not just the bare stem.
     if (type === 'acciaccatura') {
-      const slashY1 = stemDown ? STEM_LENGTH * 0.3 : -STEM_LENGTH * 0.3;
-      const slashY2 = stemDown ? STEM_LENGTH * 0.7 : -STEM_LENGTH * 0.7;
+      const slashY1 = stemDown ? STEM_LENGTH * 0.85 : -STEM_LENGTH * 0.85;
+      const slashY2 = stemDown ? STEM_LENGTH * 0.25 : -STEM_LENGTH * 0.25;
       graceGroup.appendChild(
-        createLine(stemX - 4, slashY1, stemX + 4, slashY2, {
+        createLine(stemX - 8, slashY1, stemX + 12, slashY2, {
           class: 'grace-slash',
           stroke: 'currentColor',
-          'stroke-width': '1.5',
+          'stroke-width': '2',
         })
       );
     }
