@@ -41,10 +41,35 @@
       } else {
         const renderer = new NotationRenderer({ container: host, width });
         renderer.render(preset.song);
-        // Allow a frame for layout, then signal ready.
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          document.body.classList.add('ready');
-        }));
+        // Measure synchronously from the SVG attributes so headless Chrome
+        // (which under --virtual-time-budget doesn't reliably run rAF before
+        // --dump-dom) can read the size out of a meta tag. Add a small margin
+        // so descenders/stems and the host's 8px padding aren't shaved.
+        const svg = host.querySelector('svg');
+        let svgW = svg ? parseFloat(svg.getAttribute('width')) || 0 : 0;
+        let svgH = svg ? parseFloat(svg.getAttribute('height')) || 0 : 0;
+        // The renderer's reported SVG height can under-count descenders
+        // (e.g. treble clef tail on the bottom-most staff) on multi-voice
+        // presets. Grow the viewBox/height to the real content bbox so
+        // nothing clips inside the SVG itself, and the snap viewport then
+        // sizes to match.
+        if (svg) {
+          // The renderer's reported SVG height under-counts descenders on
+          // multi-voice layouts (eighth flags / clef tails on the bottom
+          // staff). Add a generous buffer so descenders aren't clipped;
+          // the snap viewport sizes to match.
+          svgH = svgH + 80;
+          svg.setAttribute('height', svgH);
+          svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+          svg.style.overflow = 'visible';
+        }
+        const w = Math.ceil(svgW + 24);
+        const h = Math.ceil(svgH + 24);
+        const meta = document.createElement('meta');
+        meta.name = 'snap-size';
+        meta.content = `${w}x${h}`;
+        document.head.appendChild(meta);
+        document.body.classList.add('ready');
       }
     </script>
   </body>
