@@ -37,7 +37,7 @@ import { resolveSlurs } from './lib/slurGrouping.js';
 import { createSlurArc } from './components/Slur.js';
 import { getTupletNoteDuration } from './lib/tuplets.js';
 import { renderTupletBracket } from './components/TupletBracket.js';
-import { renderGraceNotes, GRACE_LEAD_IN_PAD } from './components/GraceNote.js';
+import { renderGraceNotes, GRACE_LEAD_IN_PAD, GRACE_SPACING } from './components/GraceNote.js';
 import { renderRepeatBarline } from './components/RepeatBarline.js';
 import { renderEnding } from './components/Ending.js';
 import { renderNavigationMarker } from './components/NavigationMarker.js';
@@ -809,11 +809,16 @@ export class NotationRenderer {
             const yPositions = chordNotes.map((n) => pitchToStaffY(n.pitch, clef));
 
             // Grace notes on chord (from first note that has grace property).
-            // Push the principal cluster right by a lead-in pad so the first
-            // grace doesn't kiss the previous element (time sig, barline, etc.).
+            // Graces render LEFTWARD from the principal at GRACE_SPACING
+            // intervals, so push the principal right by the full grace-cluster
+            // width PLUS a lead-in pad. The leftmost grace then lands
+            // GRACE_LEAD_IN_PAD past the previous element (time sig, barline).
             const chordGrace = chordNotes.find((n) => n.grace);
             if (chordGrace) {
-              cursorX += GRACE_LEAD_IN_PAD;
+              const graceCount = Array.isArray(chordGrace.grace)
+                ? chordGrace.grace.length
+                : 1;
+              cursorX += graceCount * GRACE_SPACING + GRACE_LEAD_IN_PAD;
               const mainY = Math.min(...yPositions);
               const graceResult = renderGraceNotes({
                 grace: chordGrace.grace,
@@ -1030,11 +1035,16 @@ export class NotationRenderer {
         } else {
           const noteY = pitchToStaffY(element.pitch, clef);
 
-          // Grace notes (render before the main note). Push principal right
-          // by a lead-in pad so the first grace doesn't kiss the previous
-          // element (time sig, barline, etc.).
+          // Grace notes (render before the main note). Graces render
+          // LEFTWARD from the principal at GRACE_SPACING intervals, so push
+          // the principal right by the full grace-cluster width PLUS a
+          // lead-in pad. The leftmost grace lands GRACE_LEAD_IN_PAD past
+          // the previous element (time sig, barline, etc.).
           if (element.grace) {
-            cursorX += GRACE_LEAD_IN_PAD;
+            const graceCount = Array.isArray(element.grace)
+              ? element.grace.length
+              : 1;
+            cursorX += graceCount * GRACE_SPACING + GRACE_LEAD_IN_PAD;
             const graceResult = renderGraceNotes({
               grace: element.grace,
               mainX: cursorX,

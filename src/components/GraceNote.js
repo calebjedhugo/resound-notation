@@ -32,7 +32,8 @@ const GRACE_SPACING = 22;
 
 // Lead-in pad reserved before the first grace note so the cluster
 // doesn't kiss the previous element (time signature, barline, etc.).
-const GRACE_LEAD_IN_PAD = 8;
+// ~0.6 staff space, clearly visible daylight.
+const GRACE_LEAD_IN_PAD = 12;
 
 // Notehead half-width in screen px (195 fu × SMUFL_SCALE / 2).
 const GRACE_HEAD_HALF_WIDTH = 7.8;
