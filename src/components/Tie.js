@@ -9,7 +9,10 @@
 
 import { createPath } from '../lib/svgHelpers.js';
 
-const NOTEHEAD_OFFSET = 5;
+// Distance (px) from notehead CENTER to tie endpoint. Notehead
+// half-height is ~10 px; 13 puts the tie 3 px clear of the head edge so
+// it hovers just outside instead of biting into the notehead.
+const NOTEHEAD_OFFSET = 13;
 const MIN_ARC_HEIGHT = 8;
 const ARC_HEIGHT_RATIO = 0.2;
 // Control-point offset between outer and inner Bezier curves. Rendered apex

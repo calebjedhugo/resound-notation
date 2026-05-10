@@ -11,7 +11,11 @@
 
 import { createPath } from '../lib/svgHelpers.js';
 
-const NOTEHEAD_OFFSET = 6;
+// Distance (px) from notehead CENTER to where the slur endpoint sits.
+// Notehead half-height is ~10 px, so 14 puts the slur 4 px outside the
+// head edge — engraver's convention is that slurs HOVER just clear of
+// the notehead, never touching it.
+const NOTEHEAD_OFFSET = 14;
 const BASE_HEIGHT = 15;
 const SPAN_FACTOR = 0.15;
 const MAX_ARC_HEIGHT = 40;
