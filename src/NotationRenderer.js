@@ -1337,12 +1337,13 @@ export class NotationRenderer {
       let groupEl;
       if (group.type === 'bracket') {
         groupEl = createBracket({ height: groupHeight });
-        // Bracket sits entirely OUTSIDE the staff area. Local footprint:
-        // trunk x=[0,10] (left vertical line), hook tips reach x≈37.5
-        // (right, curling toward the staff). With translate x=-37.5, the
-        // hook tips land at x=0 — flush against staff lines, zero gap —
-        // and the trunk's left edge sits at x=-37.5.
-        groupEl.setAttribute('transform', `translate(-37.5, ${topY})`);
+        // Engraver's "contain" layout: trunk sits to the LEFT of the staff
+        // with a ~3 px padding gap, and the hook curls reach RIGHTWARD
+        // INTO the staff area to grasp it. Local footprint: trunk
+        // x=[0,10], hook tips at x≈37.5. With translate x=-13, the
+        // trunk's right edge lands at x=-3 (3 px before staff lines at
+        // x=0) and hook tips reach x≈24.5 — overlapping the staff.
+        groupEl.setAttribute('transform', `translate(-13, ${topY})`);
       } else {
         groupEl = createBrace({ height: groupHeight });
         // Brace sits OUTSIDE the staff with a ~2 px gap. Brace local x
