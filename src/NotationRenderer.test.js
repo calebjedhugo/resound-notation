@@ -1849,8 +1849,13 @@ describe('NotationRenderer', () => {
 
       const svg = ctx.getSvg();
       const height = parseInt(svg.getAttribute('height'), 10);
-      // 2 voices * 200 + 1 gap * 40 = 440
-      expect(height).toBe(440);
+      // Two-voice baseline = 2 * 200 + 40 = 440. Content-aware viewport
+      // may grow this a few px to fit stems/ledger lines that protrude
+      // past the band; we accept a small margin (≤ 80) but the height
+      // must be at least the band size and at most the band + the
+      // ledger-extreme grow budget.
+      expect(height).toBeGreaterThanOrEqual(440);
+      expect(height).toBeLessThanOrEqual(520);
     });
 
     it('renders voices with different note counts independently', () => {
@@ -2313,6 +2318,128 @@ describe('NotationRenderer', () => {
       const minBreathingRoom = 9;
       const digitTopY = digitTopCenterY - halfDigitHeight;
       expect(digitTopY - beamOuterY).toBeGreaterThanOrEqual(minBreathingRoom);
+    });
+  });
+
+  describe('ottava (8va/8vb) integration', () => {
+    function noteHeadYs() {
+      const heads = ctx.container.querySelectorAll('.note-head');
+      const ys = [];
+      heads.forEach((h) => {
+        const tr = h.getAttribute('transform') || '';
+        const m = /translate\([^,]+,\s*([-\d.]+)\)/.exec(tr);
+        if (m) ys.push(parseFloat(m[1]));
+      });
+      return ys;
+    }
+
+    it('renders a 4-note G6+ run under one 8va bracket with a dashed line', () => {
+      ctx.render([
+        { pitch: 'G6', length: '1/4' },
+        { pitch: 'A6', length: '1/4' },
+        { pitch: 'B6', length: '1/4' },
+        { pitch: 'C7', length: '1/4' },
+      ]);
+      const brackets = ctx.container.querySelectorAll('.ottava-bracket');
+      expect(brackets).toHaveLength(1);
+      expect(brackets[0].classList.contains('ottava-8va')).toBe(true);
+      expect(brackets[0].querySelector('.ottava-glyph')).not.toBeNull();
+      const line = brackets[0].querySelector('.ottava-line');
+      expect(line).not.toBeNull();
+      expect(line.getAttribute('stroke-dasharray')).toBeTruthy();
+    });
+
+    it('shifts a G6+ run\'s noteheads down by one octave (matching G5/A5/B5/C6 Y)', () => {
+      ctx.render([
+        { pitch: 'G6', length: '1/4' },
+        { pitch: 'A6', length: '1/4' },
+        { pitch: 'B6', length: '1/4' },
+        { pitch: 'C7', length: '1/4' },
+      ]);
+      const shiftedYs = noteHeadYs();
+
+      ctx.renderer.clear();
+      ctx.render([
+        { pitch: 'G5', length: '1/4' },
+        { pitch: 'A5', length: '1/4' },
+        { pitch: 'B5', length: '1/4' },
+        { pitch: 'C6', length: '1/4' },
+      ]);
+      const baselineYs = noteHeadYs();
+
+      expect(shiftedYs.length).toBe(baselineYs.length);
+      for (let i = 0; i < shiftedYs.length; i += 1) {
+        expect(Math.abs(shiftedYs[i] - baselineYs[i])).toBeLessThanOrEqual(1);
+      }
+    });
+
+    it('does NOT bracket a 2-note G6+ run (suppressed by single-note rule or length)', () => {
+      // C5 G6 D5 — isolated G6 → no bracket
+      ctx.render([
+        { pitch: 'C5', length: '1/4' },
+        { pitch: 'G6', length: '1/4' },
+        { pitch: 'D5', length: '1/4' },
+      ]);
+      const brackets = ctx.container.querySelectorAll('.ottava-bracket');
+      expect(brackets).toHaveLength(0);
+      // The G6 should still render with ledger lines (in its real position)
+      expect(ctx.getLedgerLines().length).toBeGreaterThan(0);
+    });
+
+    it('grows SVG height to fit content above F6 even without an 8va bracket', () => {
+      // E6 is below G6 trigger but well above the staff — needs ledger lines.
+      ctx.render([{ pitch: 'E6', length: '1/4' }]);
+      const svg = ctx.getSvg();
+      const viewBox = svg.getAttribute('viewBox').split(/\s+/).map(parseFloat);
+      // viewBox = [x, y, w, h]; y < 0 means the viewport grew upward to
+      // fit the ledger lines / stem of E6 (which protrudes above the
+      // staff band).
+      expect(viewBox[1]).toBeLessThan(0);
+      const brackets = ctx.container.querySelectorAll('.ottava-bracket');
+      expect(brackets).toHaveLength(0);
+      expect(ctx.getLedgerLines().length).toBeGreaterThan(0);
+    });
+
+    it('renders an 8vb bracket for a low D3- run on a treble voice', () => {
+      ctx.render({
+        voices: [{
+          id: 'lo', clef: 'treble', notes: [
+            { pitch: 'D3', length: '1/4' },
+            { pitch: 'C3', length: '1/4' },
+            { pitch: 'B2', length: '1/4' },
+            { pitch: 'A2', length: '1/4' },
+          ],
+        }],
+      });
+      const brackets = ctx.container.querySelectorAll('.ottava-bracket');
+      expect(brackets).toHaveLength(1);
+      expect(brackets[0].classList.contains('ottava-8vb')).toBe(true);
+    });
+
+    it('emits console.warn and drops the bracket on multi-voice conflict', () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      ctx.render({
+        voices: [
+          { id: 'v1', clef: 'treble', notes: [
+            { pitch: 'G6', length: '1/4' },
+            { pitch: 'A6', length: '1/4' },
+            { pitch: 'B6', length: '1/4' },
+            { pitch: 'C7', length: '1/4' },
+          ]},
+          { id: 'v2', clef: 'treble', notes: [
+            { pitch: 'D3', length: '1/4' },
+            { pitch: 'C3', length: '1/4' },
+            { pitch: 'B2', length: '1/4' },
+            { pitch: 'A2', length: '1/4' },
+          ]},
+        ],
+      });
+      expect(warnSpy).toHaveBeenCalled();
+      expect(warnSpy.mock.calls[0][0]).toMatch(/disagree on 8va/);
+      // Conflicting span dropped on both voices — no brackets rendered.
+      const brackets = ctx.container.querySelectorAll('.ottava-bracket');
+      expect(brackets).toHaveLength(0);
+      warnSpy.mockRestore();
     });
   });
 });

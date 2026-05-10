@@ -54,6 +54,87 @@ import { renderLyric, renderMelisma } from './components/Lyric.js';
 import { createBrace, getBraceWidth } from './components/Brace.js';
 import { createBracket } from './components/Bracket.js';
 import { createSharedBarLine } from './components/SharedBarLine.js';
+import { analyzeOttava } from './lib/segmentOttava.js';
+import { createOttavaBracket } from './components/OttavaBracket.js';
+
+// Chromatic offsets for converting scientific pitch (C4 = MIDI 60) to MIDI.
+const PITCH_CHROMATIC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+const ACCIDENTAL_CHROMATIC = { '#': 1, b: -1, '': 0 };
+
+function pitchToMidi(pitchString) {
+  const m = /^([A-G])(#|b)?(\d)$/.exec(pitchString);
+  if (!m) return null;
+  const [, letter, accidental, octaveStr] = m;
+  const octave = parseInt(octaveStr, 10);
+  return (
+    (octave + 1) * 12
+    + PITCH_CHROMATIC[letter]
+    + ACCIDENTAL_CHROMATIC[accidental || '']
+  );
+}
+
+function shiftPitchOctave(pitchString, delta) {
+  const m = /^([A-G])(#|b)?(\d)$/.exec(pitchString);
+  if (!m) return pitchString;
+  const [, letter, accidental, octaveStr] = m;
+  const newOctave = parseInt(octaveStr, 10) + delta;
+  return `${letter}${accidental || ''}${newOctave}`;
+}
+
+/**
+ * Build the ottava-event stream for a voice. Each event's index matches
+ * the index in voice.notes — so segmentation indices can be looked up
+ * directly against the original voice.notes array.
+ */
+function buildOttavaEvents(voiceNotes) {
+  const events = [];
+  for (let i = 0; i < voiceNotes.length; i += 1) {
+    const el = voiceNotes[i];
+    if (!el) continue;
+    if (Array.isArray(el)) {
+      // Chord — use highest MIDI as representative pitch (spec OQ-5)
+      const midis = el.filter((n) => n && n.pitch).map((n) => pitchToMidi(n.pitch)).filter((x) => x !== null);
+      if (midis.length === 0) continue;
+      events.push({ kind: 'note', midi: Math.max(...midis), index: i });
+    } else if (el.pitch) {
+      const midi = pitchToMidi(el.pitch);
+      if (midi !== null) events.push({ kind: 'note', midi, index: i });
+    } else if (el.length && !el.pitch) {
+      events.push({ kind: 'rest', index: i });
+    } else if (el.barline) {
+      events.push({ kind: 'barline', index: i });
+    }
+  }
+  return events;
+}
+
+/**
+ * Apply an octave shift to every pitched element inside [startIndex,
+ * endIndex] (inclusive). Returns a shallow clone of voice.notes with the
+ * shifted elements replaced.
+ */
+function applyOttavaShift(voiceNotes, segments) {
+  if (!segments || segments.length === 0) return voiceNotes;
+  const inSegment = new Map(); // index -> octave delta
+  for (const seg of segments) {
+    const delta = seg.kind === '8va' ? -1 : +1;
+    for (let i = seg.startIndex; i <= seg.endIndex; i += 1) {
+      inSegment.set(i, delta);
+    }
+  }
+  if (inSegment.size === 0) return voiceNotes;
+  return voiceNotes.map((el, i) => {
+    const delta = inSegment.get(i);
+    if (delta === undefined || !el) return el;
+    if (Array.isArray(el)) {
+      return el.map((n) => (n && n.pitch ? { ...n, pitch: shiftPitchOctave(n.pitch, delta) } : n));
+    }
+    if (el.pitch) {
+      return { ...el, pitch: shiftPitchOctave(el.pitch, delta) };
+    }
+    return el;
+  });
+}
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const DEFAULT_WIDTH = 800;
@@ -401,7 +482,33 @@ export class NotationRenderer {
     // Track per-voice barline X positions for shared barlines
     const voiceBarlineXPositions = new Map();
 
+    // Pre-pass: compute 8va/8vb segments per voice and clone voice.notes
+    // with pitches inside each segment shifted by an octave (down for 8va,
+    // up for 8vb). The renderer then lays out the shifted pitches as if
+    // they were normal in-staff notes; the bracket itself is appended
+    // after note rendering. Bass voices short-circuit to no segments.
+    const ottavaInputs = parsed.voices.map((v, vi) => ({
+      voiceId: vi,
+      clef: v.clef || inferClef(v.notes),
+      events: buildOttavaEvents(v.notes),
+    }));
+    const ottavaSegmentsPerVoice = analyzeOttava(ottavaInputs);
+    const shiftedVoiceNotes = parsed.voices.map((v, vi) =>
+      applyOttavaShift(v.notes, ottavaSegmentsPerVoice[vi] || [])
+    );
+
+    // Track the absolute SVG-space content bbox so we can grow the viewBox
+    // after rendering. Starts as the default staff band; min/max get
+    // tightened by any content (ledger lines, brackets, stems) that
+    // protrudes above/below.
+    let contentMinY = 0;
+    let contentMaxY = totalHeight;
+
     parsed.voices.forEach((voice, index) => {
+      // Render against the octave-shifted notes so the heads sit near the
+      // staff under the bracket. The original voice.notes is preserved on
+      // the model for downstream consumers (playback, serialization).
+      voice = { ...voice, notes: shiftedVoiceNotes[index] };
       const clef = voice.clef || inferClef(voice.notes);
       const voiceY = voiceYPositions[index];
 
@@ -1371,6 +1478,46 @@ export class NotationRenderer {
         staffGroup.appendChild(lyricsGroup);
       }
 
+      // Content bbox tracking: scan the (shifted) voice for min/max pitch
+      // Y, plus stem/flag headroom. Bracket positions are folded in below.
+      for (const el of voice.notes) {
+        const pitches = Array.isArray(el)
+          ? el.filter((n) => n && n.pitch).map((n) => n.pitch)
+          : (el && el.pitch ? [el.pitch] : []);
+        for (const p of pitches) {
+          const y = pitchToStaffY(p, clef);
+          // Account for stems/flags reaching STEM_LENGTH past the head.
+          const above = voiceYPositions[index] + STAFF_TOP_OFFSET + y - STEM_LENGTH - 10;
+          const below = voiceYPositions[index] + STAFF_TOP_OFFSET + y + STEM_LENGTH + 10;
+          if (above < contentMinY) contentMinY = above;
+          if (below > contentMaxY) contentMaxY = below;
+        }
+      }
+
+      // Ottava brackets for this voice. Position 8va ~3 staff spaces above
+      // the top staff line; 8vb the same distance below the bottom line.
+      // The notehead Y is already shifted into the staff, so the bracket
+      // glyph/dashed line sits in clean air.
+      const ottavaSegs = ottavaSegmentsPerVoice[index] || [];
+      if (ottavaSegs.length > 0) {
+        for (const seg of ottavaSegs) {
+          const startX = noteXPositions.get(seg.startIndex);
+          const endX = noteXPositions.get(seg.endIndex);
+          if (startX === undefined || endX === undefined) continue;
+          const bracketY = seg.kind === '8va'
+            ? STAFF_TOP_OFFSET - 50 // ~3 spaces above top line (which is at STAFF_TOP_OFFSET)
+            : STAFF_TOP_OFFSET + STAFF_HEIGHT + 60; // ~3 spaces below bottom
+          staffGroup.appendChild(
+            createOttavaBracket({ kind: seg.kind, startX, endX, y: bracketY })
+          );
+          // Fold bracket footprint into the content bbox (glyph extends
+          // ~24px past the bracketY anchor in either direction).
+          const bracketAbs = voiceYPositions[index] + bracketY;
+          if (bracketAbs - 24 < contentMinY) contentMinY = bracketAbs - 24;
+          if (bracketAbs + 24 > contentMaxY) contentMaxY = bracketAbs + 24;
+        }
+      }
+
       this._svg.appendChild(staffGroup);
     });
 
@@ -1430,6 +1577,24 @@ export class NotationRenderer {
       for (const x of sharedXPositions) {
         this._svg.appendChild(createSharedBarLine({ x, topY, bottomY }));
       }
+    }
+
+    // Content-aware viewport grow. We started with [0, totalHeight] and
+    // tightened (contentMinY, contentMaxY) to the actual rendered content.
+    // Apply a small visual margin and rewrite width/height/viewBox so the
+    // SVG itself contains all rendered ink without consumer-side padding.
+    const MARGIN = 10;
+    const grownTop = Math.min(0, Math.floor(contentMinY - MARGIN));
+    const grownBottom = Math.max(totalHeight, Math.ceil(contentMaxY + MARGIN));
+    const grownHeight = grownBottom - grownTop;
+    if (grownTop < 0 || grownBottom > totalHeight) {
+      const widthAttr = this._svg.getAttribute('width');
+      const w = parseFloat(widthAttr);
+      this._svg.setAttribute('height', grownHeight);
+      this._svg.setAttribute(
+        'viewBox',
+        `${-bracketLeftMargin} ${grownTop} ${w} ${grownHeight}`
+      );
     }
 
     if (this._container) {
