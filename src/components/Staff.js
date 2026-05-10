@@ -22,5 +22,17 @@ export function createStaffLines(width) {
     group.appendChild(createLine(0, y, width, y, { class: 'staff-line', stroke: 'currentColor' }));
   }
 
+  // System-start (initial) barline: thin vertical at x=0 spanning the
+  // staff lines (top to bottom). For grouped staves (brace/bracket), a
+  // taller shared line is drawn on top and visually merges with this one.
+  const bottomY = (LINE_COUNT - 1) * LINE_SPACING;
+  group.appendChild(
+    createLine(0, 0, 0, bottomY, {
+      class: 'system-start-bar-line',
+      stroke: 'currentColor',
+      'stroke-width': '1',
+    })
+  );
+
   return group;
 }

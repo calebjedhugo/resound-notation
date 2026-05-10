@@ -2092,4 +2092,81 @@ describe('NotationRenderer', () => {
       expect(height).toBeGreaterThan(200);
     });
   });
+
+  describe('system-start (initial) barline', () => {
+    it('renders a per-staff system-start line at x=0 for a single voice', () => {
+      ctx.render([{ pitch: 'C4', length: '1/4' }]);
+      const initials = ctx.container.querySelectorAll(
+        '.staff-lines .system-start-bar-line'
+      );
+      expect(initials).toHaveLength(1);
+      const line = initials[0];
+      expect(line.getAttribute('x1')).toBe('0');
+      expect(line.getAttribute('x2')).toBe('0');
+      // Spans the staff (0..80 in staff-local coords)
+      expect(line.getAttribute('y1')).toBe('0');
+      expect(line.getAttribute('y2')).toBe('80');
+    });
+
+    it('renders one per-staff system-start line per staff for multi-voice independent', () => {
+      ctx.render({
+        voices: [
+          { clef: 'treble', notes: [{ pitch: 'C5', length: '1/4' }] },
+          { clef: 'bass', notes: [{ pitch: 'C3', length: '1/4' }] },
+        ],
+      });
+      const initials = ctx.container.querySelectorAll(
+        '.staff-lines .system-start-bar-line'
+      );
+      expect(initials).toHaveLength(2);
+    });
+
+    it('renders a single tall shared system-start barline at x=0 for a brace group', () => {
+      ctx.render({
+        voices: [
+          {
+            id: 'treble',
+            clef: 'treble',
+            notes: [{ pitch: 'C5', length: '1/4' }],
+          },
+          {
+            id: 'bass',
+            clef: 'bass',
+            notes: [{ pitch: 'C3', length: '1/4' }],
+          },
+        ],
+        staffGroups: [{ type: 'brace', voiceIds: ['treble', 'bass'] }],
+      });
+      // Shared barlines at x=0 — there should be exactly one (the
+      // system-start). Per-measure shared barlines won't land at x=0.
+      const sharedLines = Array.from(
+        ctx.container.querySelectorAll('.shared-bar-line line')
+      ).filter((l) => l.getAttribute('x1') === '0');
+      expect(sharedLines).toHaveLength(1);
+      const y1 = parseFloat(sharedLines[0].getAttribute('y1'));
+      const y2 = parseFloat(sharedLines[0].getAttribute('y2'));
+      // The line spans from top of the first staff to bottom of the last
+      // staff — taller than a single staff's 80px range.
+      expect(y2 - y1).toBeGreaterThan(80);
+    });
+
+    it('renders a single tall shared system-start barline at x=0 for a bracket group', () => {
+      ctx.render({
+        voices: [
+          { id: 'v1', clef: 'treble', notes: [{ pitch: 'C5', length: '1/4' }] },
+          { id: 'v2', clef: 'treble', notes: [{ pitch: 'C5', length: '1/4' }] },
+          { id: 'v3', clef: 'bass', notes: [{ pitch: 'C3', length: '1/4' }] },
+        ],
+        staffGroups: [{ type: 'bracket', voiceIds: ['v1', 'v2', 'v3'] }],
+      });
+      const sharedLines = Array.from(
+        ctx.container.querySelectorAll('.shared-bar-line line')
+      ).filter((l) => l.getAttribute('x1') === '0');
+      expect(sharedLines).toHaveLength(1);
+      const y1 = parseFloat(sharedLines[0].getAttribute('y1'));
+      const y2 = parseFloat(sharedLines[0].getAttribute('y2'));
+      // Spans 3 staves — much taller than 80
+      expect(y2 - y1).toBeGreaterThan(160);
+    });
+  });
 });

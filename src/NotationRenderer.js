@@ -1360,6 +1360,11 @@ export class NotationRenderer {
       }
       this._svg.appendChild(groupEl);
 
+      // System-start (initial) shared barline: a single tall line at x=0
+      // tying all staves of the group together. Uses the staff-aligned
+      // top/bottom (NOT bracket-padded) so it matches the staff lines.
+      this._svg.appendChild(createSharedBarLine({ x: 0, topY, bottomY }));
+
       // Shared barlines: collect X positions common across grouped voices
       const allBarlineXSets = voiceIndices.map((vi) => {
         const vid = parsed.voices[vi].id;
