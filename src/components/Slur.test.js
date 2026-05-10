@@ -90,15 +90,21 @@ describe('slur rendering', () => {
     expect(slur.getAttribute('d')).toBeDefined();
   });
 
-  it('renders slur as an unfilled stroke path', () => {
+  it('renders slur as a filled closed path (engraver-quality variable thickness)', () => {
     ctx.render([
       { pitch: 'C4', length: '1/4', slur: 'start' },
       { pitch: 'E4', length: '1/4', slur: 'stop' },
     ]);
 
     const slur = ctx.getSlurs()[0];
-    expect(slur.getAttribute('fill')).toBe('none');
-    expect(slur.getAttribute('stroke')).toBe('currentColor');
+    expect(slur.getAttribute('fill')).toBe('currentColor');
+    expect(slur.getAttribute('stroke')).toBe('none');
+    const d = slur.getAttribute('d');
+    expect(d).toMatch(/^M\s/);
+    // Two cubic Beziers joined and closed -> two C commands and a Z
+    const cCount = (d.match(/C/g) || []).length;
+    expect(cCount).toBe(2);
+    expect(d.trim().endsWith('Z')).toBe(true);
   });
 
   it('does not affect note count when slurs are present', () => {
