@@ -68,10 +68,14 @@ const VOICE_GAP = 40;
 const GRAND_STAFF_GAP = 60;
 const STAFF_HEIGHT = 80; // 5 lines, 20px apart
 // Vertical gap between stacked staff systems when long pieces wrap onto
-// multiple systems. Per Gould "Behind Bars" (Systems chapter), 4 staff
-// spaces of breathing room reads as a clear system break without wasting
-// vertical real estate.
-const SYSTEM_GAP = 80;
+// multiple systems. Per Gould "Behind Bars" (Systems chapter), a
+// system break must read as MORE separation than between voices within
+// a system — otherwise consecutive systems blur into one tightly-spaced
+// stack. The within-system voice gap (with VOICE_HEIGHT=200,
+// VOICE_GAP=40) is 160 px from staff bottom to next-staff top; a
+// 320 px system gap doubles that, giving an unambiguous "new system"
+// read at standard widths.
+const SYSTEM_GAP = 320;
 // Distance (px) from notehead center back to accidental center.
 // Bravura sharp ≈ 20 wide, head half-width ≈ 12, plus ~5px breathing
 // room → 30 keeps the accidental clear of the head.
@@ -639,14 +643,30 @@ export class NotationRenderer {
       let lastElementX = -Infinity;
       let beatPosition = 0;
 
-      // Finalize the current system: append a final thin barline just
-      // past the last rendered element and clip the 5 staff lines to it.
-      // Per Gould "Behind Bars" (Barlines / Systems), every system
-      // terminates at a barline rather than trailing off into empty
-      // staff. Returns the finalBarlineX so the caller can record it.
-      const finalizeCurrentSystem = (cursorXAtEnd) => {
-        const finalAnchorX = Number.isFinite(lastElementX) ? lastElementX : cursorXAtEnd;
-        const finalBarlineX = finalAnchorX + FINAL_BARLINE_PADDING;
+      // Finalize the current system: append a barline at the system's
+      // right edge and clip the 5 staff lines to it. Per Gould "Behind
+      // Bars" (Barlines / Systems), every system terminates at a
+      // barline rather than trailing off into empty staff.
+      //
+      // For the FINAL system (no `barlineX` override), anchor the
+      // barline at lastElementX + FINAL_BARLINE_PADDING — this hugs
+      // the last note since there's no next-measure beat to align to.
+      //
+      // For NON-FINAL systems, callers pass an explicit `barlineX`
+      // computed from the shared beat layout (= xForBeat(wrapBeat) -
+      // BAR_LINE_PADDING). That value is identical across voices in
+      // the same system, so all voices terminate at the SAME x and
+      // their staff lines visually align — fixing the per-voice drift
+      // that lastElementX-based anchoring caused (each voice's last
+      // rendered head is at a different x).
+      const finalizeCurrentSystem = (cursorXAtEnd, opts = {}) => {
+        let finalBarlineX;
+        if (typeof opts.barlineX === 'number') {
+          finalBarlineX = opts.barlineX;
+        } else {
+          const finalAnchorX = Number.isFinite(lastElementX) ? lastElementX : cursorXAtEnd;
+          finalBarlineX = finalAnchorX + FINAL_BARLINE_PADDING;
+        }
         staffGroup.appendChild(createBarLine(finalBarlineX));
         pushBarlineX(finalBarlineX);
         lines.querySelectorAll('.staff-line').forEach((line) => {
@@ -663,7 +683,19 @@ export class NotationRenderer {
       // accumulating systemXShift so xForBeat returns positions
       // relative to the new system's left edge.
       const wrapToNewSystem = () => {
-        finalizeCurrentSystem(cursorX);
+        // System-end barline X = the position one BAR_LINE_PADDING
+        // before cursorX. cursorX has just been set to xForBeat(
+        // wrapBeat), and `barlineOffset` already includes both the
+        // trailing-padding for the just-finished measure AND the
+        // leading-padding for the upcoming first measure of the next
+        // system; subtracting one BAR_LINE_PADDING lands the barline
+        // between them (i.e., at the trailing edge of the just-
+        // finished measure). All voices share `beatToX` and accumulate
+        // the same `barlineOffset` to this point, so they emit
+        // identical sysEndX values — the staves line up at the
+        // system break.
+        const sysEndX = cursorX - BAR_LINE_PADDING;
+        finalizeCurrentSystem(cursorX, { barlineX: sysEndX });
         this._svg.appendChild(staffGroup);
 
         currentSystemIndex += 1;
