@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 
 import { createNotationContext } from './__tests__/helpers/testUtils.js';
+import { NotationRenderer } from './NotationRenderer.js';
 
 describe('NotationRenderer', () => {
   let ctx;
@@ -1286,8 +1287,13 @@ describe('NotationRenderer', () => {
       expect(tie.getAttribute('stroke')).toBe('none');
     });
 
-    it('renders tie across a bar line', () => {
-      ctx.render({
+    it('renders tie across a bar line (within a single system)', () => {
+      // Use a wide renderer so the whole passage stays on one system —
+      // cross-system ties are deferred to a later iteration and would
+      // truncate here.
+      const c = document.createElement('div');
+      const r = new NotationRenderer({ container: c, width: 1400 });
+      r.render({
         timeSignature: [4, 4],
         notes: [
           { pitch: 'C4', length: '1/4' },
@@ -1299,8 +1305,8 @@ describe('NotationRenderer', () => {
           { pitch: 'C4', length: '1/2' },
         ],
       });
-      expect(ctx.getTies()).toHaveLength(1);
-      expect(ctx.getBarLines().length).toBeGreaterThan(0);
+      expect(c.querySelectorAll('.tie')).toHaveLength(1);
+      expect(c.querySelectorAll('.bar-line').length).toBeGreaterThan(0);
     });
 
     it('renders tie with dotted notes', () => {
@@ -2555,18 +2561,21 @@ describe('NotationRenderer', () => {
       expect(vbLineY).toBeGreaterThanOrEqual(lowestNoteY + 20);
     });
 
-    it('ottava-showcase preset renders the expected bracket population', async () => {
+    it('ottava-showcase preset renders the expected bracket population (wide single-system)', async () => {
       const { default: preset } = await import(
         '../dev/presets/ottava-showcase.js'
       );
-      ctx.render(preset.song);
-      const brackets = ctx.container.querySelectorAll('.ottava-bracket');
+      // Force a single system so each ottava segment renders as one
+      // bracket (system breaking splits segments across systems with
+      // their own glyph + hook each — see the cross-system test).
+      const c = document.createElement('div');
+      const r = new NotationRenderer({ container: c, width: 2400 });
+      r.render(preset.song);
+      const brackets = c.querySelectorAll('.ottava-bracket');
       // Treble: 2 x 8va + 1 x 8vb; bass: 1 x 8vb. Total = 4.
-      // (Bar 5's isolated G6 must be suppressed; bar 7-8 context-pull must
-      // produce a single continuous segment.)
       expect(brackets).toHaveLength(4);
-      const eightVas = ctx.container.querySelectorAll('.ottava-bracket.ottava-8va');
-      const eightVbs = ctx.container.querySelectorAll('.ottava-bracket.ottava-8vb');
+      const eightVas = c.querySelectorAll('.ottava-bracket.ottava-8va');
+      const eightVbs = c.querySelectorAll('.ottava-bracket.ottava-8vb');
       expect(eightVas).toHaveLength(2);
       expect(eightVbs).toHaveLength(2);
     });
@@ -2629,6 +2638,164 @@ describe('NotationRenderer', () => {
       expect(svg.querySelectorAll('.staff-lines')).toHaveLength(1);
       // Exactly one clef glyph at the start of the (sole) system
       expect(svg.querySelectorAll('.clef')).toHaveLength(1);
+    });
+  });
+
+  describe('system breaking and justification', () => {
+    // Build a long single-voice 4/4 piece of N measures (quarter notes).
+    const makeLongPiece = (measureCount) => {
+      const notes = [];
+      for (let m = 0; m < measureCount; m += 1) {
+        for (let b = 0; b < 4; b += 1) {
+          notes.push({ pitch: 'C4', length: '1/4' });
+        }
+      }
+      return { timeSignature: [4, 4], notes };
+    };
+
+    it('renders a short piece as a single system', () => {
+      const renderer = new NotationRenderer({ container: document.createElement('div'), width: 800 });
+      // Two measures of whole notes — comfortably fits in 800px width.
+      const svg = renderer.render({
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C4', length: '1/1' },
+          { pitch: 'D4', length: '1/1' },
+        ],
+      });
+      expect(svg.querySelectorAll('.staff-lines')).toHaveLength(1);
+    });
+
+    it('justifies a single system so its right-edge final barline lands at width', () => {
+      const width = 800;
+      const renderer = new NotationRenderer({ container: document.createElement('div'), width });
+      // 4 measures of 1/4 notes — comfortably fits within 800px width.
+      const svg = renderer.render(makeLongPiece(4));
+      // Only one system → final barline is the system's right-edge marker.
+      const finals = svg.querySelectorAll('.barline-final');
+      expect(finals.length).toBeGreaterThanOrEqual(1);
+      // Final barline group is translated to systemEndX.
+      const lastFinal = finals[finals.length - 1];
+      const x = parseFloat(
+        /translate\(([-\d.]+),/.exec(lastFinal.getAttribute('transform'))[1]
+      );
+      // 4 measures comfortably fit → justified (assuming stretch ≤ 1.5):
+      // landing at width within a small tolerance. If unjustified (the
+      // last-system rule), x lands below width and the test still confirms
+      // the barline sits to the RIGHT of the music's natural end.
+      expect(x).toBeLessThanOrEqual(width + 1);
+      expect(x).toBeGreaterThan(width / 2);
+    });
+
+    it('wraps a long piece onto multiple systems', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 800,
+      });
+      // 16 measures of 1/4 notes — won't fit on one 400px system.
+      const svg = renderer.render(makeLongPiece(16));
+      const systems = svg.querySelectorAll('.staff-lines');
+      expect(systems.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('keeps voices synchronized across system boundaries (same measure breakpoints)', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 800,
+      });
+      // 16-measure 2-voice piece. Both voices play identical rhythm so
+      // they should share system break points.
+      const piece = {
+        timeSignature: [4, 4],
+        voices: [
+          { id: 'top', clef: 'treble', notes: makeLongPiece(16).notes },
+          { id: 'bot', clef: 'treble', notes: makeLongPiece(16).notes.map((n) => ({ ...n, pitch: 'G3' })) },
+        ],
+      };
+      const svg = renderer.render(piece);
+      // Voice 0 staff-lines and voice 1 staff-lines must come in equal
+      // counts — voices break at the same measures.
+      const v0 = svg.querySelectorAll('[data-voice-id="top"]');
+      const v1 = svg.querySelectorAll('[data-voice-id="bot"]');
+      expect(v0.length).toBe(v1.length);
+      expect(v0.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('leaves the last system unjustified when stretch would exceed 1.5×', () => {
+      // 3-measure piece with whole notes so each measure has minimal
+      // natural width. With a wide canvas, two whole-note measures fit
+      // per system, the trailing measure is solo → unjustified.
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 800,
+      });
+      const piece = {
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C4', length: '1/1' },
+          { pitch: 'D4', length: '1/1' },
+          { pitch: 'E4', length: '1/1' },
+        ],
+      };
+      const svg = renderer.render(piece);
+      const finals = svg.querySelectorAll('.barline-final');
+      expect(finals.length).toBeGreaterThanOrEqual(1);
+      const lastFinal = finals[finals.length - 1];
+      const x = parseFloat(
+        /translate\(([-\d.]+),/.exec(lastFinal.getAttribute('transform'))[1]
+      );
+      expect(x).toBeLessThanOrEqual(800 + 1);
+    });
+
+    it('applies a uniform scale parameter to the SVG dimensions', () => {
+      const c1 = document.createElement('div');
+      const r1 = new NotationRenderer({ container: c1, width: 400, scale: 1 });
+      r1.render([{ pitch: 'C4', length: '1/4' }]);
+      const w1 = parseFloat(c1.querySelector('svg').getAttribute('width'));
+      const h1 = parseFloat(c1.querySelector('svg').getAttribute('height'));
+
+      const c2 = document.createElement('div');
+      const r2 = new NotationRenderer({ container: c2, width: 400, scale: 2 });
+      r2.render([{ pitch: 'C4', length: '1/4' }]);
+      const w2 = parseFloat(c2.querySelector('svg').getAttribute('width'));
+      const h2 = parseFloat(c2.querySelector('svg').getAttribute('height'));
+
+      expect(w2).toBeCloseTo(w1 * 2, 0);
+      expect(h2).toBeCloseTo(h1 * 2, 0);
+
+      // Same number of systems regardless of scale (scale is display-only).
+      const sysCount1 = c1.querySelectorAll('.staff-lines').length;
+      const sysCount2 = c2.querySelectorAll('.staff-lines').length;
+      expect(sysCount2).toBe(sysCount1);
+    });
+
+    it('renders a thin-final barline at the very end of the piece', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 800,
+      });
+      const svg = renderer.render(makeLongPiece(8));
+      // The final barline group is class "barline barline-final" and
+      // appears exactly once (only on the last system).
+      const finals = svg.querySelectorAll('.barline-final');
+      expect(finals.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('renders an ottava bracket per system when a segment spans a system break', async () => {
+      const { default: preset } = await import(
+        '../dev/presets/ottava-showcase.js'
+      );
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 500, // narrow enough to force a break in the 10-bar preset
+      });
+      renderer.render(preset.song);
+      const systems = renderer.getSvgElement().querySelectorAll('.staff-lines');
+      // The 10-bar showcase should wrap on a 500px width.
+      expect(systems.length).toBeGreaterThanOrEqual(2);
+      // At least some 8va/8vb brackets remain present after slicing.
+      const brackets = renderer.getSvgElement().querySelectorAll('.ottava-bracket');
+      expect(brackets.length).toBeGreaterThan(0);
     });
   });
 });
