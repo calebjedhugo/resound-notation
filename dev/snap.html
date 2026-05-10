@@ -26,6 +26,7 @@
       const params = new URLSearchParams(location.search);
       const presetName = params.get('preset') || 'single-voice-treble';
       const width = parseInt(params.get('width') || '800', 10);
+      const scale = parseFloat(params.get('scale') || '1');
 
       const presetModules = import.meta.glob('./presets/*.js', { eager: true });
       const presets = Object.values(presetModules)
@@ -39,7 +40,7 @@
         host.textContent = `unknown preset: ${presetName}\navailable: ${presets.map((p) => p.name).join(', ')}`;
         document.body.classList.add('ready');
       } else {
-        const renderer = new NotationRenderer({ container: host, width });
+        const renderer = new NotationRenderer({ container: host, width, scale });
         renderer.render(preset.song);
         // Measure synchronously from the SVG attributes so headless Chrome
         // (which under --virtual-time-budget doesn't reliably run rAF before
