@@ -2633,18 +2633,22 @@ describe('NotationRenderer', () => {
       const sysKeys = [...bySys.keys()].sort((a, b) => a - b);
       expect(sysKeys.length).toBeGreaterThan(1);
 
-      // Intra-system gap = bottom-voice Y minus top-voice Y on
-      // system 0.
+      // Intra-system voice GAP = whitespace between consecutive voice
+      // staves within one system (bottom edge of upper staff to top edge
+      // of lower staff). With one staff = STAFF_TOP_OFFSET (10) + 5×20
+      // (=100) of vertical extent above the next translate-Y, the gap is
+      // (next-translate-Y) - (this-translate-Y + 90).
+      const STAFF_BOTTOM_FROM_TRANSLATE = 90;
       const ys0 = bySys.get(sysKeys[0]);
-      const intra = ys0[ys0.length - 1] - ys0[0];
-      // Inter-system gap = system 1's top-voice Y minus system 0's
-      // bottom-voice Y.
+      const intraGap = ys0[1] - (ys0[0] + STAFF_BOTTOM_FROM_TRANSLATE);
+      // Inter-system gap = top of system 1's first staff minus bottom
+      // edge of system 0's last staff.
       const ys1 = bySys.get(sysKeys[1]);
-      const inter = ys1[0] - ys0[ys0.length - 1];
+      const interGap = ys1[0] - (ys0[ys0.length - 1] + STAFF_BOTTOM_FROM_TRANSLATE);
 
       // Engraving: a system break must read as a clear separation,
-      // strictly greater than the within-system voice spacing.
-      expect(inter).toBeGreaterThan(intra);
+      // strictly greater than the within-system voice gap.
+      expect(interGap).toBeGreaterThan(intraGap);
     });
 
     // Voices in a multi-voice score that wrap together must terminate
@@ -2694,5 +2698,101 @@ describe('NotationRenderer', () => {
         expect(maxX - minX).toBeLessThan(1.5);
       }
     });
+
+    // Per Gould "Behind Bars" (Systems chapter): inter-system separation
+    // is conventionally ~6 staff spaces for piano/two-staff layouts. With
+    // 1 staff space = 20 px that's ~120 px. Anything pushing beyond ~7
+    // staff spaces (140 px) starts to read as disconnected mini-scores
+    // rather than a single piece — which was happening at SYSTEM_GAP=320.
+    it('keeps inter-system separation in a sane engraving range (~6 staff spaces)', () => {
+      const sopranoNotes = [];
+      const altoNotes = [];
+      for (let m = 0; m < 8; m += 1) {
+        for (let b = 0; b < 4; b += 1) {
+          sopranoNotes.push({ pitch: 'C5', length: '1/4' });
+          altoNotes.push({ pitch: 'C4', length: '1/4' });
+        }
+      }
+      ctx.renderer._width = 400;
+      ctx.render({
+        timeSignature: [4, 4],
+        keySignature: 'C',
+        voices: [
+          { id: 'sop', clef: 'treble', notes: sopranoNotes },
+          { id: 'alt', clef: 'treble', notes: altoNotes },
+        ],
+      });
+
+      const staves = Array.from(ctx.container.querySelectorAll('.staff'));
+      const yFor = (s) => {
+        const t = s.getAttribute('transform') || '';
+        const m = t.match(/translate\(\s*[-\d.]+\s*,\s*([-\d.]+)/);
+        return m ? parseFloat(m[1]) : 0;
+      };
+      const sysIdx = (s) => parseInt(s.getAttribute('data-system-index') || '0', 10);
+      const bySys = new Map();
+      staves.forEach((s) => {
+        const k = sysIdx(s);
+        if (!bySys.has(k)) bySys.set(k, []);
+        bySys.get(k).push(yFor(s));
+      });
+      bySys.forEach((arr) => arr.sort((a, b) => a - b));
+      const sysKeys = [...bySys.keys()].sort((a, b) => a - b);
+      expect(sysKeys.length).toBeGreaterThan(1);
+
+      // Inter-system gap: top of system 1's first staff minus bottom of
+      // system 0's last staff (bottom = staff translate-Y + STAFF_HEIGHT
+      // + STAFF_TOP_OFFSET; ~90px for a single staff — but the staff
+      // translate already accounts for STAFF_TOP_OFFSET so we use
+      // staff_height = 80 + STAFF_TOP_OFFSET 10 = 90).
+      const ys0 = bySys.get(sysKeys[0]);
+      const ys1 = bySys.get(sysKeys[1]);
+      const STAFF_BOTTOM_FROM_TRANSLATE = 90;
+      const interTopToBottom = ys1[0] - (ys0[ys0.length - 1] + STAFF_BOTTOM_FROM_TRANSLATE);
+
+      // Sane engraving: ≤ ~7 staff spaces between staff edges.
+      // 1 staff space = 20px, so 7 staff spaces = 140px. Allow some slack.
+      expect(interTopToBottom).toBeLessThan(200);
+    });
+
+    // Per Gould "Behind Bars" (Systems / Barlines): every system must
+    // terminate at a barline that is INSIDE the configured rendering
+    // width — otherwise the SVG either clips the barline (it's past the
+    // canvas) or the staff trails off the visible area. Bach Prelude in
+    // C at width=800 was emitting a system-end barline at x≈981, off the
+    // canvas, which is what the user perceived as "no barline visible".
+    it('keeps every system-end barline within the SVG width', () => {
+      // 8 measures forces wrap at width=400.
+      const notes = [];
+      for (let m = 0; m < 8; m += 1) {
+        for (let b = 0; b < 4; b += 1) {
+          notes.push({ pitch: 'C5', length: '1/4' });
+        }
+      }
+      ctx.renderer._width = 400;
+      ctx.render({
+        timeSignature: [4, 4],
+        keySignature: 'C',
+        notes,
+      });
+
+      const svg = ctx.container.querySelector('svg.notation');
+      const svgWidth = parseFloat(svg.getAttribute('width'));
+
+      const staves = Array.from(ctx.container.querySelectorAll('.staff'));
+      expect(staves.length).toBeGreaterThan(1);
+
+      // Every system's rightmost barline must land at-or-inside the SVG width.
+      staves.forEach((staff) => {
+        const bars = Array.from(staff.querySelectorAll('.bar-line line'));
+        if (bars.length === 0) return;
+        const xs = bars.map((b) => parseFloat(b.getAttribute('x1')));
+        const rightmost = Math.max(...xs);
+        // The system-end barline must sit inside the SVG canvas. 1px slack
+        // for stroke-width.
+        expect(rightmost).toBeLessThanOrEqual(svgWidth + 1);
+      });
+    });
+
   });
 });

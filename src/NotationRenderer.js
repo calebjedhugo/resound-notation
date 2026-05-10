@@ -68,14 +68,19 @@ const VOICE_GAP = 40;
 const GRAND_STAFF_GAP = 60;
 const STAFF_HEIGHT = 80; // 5 lines, 20px apart
 // Vertical gap between stacked staff systems when long pieces wrap onto
-// multiple systems. Per Gould "Behind Bars" (Systems chapter), a
-// system break must read as MORE separation than between voices within
-// a system — otherwise consecutive systems blur into one tightly-spaced
-// stack. The within-system voice gap (with VOICE_HEIGHT=200,
-// VOICE_GAP=40) is 160 px from staff bottom to next-staff top; a
-// 320 px system gap doubles that, giving an unambiguous "new system"
-// read at standard widths.
-const SYSTEM_GAP = 320;
+// multiple systems. Per Gould "Behind Bars" (Systems chapter), a system
+// break must read as MORE separation than between voices within a
+// system, but must NOT dwarf the staff itself (a system break that's
+// twice the staff height reads as disconnected mini-scores rather than
+// a single piece). The within-system voice whitespace works out to ~150
+// px with the current VOICE_HEIGHT/VOICE_GAP geometry (the space below
+// one staff's bottom line until the next voice's top line); SYSTEM_GAP
+// just needs to exceed that by ~one staff space (~20 px) of cushion to
+// read as the larger separation. 200 px = 10 staff spaces — slightly
+// above Gould's "~6 staff spaces" piano-staff convention because our
+// within-system voice gap is wider than the conventional grand-staff
+// 60 px brace gap.
+const SYSTEM_GAP = 200;
 // Distance (px) from notehead center back to accidental center.
 // Bravura sharp ≈ 20 wide, head half-width ≈ 12, plus ~5px breathing
 // room → 30 keeps the accidental clear of the head.
@@ -1709,6 +1714,36 @@ export class NotationRenderer {
       for (const x of sharedXPositions) {
         this._svg.appendChild(createSharedBarLine({ x, topY, bottomY }));
       }
+    }
+
+    // Grow SVG width to fit the actual rendered music. The configured
+    // `_width` is the wrap target — narrower than the rightmost music X
+    // when a single measure exceeds the available width (a measure
+    // alone is always emitted regardless of width, since wrap requires
+    // measuresOnCurrentSystem > 0). Without this, end-of-system
+    // barlines and clipped staff lines render OUTSIDE the SVG canvas
+    // (which has overflow:visible by default but is cropped by any
+    // size-fitting consumer like the snap viewport). Per Gould "Behind
+    // Bars" (Systems / Barlines), the end-of-system barline must be
+    // visible — it can't sit past the canvas edge.
+    let maxRightX = this._width + bracketLeftMargin;
+    for (const records of voiceSystemData.values()) {
+      for (const rec of records) {
+        if (rec.barlineXs && rec.barlineXs.length > 0) {
+          const r = Math.max(...rec.barlineXs);
+          if (r > maxRightX) maxRightX = r;
+        }
+      }
+    }
+    // 4px breathing room past the rightmost barline.
+    const fittedWidth = Math.ceil(maxRightX + 4);
+    if (fittedWidth > this._width + bracketLeftMargin) {
+      const currentHeight = parseFloat(this._svg.getAttribute('height')) || 0;
+      this._svg.setAttribute('width', String(fittedWidth));
+      this._svg.setAttribute(
+        'viewBox',
+        `${-bracketLeftMargin} 0 ${fittedWidth + bracketLeftMargin} ${currentHeight}`,
+      );
     }
 
     if (this._container) {
