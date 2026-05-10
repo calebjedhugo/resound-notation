@@ -71,7 +71,8 @@ export function renderGraceNotes({ grace, mainX, mainY, clef }) {
     graceGroup.appendChild(createSmuflGlyph(NOTEHEAD_BLACK_GLYPH, 'note-head'));
 
     // Stem — anchored at the head's long-axis tip.
-    const stemDown = noteY <= MIDDLE_LINE_Y;
+    // Engraving convention: grace notes are always stem-up regardless of pitch.
+    const stemDown = false;
     const stemX = stemDown ? -HEAD_TIP_X : HEAD_TIP_X;
     const stemY1 = stemDown ? -HEAD_TIP_Y : HEAD_TIP_Y;
     const stemY2 = stemDown ? -HEAD_TIP_Y + STEM_LENGTH : HEAD_TIP_Y - STEM_LENGTH;
@@ -122,21 +123,26 @@ export function renderGraceNotes({ grace, mainX, mainY, clef }) {
     graceNoteData.push({ x: noteX, y: noteY });
   }
 
-  // Slur from last grace note to main note
+  // Slur from last grace note to main note.
+  // Grace notes are always stem-up, so the slur arcs ABOVE the heads.
+  // Both endpoints sit at a common height above whichever of the grace/main
+  // head is highest, so the curve reads as a clean, nearly-symmetric arc
+  // rather than a diagonal smear when grace and principal pitches differ.
   const lastGrace = graceNoteData[graceNoteData.length - 1];
-  const dir = lastGrace.y <= MIDDLE_LINE_Y ? -1 : 1;
   const slurStartX = lastGrace.x + HEAD_HALF_WIDTH * GRACE_SCALE;
-  const slurStartY = lastGrace.y + HEAD_HALF_HEIGHT * dir;
-  const slurEndY = mainY + HEAD_HALF_HEIGHT * dir;
-  const cpY = Math.min(slurStartY, slurEndY) + dir * -8;
-  const cpX = (slurStartX + mainX) / 2;
+  const slurEndX = mainX - HEAD_HALF_WIDTH;
+  const topY = Math.min(lastGrace.y, mainY) - HEAD_HALF_HEIGHT - 4;
+  const slurStartY = topY;
+  const slurEndY = topY;
+  const cpX = (slurStartX + slurEndX) / 2;
+  const cpY = topY - 8;
 
   container.appendChild(
-    createPath(`M ${slurStartX} ${slurStartY} Q ${cpX} ${cpY} ${mainX} ${slurEndY}`, {
+    createPath(`M ${slurStartX} ${slurStartY} Q ${cpX} ${cpY} ${slurEndX} ${slurEndY}`, {
       class: 'grace-slur',
       fill: 'none',
       stroke: 'currentColor',
-      'stroke-width': '1',
+      'stroke-width': '1.5',
     })
   );
 
