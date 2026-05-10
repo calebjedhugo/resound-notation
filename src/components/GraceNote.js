@@ -2,19 +2,24 @@
  * Grace note renderer.
  * Creates SVG elements for grace notes (acciaccatura and appoggiatura).
  *
- * Uses Bravura's dedicated grace-note glyphs (SMuFL U+E560..E563) which
- * bake the notehead, stem, 8th-note flag, and acciaccatura slash at the
- * engraver's intended grace size. Per engraving convention grace notes
- * are stem-up regardless of pitch, so we always reach for the stem-up
- * variant.
+ * Two rendering modes:
+ *   - Single grace: Bravura's dedicated grace-note glyphs (SMuFL U+E560..E563)
+ *     which bake the notehead, stem, 8th-note flag, and acciaccatura slash
+ *     at the engraver's intended grace size.
+ *   - Run of 2+ graces: BEAMED. Small noteheads + thin stems share a single
+ *     beam (no per-note flags). For acciaccatura runs, a single diagonal
+ *     slash (SMuFL U+E564 graceNoteSlashStemUp) crosses the beam group near
+ *     the first stem instead of per-note slashes.
  *
- * Coordinate system: glyphs are rendered at SMUFL_SCALE (0.08 px/fu)
- * with the notehead horizontally centered on local x=0 (via the glyph's
- * `headCx`) and the notehead vertical center at local y=0. Translating
- * to (graceX, pitchY) lands the head on the correct staff line.
+ * Per engraving convention grace notes are stem-up regardless of pitch.
+ *
+ * Coordinate system: glyphs are rendered at SMUFL_SCALE (0.08 px/fu) with
+ * the notehead horizontally centered on local x=0 (via the glyph's
+ * `headCx`) and the notehead vertical center at local y=0. Translating to
+ * (graceX, pitchY) lands the head on the correct staff line.
  */
 
-import { createGroup, createPath } from '../lib/svgHelpers.js';
+import { createGroup, createPath, createSvgElement } from '../lib/svgHelpers.js';
 import { pitchToStaffY, parsePitch } from '../lib/notePositions.js';
 import { createAccidental } from './Accidental.js';
 import {
@@ -22,30 +27,43 @@ import {
   SMUFL_SCALE,
   GRACE_NOTE_ACCIACCATURA_STEM_UP_GLYPH,
   GRACE_NOTE_APPOGGIATURA_STEM_UP_GLYPH,
+  GRACE_NOTE_SLASH_STEM_UP_GLYPH,
+  NOTEHEAD_BLACK_GLYPH,
 } from '../assets/glyphs.js';
 
-// Spacing between successive grace notes, and between the last grace
-// and the principal notehead. Grace head is ~15.6 px wide and the 8th
-// flag juts up-and-RIGHT off the stem, so spacing has to clear both
-// the next head AND the flag overhang. 30 px (~1.5 staff space) keeps
-// the flag from poking into the next element.
+// Spacing between successive grace notes (single case). Beamed runs use a
+// tighter spacing because there are no per-note flags fighting for room.
 const GRACE_SPACING = 30;
+const GRACE_RUN_SPACING = 20;
 
 // Lead-in pad reserved before the first grace note so the cluster
 // doesn't kiss the previous element (time signature, barline, etc.).
-// ~0.6 staff space, clearly visible daylight.
 const GRACE_LEAD_IN_PAD = 12;
 
-// Notehead half-width in screen px (195 fu × SMUFL_SCALE / 2).
+// Notehead half-width in screen px (195 fu × SMUFL_SCALE / 2) — single case.
 const GRACE_HEAD_HALF_WIDTH = 7.8;
 // Notehead half-height in screen px (~165 fu × SMUFL_SCALE / 2).
 const GRACE_HEAD_HALF_HEIGHT = 6.6;
 // Accidental scale relative to principal — engraver's convention is
 // roughly notehead size (which here is ~0.6 of principal).
 const GRACE_ACCIDENTAL_SCALE = 0.6;
-// Accidental offset to the left of the grace notehead center. Needs to
-// clear the grace head half-width (~7.8 px) plus ~6–8 px breathing room.
+// Accidental offset to the left of the grace notehead center.
 const GRACE_ACCIDENTAL_OFFSET = 16;
+
+// Beamed-run rendering parameters. We render a `noteheadBlack` glyph at
+// 0.66× SMUFL_SCALE so its visual size matches the dedicated single-grace
+// notehead (195 fu wide vs 295 fu native = ~0.66×). Stem thickness, beam
+// thickness, and stem length are scaled to grace proportions.
+const RUN_HEAD_SCALE = 0.66;
+const RUN_HEAD_HALF_WIDTH = 295 * SMUFL_SCALE * RUN_HEAD_SCALE / 2; // ~7.8 px
+const RUN_HEAD_HALF_HEIGHT = 250 * SMUFL_SCALE * RUN_HEAD_SCALE / 2; // ~6.6 px
+const RUN_STEM_LENGTH = 26; // shorter than principal stems (70) — grace proportions
+const RUN_STEM_THICKNESS = 1.2;
+const RUN_BEAM_THICKNESS = 4; // grace beams are thinner than principal (10)
+// Stem attaches at the notehead's stem-up tip vertex (font-unit (283, 39)
+// for noteheadBlack) scaled down to grace size.
+const RUN_HEAD_TIP_X = (283 - 295 / 2) * SMUFL_SCALE * RUN_HEAD_SCALE; // px right of head center
+const RUN_HEAD_TIP_Y = -39 * SMUFL_SCALE * RUN_HEAD_SCALE; // px above head center (stem-up)
 
 const ACCIDENTAL_TYPE_MAP = {
   '#': 'sharp',
@@ -62,26 +80,46 @@ function normalizeGrace(grace) {
   return [grace];
 }
 
+function appendAccidental(parent, pitch, offset, scale) {
+  const { accidental } = parsePitch(pitch);
+  const accType = ACCIDENTAL_TYPE_MAP[accidental];
+  if (!accType) return;
+  const accGroup = createAccidental(accType);
+  accGroup.setAttribute(
+    'transform',
+    `translate(${-offset}, 0) scale(${scale})`
+  );
+  parent.appendChild(accGroup);
+}
+
+function appendSlur(container, startX, startY, endX, endY, headHalfH) {
+  const topHeadY = Math.min(startY, endY);
+  const slurY = topHeadY - headHalfH - 5;
+  const span = endX - startX;
+  const arcDepth = Math.max(8, Math.min(14, span * 0.35));
+  const cpX = (startX + endX) / 2;
+  const cpY = slurY - arcDepth;
+  container.appendChild(
+    createPath(
+      `M ${startX} ${slurY} Q ${cpX} ${cpY} ${endX} ${slurY}`,
+      {
+        class: 'grace-slur',
+        fill: 'none',
+        stroke: 'currentColor',
+        'stroke-width': '1.8',
+        'stroke-linecap': 'round',
+      }
+    )
+  );
+}
+
 /**
- * Render grace notes before a main note.
- * @param {Object} params
- * @param {Object|Array} params.grace - Grace note(s)
- * @param {number} params.mainX - Main note x position
- * @param {number} params.mainY - Main note y position
- * @param {string} params.clef - Clef for Y positioning
- * @returns {{ element: SVGGElement, width: number }}
+ * Single grace renderer (head + stem + flag + optional slash all baked
+ * into one Bravura glyph). Renders one or more grace heads, each with its
+ * own glyph — used for the single-grace case.
  */
-export { GRACE_LEAD_IN_PAD, GRACE_SPACING };
-
-export function renderGraceNotes({ grace, mainX, mainY, clef }) {
-  const notes = normalizeGrace(grace);
-  const isRun = notes.length > 1;
-
-  const containerClass = isRun ? 'grace-note-group' : 'grace-notes';
-  const container = createGroup(containerClass);
-
-  const graceNoteData = [];
-
+function renderSingleGraces({ container, notes, mainX, mainY, clef }) {
+  const data = [];
   for (let i = 0; i < notes.length; i += 1) {
     const gn = notes[i];
     const type = gn.type || 'acciaccatura';
@@ -92,72 +130,170 @@ export function renderGraceNotes({ grace, mainX, mainY, clef }) {
       transform: `translate(${noteX}, ${noteY})`,
     });
 
-    // SMuFL grace-note glyph — head + stem + flag + (slash for
-    // acciaccatura) baked in at engraver's grace size.
     const glyph = GLYPH_FOR_TYPE[type] || GLYPH_FOR_TYPE.acciaccatura;
     graceGroup.appendChild(createSmuflGlyph(glyph, 'grace-note-glyph'));
 
-    // Acciaccatura slash is baked into the glyph; expose a marker
-    // element so callers (and tests) can confirm the slash is present
-    // without inspecting path geometry.
+    // Acciaccatura slash is baked into the glyph; expose a marker element
+    // so callers (and tests) can confirm the slash is present without
+    // inspecting path geometry.
     if (type === 'acciaccatura') {
-      const marker = createGroup('grace-slash');
-      graceGroup.appendChild(marker);
+      graceGroup.appendChild(createGroup('grace-slash'));
     }
 
-    // Accidental — positioned to the left of the grace head and
-    // shrunk to grace-note proportions.
-    const { accidental } = parsePitch(gn.pitch);
-    const accType = ACCIDENTAL_TYPE_MAP[accidental];
-    if (accType) {
-      const accGroup = createAccidental(accType);
-      accGroup.setAttribute(
-        'transform',
-        `translate(${-GRACE_ACCIDENTAL_OFFSET}, 0) scale(${GRACE_ACCIDENTAL_SCALE})`
-      );
-      graceGroup.appendChild(accGroup);
-    }
+    appendAccidental(graceGroup, gn.pitch, GRACE_ACCIDENTAL_OFFSET, GRACE_ACCIDENTAL_SCALE);
 
     container.appendChild(graceGroup);
-    graceNoteData.push({ x: noteX, y: noteY });
+    data.push({ x: noteX, y: noteY });
   }
 
-  // Slur from last grace head to the principal head. Grace notes are
-  // stem-up, so the slur arcs ABOVE the heads. Endpoints sit at the
-  // outer edge of each notehead vertically just above the higher head;
-  // the arc depth gives a clearly visible curve rather than a flat line.
-  const lastGrace = graceNoteData[graceNoteData.length - 1];
-  // Endpoints sit just outside each notehead so the slur visibly springs
-  // from the head edge rather than overlapping the head. Both endpoints
-  // are pinned at the same y (just above the higher of the two heads)
-  // so the curve reads as a clean symmetric arc regardless of pitch
-  // difference between grace and principal.
-  const slurStartX = lastGrace.x + GRACE_HEAD_HALF_WIDTH + 1;
-  const slurEndX = mainX - 11; // principal head half-width ≈ 11.8
-  const topHeadY = Math.min(lastGrace.y, mainY);
-  const slurY = topHeadY - GRACE_HEAD_HALF_HEIGHT - 5;
-  // Arc depth scales with span so longer slurs (multi-grace runs) get
-  // a deeper, more obviously curved arc.
-  const span = slurEndX - slurStartX;
-  const arcDepth = Math.max(8, Math.min(14, span * 0.35));
-  const cpX = (slurStartX + slurEndX) / 2;
-  const cpY = slurY - arcDepth;
+  // Slur from last grace head to the principal head.
+  const last = data[data.length - 1];
+  const slurStartX = last.x + GRACE_HEAD_HALF_WIDTH + 1;
+  const slurEndX = mainX - 11;
+  appendSlur(container, slurStartX, last.y, slurEndX, mainY, GRACE_HEAD_HALF_HEIGHT);
 
+  return notes.length * GRACE_SPACING;
+}
+
+/**
+ * Beamed-run renderer for 2+ grace notes. Small noteheads + thin stems
+ * connected by a single beam (no per-note flags); a single diagonal slash
+ * crosses the beam group for acciaccatura runs.
+ */
+function renderRunGraces({ container, notes, mainX, mainY, clef }) {
+  const heads = [];
+  for (let i = 0; i < notes.length; i += 1) {
+    const gn = notes[i];
+    const noteY = pitchToStaffY(gn.pitch, clef);
+    const noteX = mainX - (notes.length - i) * GRACE_RUN_SPACING;
+    heads.push({ x: noteX, y: noteY, gn });
+  }
+
+  // Beam Y: above the highest head by a fixed engraver's stem length, so
+  // every stem is at least RUN_STEM_LENGTH long. Heads are stem-up so the
+  // beam is ABOVE — pick the smallest y among heads (highest visually).
+  const minHeadY = Math.min(...heads.map(h => h.y));
+  const beamY = minHeadY - RUN_STEM_LENGTH;
+
+  // Render each head + stem.
+  for (let i = 0; i < heads.length; i += 1) {
+    const { x, y, gn } = heads[i];
+    const type = gn.type || 'acciaccatura';
+    const graceGroup = createGroup(`grace-note grace-note-${type}`, {
+      transform: `translate(${x}, ${y})`,
+    });
+
+    // Small notehead — scaled noteheadBlack centered on local origin.
+    const headWrapper = createGroup('grace-note-glyph');
+    const headInner = createGroup('', {
+      transform: `scale(${SMUFL_SCALE * RUN_HEAD_SCALE}, ${-SMUFL_SCALE * RUN_HEAD_SCALE}) translate(${-295 / 2}, 0)`,
+    });
+    headInner.appendChild(
+      createPath(NOTEHEAD_BLACK_GLYPH.d, { fill: 'currentColor' })
+    );
+    headWrapper.appendChild(headInner);
+    graceGroup.appendChild(headWrapper);
+
+    // Stem — from head's stem-up tip (right side, slightly above center)
+    // to the beam line. Drawn in the parent container so absolute y
+    // coordinates work cleanly.
+    const stemX = x + RUN_HEAD_TIP_X;
+    const stemTopY = beamY;
+    const stemBottomY = y + RUN_HEAD_TIP_Y;
+    container.appendChild(
+      createSvgElement('rect', {
+        x: stemX - RUN_STEM_THICKNESS / 2,
+        y: stemTopY,
+        width: RUN_STEM_THICKNESS,
+        height: stemBottomY - stemTopY,
+        fill: 'currentColor',
+        class: 'grace-stem',
+      })
+    );
+
+    appendAccidental(graceGroup, gn.pitch, GRACE_ACCIDENTAL_OFFSET, GRACE_ACCIDENTAL_SCALE);
+    container.appendChild(graceGroup);
+  }
+
+  // Beam — a flat horizontal bar spanning the first to last stem. Real
+  // engravers may slope grace beams to follow the contour, but a flat
+  // beam reads cleanly for short 2-3 note runs and avoids implying a
+  // pitch direction the user didn't ask for.
+  const firstStemX = heads[0].x + RUN_HEAD_TIP_X;
+  const lastStemX = heads[heads.length - 1].x + RUN_HEAD_TIP_X;
   container.appendChild(
-    createPath(
-      `M ${slurStartX} ${slurY} Q ${cpX} ${cpY} ${slurEndX} ${slurY}`,
-      {
-        class: 'grace-slur',
-        fill: 'none',
-        stroke: 'currentColor',
-        'stroke-width': '1.8',
-        'stroke-linecap': 'round',
-      }
-    )
+    createSvgElement('rect', {
+      x: firstStemX - RUN_STEM_THICKNESS / 2,
+      y: beamY,
+      width: lastStemX - firstStemX + RUN_STEM_THICKNESS,
+      height: RUN_BEAM_THICKNESS,
+      fill: 'currentColor',
+      class: 'grace-beam',
+    })
   );
 
-  return {
-    element: container,
-    width: notes.length * GRACE_SPACING,
-  };
+  // Acciaccatura slash — a single diagonal line crossing the beam group.
+  // Render if ANY grace in the run is an acciaccatura (engraver's
+  // convention treats the slash as a property of the whole beamed group).
+  const hasAcciaccatura = notes.some(n => (n.type || 'acciaccatura') === 'acciaccatura');
+  if (hasAcciaccatura) {
+    // Anchor the slash so it crosses the beam diagonally near the first
+    // stem. Native slash glyph extends from (0, 0) up-and-right to
+    // (505, 401) fu. We size it so the slash spans about half the stem
+    // length vertically and crosses one full stem-spacing horizontally.
+    // Two-grace runs have only one stem-gap so we keep the slash compact.
+    const stemSpacing = lastStemX - firstStemX;
+    // Slash horizontal span ~= the stem spacing (so it visibly bridges
+    // across one full beam segment). For 2-note runs minimum 18 px.
+    const targetWidth = Math.max(18, stemSpacing * 0.95);
+    const slashScale = targetWidth / 505;
+    // Position lower-left of slash below the beam at first stem; the
+    // diagonal ascends through the beam to above-right of the next stem.
+    // We anchor a few px below the beam and let the diagonal cross it.
+    const slashX = firstStemX - 5;
+    const slashY = beamY + RUN_BEAM_THICKNESS + 7;
+    const slashGroup = createGroup('grace-slash', {
+      transform: `translate(${slashX}, ${slashY}) scale(${slashScale}, ${-slashScale})`,
+    });
+    slashGroup.appendChild(
+      createPath(GRACE_NOTE_SLASH_STEM_UP_GLYPH.d, { fill: 'currentColor' })
+    );
+    container.appendChild(slashGroup);
+  }
+
+  // Slur arcs from the FIRST grace head over all heads + the principal.
+  const first = heads[0];
+  const slurStartX = first.x - RUN_HEAD_HALF_WIDTH;
+  const slurEndX = mainX - 11;
+  // Use the lowest beam-y as the upper-bound for the arc origin so the
+  // slur clears the beam comfortably. Practically the beam sits well
+  // above the heads, and our slur already pads above the highest head.
+  const topAnchorY = Math.min(beamY - 2, mainY);
+  appendSlur(container, slurStartX, topAnchorY, slurEndX, mainY, RUN_HEAD_HALF_HEIGHT);
+
+  return notes.length * GRACE_RUN_SPACING;
+}
+
+export { GRACE_LEAD_IN_PAD, GRACE_SPACING };
+
+/**
+ * Render grace notes before a main note.
+ * @param {Object} params
+ * @param {Object|Array} params.grace - Grace note(s)
+ * @param {number} params.mainX - Main note x position
+ * @param {number} params.mainY - Main note y position
+ * @param {string} params.clef - Clef for Y positioning
+ * @returns {{ element: SVGGElement, width: number }}
+ */
+export function renderGraceNotes({ grace, mainX, mainY, clef }) {
+  const notes = normalizeGrace(grace);
+  const isRun = notes.length > 1;
+
+  const container = createGroup(isRun ? 'grace-note-group' : 'grace-notes');
+
+  const width = isRun
+    ? renderRunGraces({ container, notes, mainX, mainY, clef })
+    : renderSingleGraces({ container, notes, mainX, mainY, clef });
+
+  return { element: container, width };
 }

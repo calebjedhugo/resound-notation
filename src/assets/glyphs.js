@@ -252,6 +252,19 @@ export const GRACE_NOTE_APPOGGIATURA_STEM_DOWN_GLYPH = {
   headCx: 97.5,
 };
 
+// Bravura U+E564 graceNoteSlashStemUp / U+E565 graceNoteSlashStemDown.
+// Stand-alone slash decoration drawn diagonally across the beam group of a
+// beamed acciaccatura run. Path is a thin rotated rectangle in font units;
+// we use the stem-up variant exclusively (grace runs are stem-up by
+// engraver's convention). Registration: (0, 0) is the slash's lower-left
+// vertex; the slash extends up-and-right to ~(505, 401) fu. Caller anchors
+// (0, 0) at the desired position (typically just below the first stem,
+// crossing the beam at roughly 45°).
+export const GRACE_NOTE_SLASH_STEM_UP_GLYPH = {
+  d: 'M30 0C37 0 43 2 48 6L494 348C501 353 505 363 505 372C505 377 503 385 499 390C494 398 487 401 477 401C472 401 464 400 459 396L13 54C4 48 0 39 0 30C0 14 13 0 30 0Z',
+  bbox: { xMin: 0, yMin: 0, xMax: 505, yMax: 401 },
+};
+
 // Bravura U+E000 brace. Drawn at unit reference height — caller stretches
 // vertically (via scale Y) to match the desired group span.
 export const BRACE_GLYPH = {
