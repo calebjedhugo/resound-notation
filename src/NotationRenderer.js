@@ -1339,10 +1339,10 @@ export class NotationRenderer {
         groupEl = createBracket({ height: groupHeight });
         // Bracket sits entirely OUTSIDE the staff area. Local footprint:
         // trunk x=[0,10] (left vertical line), hook tips reach x≈37.5
-        // (right, curling toward the staff). With translate x=-39.5, the
-        // hook tips land at x=-2 — a 2 px gap before staff lines at x=0 —
-        // and the trunk's left edge sits at x=-39.5.
-        groupEl.setAttribute('transform', `translate(-39.5, ${topY})`);
+        // (right, curling toward the staff). With translate x=-37.5, the
+        // hook tips land at x=0 — flush against staff lines, zero gap —
+        // and the trunk's left edge sits at x=-37.5.
+        groupEl.setAttribute('transform', `translate(-37.5, ${topY})`);
       } else {
         groupEl = createBrace({ height: groupHeight });
         // Brace sits OUTSIDE the staff with a ~2 px gap. Brace local x
