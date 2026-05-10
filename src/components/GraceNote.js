@@ -118,11 +118,19 @@ export function renderGraceNotes({ grace, mainX, mainY, clef }) {
   // outer edge of each notehead vertically just above the higher head;
   // the arc depth gives a clearly visible curve rather than a flat line.
   const lastGrace = graceNoteData[graceNoteData.length - 1];
-  const slurStartX = lastGrace.x + GRACE_HEAD_HALF_WIDTH;
-  const slurEndX = mainX - 8; // principal head half-width ≈ 11.8; pull in slightly
+  // Endpoints sit just outside each notehead so the slur visibly springs
+  // from the head edge rather than overlapping the head. Both endpoints
+  // are pinned at the same y (just above the higher of the two heads)
+  // so the curve reads as a clean symmetric arc regardless of pitch
+  // difference between grace and principal.
+  const slurStartX = lastGrace.x + GRACE_HEAD_HALF_WIDTH + 1;
+  const slurEndX = mainX - 11; // principal head half-width ≈ 11.8
   const topHeadY = Math.min(lastGrace.y, mainY);
-  const slurY = topHeadY - GRACE_HEAD_HALF_HEIGHT - 4;
-  const arcDepth = 6;
+  const slurY = topHeadY - GRACE_HEAD_HALF_HEIGHT - 5;
+  // Arc depth scales with span so longer slurs (multi-grace runs) get
+  // a deeper, more obviously curved arc.
+  const span = slurEndX - slurStartX;
+  const arcDepth = Math.max(8, Math.min(14, span * 0.35));
   const cpX = (slurStartX + slurEndX) / 2;
   const cpY = slurY - arcDepth;
 
@@ -133,7 +141,7 @@ export function renderGraceNotes({ grace, mainX, mainY, clef }) {
         class: 'grace-slur',
         fill: 'none',
         stroke: 'currentColor',
-        'stroke-width': '1.5',
+        'stroke-width': '1.8',
         'stroke-linecap': 'round',
       }
     )
