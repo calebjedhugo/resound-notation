@@ -24,21 +24,26 @@ export const SMUFL_SCALE = 0.08;
 // `bbox` is the SMuFL spec bounding box in font units; `tipFu` is the
 // stem-up tip vertex (max-x outline point). Half and Black share the
 // same tip; Whole has no stem.
-// Stem anchor (tipFu) is pulled ~1px (12 font units at SMUFL_SCALE 0.08)
-// toward the head's center along the long axis from the path's max-x
-// vertex (295, 42). Without the pullback the stem butts up against the
-// head outline; the inward shift gives the engraved overlap so the stem
-// reads as joining the head cleanly.
+// Stem anchor (tipFu) sits at the head's right edge, near vertical center.
+// The path's max-x outline vertex is at font-unit (295, 42) — top-right of
+// the oval. Anchoring the stem there (per raw SMuFL stemUpSE) makes the
+// stem appear to PERCH on top of the notehead with a visible gap rather
+// than join it: the head body sits below the stem's bottom endpoint, so
+// the eye reads them as separate marks. Per Gould "Behind Bars" (Stems),
+// stems should attach near the head's vertical center so the head body
+// visibly wraps the stem's lower end. We pull x inward by ~12 fu (~1px) for
+// engraver overlap, and pull y to 0 (long-axis center) so the stem's
+// bottom lands inside the head body, not on its outline.
 export const NOTEHEAD_BLACK_GLYPH = {
   d: 'M97 -125C186 -125 295 -43 295 42C295 93 255 125 198 125C88 125 0 44 0 -42C0 -94 43 -125 97 -125Z',
   bbox: { xMin: 0, yMin: -125, xMax: 295, yMax: 125 },
-  tipFu: { x: 283, y: 39 },
+  tipFu: { x: 283, y: 0 },
 };
 
 export const NOTEHEAD_HALF_GLYPH = {
   d: 'M97 -125C262 -125 295 9 295 42C295 93 254 125 196 125C47 125 0 10 0 -42C0 -95 42 -125 97 -125ZM75 -87C54 -87 42 -76 35 -64C32 -58 29 -51 29 -44C29 5 174 84 221 84C240 84 251 75 258 63C261 57 264 51 264 44C264 1 123 -87 75 -87Z',
   bbox: { xMin: 0, yMin: -125, xMax: 295, yMax: 125 },
-  tipFu: { x: 283, y: 39 },
+  tipFu: { x: 283, y: 0 },
   fillRule: 'evenodd',
 };
 
@@ -174,7 +179,7 @@ export const TIME_SIG_DIGITS = {
 export const NOTEHEAD_X_BLACK_GLYPH = {
   d: 'M285 -99 166 0 285 100C288 102 290 107 290 111C290 119 283 125 277 125C275 125 272 124 270 123L144 18L20 123C18 124 15 125 12 125C5 125 0 118 0 112C0 108 2 103 5 100L124 0L5 -99C1 -102 0 -106 0 -110C0 -118 5 -125 13 -125C16 -125 18 -124 20 -122L144 -17L270 -122C272 -124 275 -125 277 -125C285 -125 290 -117 290 -111C290 -106 288 -102 285 -99Z',
   bbox: { xMin: 0, yMin: -125, xMax: 290, yMax: 125 },
-  tipFu: { x: 283, y: 39 },
+  tipFu: { x: 283, y: 0 },
 };
 
 export const NOTEHEAD_WHOLE_GLYPH = {

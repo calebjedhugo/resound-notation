@@ -174,11 +174,29 @@ describe('NotationRenderer', () => {
       ctx.render([{ pitch: 'E4', length: '1/4' }]);
       const stem = ctx.container.querySelector('.note-stem');
       const x = parseFloat(stem.getAttribute('x1'));
-      const y = parseFloat(stem.getAttribute('y1'));
-      // E4 is below middle line → stem-up → upper-right tip pulled inward.
+      // E4 is below middle line → stem-up → right side of head, pulled inward.
       expect(x).toBeLessThan(11.8);
       expect(x).toBeGreaterThan(10);
-      expect(y).toBeLessThan(-3); // still in the upper-right region
+    });
+
+    // Per Gould "Behind Bars" (Stems): the stem's lower endpoint should sit
+    // near the notehead's vertical center so the stem visually pierces the
+    // head rather than perching on its top edge. With the SMuFL anchor at
+    // y_fu=42 (top-right of head), the stem bottom landed ~3.4px above
+    // center on a 10px-tall head — visually reading as a gap. Pin the
+    // stem-up stem-bottom to fall WITHIN the notehead's inner half, i.e.
+    // |y1| < HEAD_HALF_HEIGHT / 2 (5px), so the stem reliably overlaps the
+    // head body across renderers.
+    it('lands the stem-up stem bottom inside the notehead body (no perched gap)', () => {
+      ctx.render([{ pitch: 'C4', length: '1/4' }]); // low C, stem-up
+      const note = ctx.container.querySelector('.note');
+      const stem = note.querySelector('.note-stem');
+      const y1 = parseFloat(stem.getAttribute('y1'));
+      // Notehead spans local y in [-10, +10] (NOTEHEAD_BLACK bbox 125 fu *
+      // SMUFL_SCALE 0.08 = 10 px each side of midline). Stem y1 must land
+      // near the head's vertical center — |y1| < 2 px (~0.1 staff space) —
+      // so the stem visibly overlaps the head body, not its top outline.
+      expect(Math.abs(y1)).toBeLessThan(2);
     });
 
     // Same pullback applies to the SMuFL noteheadHalf glyph.
@@ -186,10 +204,8 @@ describe('NotationRenderer', () => {
       ctx.render([{ pitch: 'E4', length: '1/2' }]);
       const stem = ctx.container.querySelector('.note-stem');
       const x = parseFloat(stem.getAttribute('x1'));
-      const y = parseFloat(stem.getAttribute('y1'));
       expect(x).toBeLessThan(11.8);
       expect(x).toBeGreaterThan(10);
-      expect(y).toBeLessThan(-3);
     });
 
     // Half-note heads in standard engraving have a distinct hollow shape:

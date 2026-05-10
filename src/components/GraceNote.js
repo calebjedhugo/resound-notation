@@ -60,10 +60,12 @@ const RUN_HEAD_HALF_HEIGHT = 250 * SMUFL_SCALE * RUN_HEAD_SCALE / 2; // ~6.6 px
 const RUN_STEM_LENGTH = 26; // shorter than principal stems (70) — grace proportions
 const RUN_STEM_THICKNESS = 1.2;
 const RUN_BEAM_THICKNESS = 4; // grace beams are thinner than principal (10)
-// Stem attaches at the notehead's stem-up tip vertex (font-unit (283, 39)
-// for noteheadBlack) scaled down to grace size.
+// Stem attaches at the notehead's stem-up tip (font-unit (283, 0) for
+// noteheadBlack — right edge, vertical center) scaled to grace size.
+// Pinning y to 0 puts the stem's lower end inside the head body, matching
+// principal-note stems and avoiding a perched-on-top gap (Gould, Stems).
 const RUN_HEAD_TIP_X = (283 - 295 / 2) * SMUFL_SCALE * RUN_HEAD_SCALE; // px right of head center
-const RUN_HEAD_TIP_Y = -39 * SMUFL_SCALE * RUN_HEAD_SCALE; // px above head center (stem-up)
+const RUN_HEAD_TIP_Y = 0; // px from head center along long axis (stem-up)
 
 const ACCIDENTAL_TYPE_MAP = {
   '#': 'sharp',
