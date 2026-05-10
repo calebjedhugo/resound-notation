@@ -1214,14 +1214,14 @@ describe('NotationRenderer', () => {
       expect(d).toMatch(/C\s/);
     });
 
-    it('tie arc uses stroke styling (no fill)', () => {
+    it('tie arc uses filled styling (engraver-quality variable thickness)', () => {
       ctx.render([
         { pitch: 'C4', length: '1/4', tie: 'start' },
         { pitch: 'C4', length: '1/4', tie: 'stop' },
       ]);
       const tie = ctx.getTies()[0];
-      expect(tie.getAttribute('fill')).toBe('none');
-      expect(tie.getAttribute('stroke')).toBe('currentColor');
+      expect(tie.getAttribute('fill')).toBe('currentColor');
+      expect(tie.getAttribute('stroke')).toBe('none');
     });
 
     it('renders tie across a bar line', () => {

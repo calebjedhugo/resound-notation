@@ -1,6 +1,10 @@
 /**
  * Tie arc renderer.
  * Creates SVG path elements for tie arcs between noteheads.
+ *
+ * Engraver-quality ties — like slurs — are filled shapes formed from two
+ * cubic Beziers joined into a closed region. Ties are typically flatter
+ * than slurs (smaller arc, shorter span) and slightly thinner in the middle.
  */
 
 import { createPath } from '../lib/svgHelpers.js';
@@ -8,6 +12,10 @@ import { createPath } from '../lib/svgHelpers.js';
 const NOTEHEAD_OFFSET = 5;
 const MIN_ARC_HEIGHT = 8;
 const ARC_HEIGHT_RATIO = 0.2;
+// Control-point offset between outer and inner Bezier curves. Rendered apex
+// thickness is ~3/4 of this, so THICKNESS = 2.0 yields ~1.5 px middle
+// thickness — slightly thinner than slurs, as engravers conventionally render.
+const THICKNESS = 2.0;
 
 /**
  * Create an SVG path element for a tie arc.
@@ -29,15 +37,20 @@ export function createTieArc({ x1, y1, x2, y2, direction }) {
 
   const midX1 = x1 + (x2 - x1) * 0.33;
   const midX2 = x1 + (x2 - x1) * 0.67;
-  const cpY1 = startY + arcHeight * dir;
-  const cpY2 = endY + arcHeight * dir;
 
-  const d = `M ${x1} ${startY} C ${midX1} ${cpY1} ${midX2} ${cpY2} ${x2} ${endY}`;
+  const outerCp1Y = startY + arcHeight * dir;
+  const outerCp2Y = endY + arcHeight * dir;
+  const innerCp1Y = startY + (arcHeight - THICKNESS) * dir;
+  const innerCp2Y = endY + (arcHeight - THICKNESS) * dir;
+
+  const d =
+    `M ${x1} ${startY} ` +
+    `C ${midX1} ${outerCp1Y} ${midX2} ${outerCp2Y} ${x2} ${endY} ` +
+    `C ${midX2} ${innerCp2Y} ${midX1} ${innerCp1Y} ${x1} ${startY} Z`;
 
   return createPath(d, {
     class: 'tie',
-    fill: 'none',
-    stroke: 'currentColor',
-    'stroke-width': '1.5',
+    fill: 'currentColor',
+    stroke: 'none',
   });
 }
