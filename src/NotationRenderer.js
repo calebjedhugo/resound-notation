@@ -343,8 +343,21 @@ export class NotationRenderer {
    * @param {number} [options.width] - SVG width
    * @param {number} [options.height] - SVG height
    * @param {number} [options.scale] - Scaling factor
+   * @param {boolean} [options.observeContainer=false] - if true, attach
+   *   a ResizeObserver to the container at construction time.
+   * @param {'reflow'|'zoom-to-fit'} [options.responsiveMode='reflow'] -
+   *   how the ResizeObserver callback maps container width to render
+   *   state. `'reflow'` updates width (more/fewer measures per system);
+   *   `'zoom-to-fit'` updates scale (same layout, scaled).
    */
-  constructor({ container, width, height, scale } = {}) {
+  constructor({
+    container,
+    width,
+    height,
+    scale,
+    observeContainer = false,
+    responsiveMode = 'reflow',
+  } = {}) {
     this._container = container || null;
     this._width = width || DEFAULT_WIDTH;
     this._height = height || DEFAULT_HEIGHT;
@@ -352,6 +365,21 @@ export class NotationRenderer {
     this._svg = null;
     this._noteData = [];
     this._intrinsicWidths = null;
+
+    // Reactive layout state.
+    this._song = null;
+    this._responsiveMode = responsiveMode;
+    this._resizeObserver = null;
+    this._rafId = null;
+    this._pending = false;
+    // Natural width for zoom-to-fit reference. Captured on the first
+    // render(song) call so subsequent ResizeObserver callbacks can
+    // compute scale = container.clientWidth / naturalWidth.
+    this._naturalWidth = null;
+
+    if (observeContainer) {
+      this.observe();
+    }
   }
 
   /**
@@ -378,7 +406,11 @@ export class NotationRenderer {
    * @returns {SVGElement}
    */
   render(songData) {
-    this.clear();
+    this._removeSvg();
+    this._song = songData;
+    if (this._naturalWidth == null) {
+      this._naturalWidth = this._width;
+    }
     this._computeIntrinsicWidths(songData);
 
     const parsed = parseNoteData(songData);
@@ -2155,9 +2187,12 @@ export class NotationRenderer {
   }
 
   /**
-   * Remove the SVG and reset state.
+   * Remove just the SVG from the DOM and reset per-render caches.
+   * Does NOT detach the ResizeObserver or null out _song — used as
+   * the inner pre-render reset from both render() and _flush().
+   * @private
    */
-  clear() {
+  _removeSvg() {
     if (this._svg && this._svg.parentNode) {
       this._svg.parentNode.removeChild(this._svg);
     }
@@ -2167,10 +2202,120 @@ export class NotationRenderer {
   }
 
   /**
+   * Remove the SVG, detach any ResizeObserver, and reset state.
+   */
+  clear() {
+    this.unobserve();
+    this._removeSvg();
+    this._song = null;
+    this._naturalWidth = null;
+    if (this._rafId != null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this._rafId);
+    }
+    this._rafId = null;
+    this._pending = false;
+  }
+
+  /**
    * Get the current SVG element.
    * @returns {SVGElement|null}
    */
   getSvgElement() {
     return this._svg;
+  }
+
+  /**
+   * Update the song and schedule a re-render on the next animation frame.
+   * Coalesces with any other setSong/setWidth/setScale call in the same tick.
+   * @param {Array|Object} songData
+   */
+  setSong(songData) {
+    this._song = songData;
+    this._scheduleRender();
+  }
+
+  /**
+   * Update the SVG width and schedule a batched re-render.
+   * @param {number} width
+   */
+  setWidth(width) {
+    this._width = width;
+    this._scheduleRender();
+  }
+
+  /**
+   * Update the scale and schedule a batched re-render.
+   * @param {number} scale
+   */
+  setScale(scale) {
+    this._scale = scale;
+    this._scheduleRender();
+  }
+
+  /**
+   * Attach a ResizeObserver to the container. The callback maps
+   * container.clientWidth onto the renderer's width or scale according
+   * to responsiveMode, then routes through setWidth/setScale which
+   * batches via rAF. Safe to call repeatedly — a second call is a no-op.
+   */
+  observe() {
+    if (this._resizeObserver || !this._container) return;
+    if (typeof ResizeObserver === 'undefined') return;
+    this._resizeObserver = new ResizeObserver(() => {
+      if (!this._container) return;
+      const cw = this._container.clientWidth;
+      if (!cw) return;
+      if (this._responsiveMode === 'zoom-to-fit') {
+        const ref = this._naturalWidth || this._width;
+        if (!ref) return;
+        this.setScale(cw / ref);
+      } else {
+        // 'reflow' (default)
+        const scale = this._scale || 1;
+        this.setWidth(cw / scale);
+      }
+    });
+    this._resizeObserver.observe(this._container);
+  }
+
+  /**
+   * Detach the ResizeObserver, if any.
+   */
+  unobserve() {
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+      this._resizeObserver = null;
+    }
+  }
+
+  /**
+   * Schedule a re-render on the next animation frame, coalescing
+   * multiple state changes in the same tick into one render. No-op
+   * if there is no song yet (initial render(song) is still required).
+   * @private
+   */
+  _scheduleRender() {
+    if (!this._song) return;
+    this._pending = true;
+    if (this._rafId != null) return;
+    if (typeof requestAnimationFrame !== 'function') {
+      // Fallback: flush synchronously.
+      this._flush();
+      return;
+    }
+    this._rafId = requestAnimationFrame(() => this._flush());
+  }
+
+  /**
+   * Run the render pipeline using the current state. Called by
+   * rAF from _scheduleRender. Idempotent and safe to call manually
+   * (tests can drive this directly to avoid timer plumbing).
+   * @private
+   */
+  _flush() {
+    this._rafId = null;
+    this._pending = false;
+    if (!this._song) return;
+    this.render(this._song);
   }
 }

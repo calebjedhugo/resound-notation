@@ -2918,4 +2918,241 @@ describe('NotationRenderer', () => {
       expect(Math.abs(xOf(topNotes[0]) - xOf(botNotes[0]))).toBeLessThanOrEqual(1);
     });
   });
+
+  describe('reactive layout (scheduleRender + rAF batching)', () => {
+    // Build a piece long enough to wrap onto multiple systems at small widths.
+    const makeLongPiece = () => {
+      const notes = [];
+      for (let i = 0; i < 64; i++) {
+        notes.push({ pitch: 'C5', length: '1/4' });
+      }
+      return { timeSignature: [4, 4], voices: [{ id: 'v1', clef: 'treble', notes }] };
+    };
+
+    // Drive the rAF-scheduled flush synchronously. Using the documented
+    // _flush hook keeps tests deterministic without timer mocking; the
+    // spec explicitly endorses driving _flush directly from tests.
+    const tick = (renderer) => renderer._flush();
+
+    it('render(song) returns the SVG synchronously', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 800,
+      });
+      const svg = renderer.render([{ pitch: 'C4', length: '1/4' }]);
+      expect(svg).not.toBeNull();
+      expect(svg.tagName).toBe('svg');
+    });
+
+    it('setWidth batches: SVG does not change until rAF flush', () => {
+      const container = document.createElement('div');
+      const renderer = new NotationRenderer({ container, width: 1600 });
+      renderer.render(makeLongPiece());
+      const beforeSvg = renderer.getSvgElement();
+      const stavesBefore = beforeSvg.querySelectorAll('.staff-lines').length;
+
+      renderer.setWidth(800);
+      // Same SVG element still in the DOM until rAF fires.
+      expect(renderer.getSvgElement()).toBe(beforeSvg);
+      expect(
+        beforeSvg.querySelectorAll('.staff-lines').length
+      ).toBe(stavesBefore);
+
+      tick(renderer);
+
+      const afterSvg = renderer.getSvgElement();
+      expect(afterSvg).not.toBe(beforeSvg);
+      // Reflow happened: narrower width produces more systems.
+      expect(
+        afterSvg.querySelectorAll('.staff-lines').length
+      ).toBeGreaterThan(stavesBefore);
+    });
+
+    it('coalesces multiple setWidth calls in the same tick into one render', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 1600,
+      });
+      renderer.render(makeLongPiece());
+
+      const flushSpy = jest.spyOn(renderer, '_flush');
+      renderer.setWidth(400);
+      renderer.setWidth(500);
+      renderer.setWidth(600);
+
+      // Nothing has flushed yet.
+      expect(flushSpy).not.toHaveBeenCalled();
+
+      tick(renderer);
+
+      // Exactly one flush, at the latest width.
+      expect(flushSpy).toHaveBeenCalledTimes(1);
+      expect(
+        parseFloat(renderer.getSvgElement().getAttribute('width'))
+      ).toBeCloseTo(600, 0);
+    });
+
+    it('setSong batches and re-renders with the new song', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 800,
+      });
+      renderer.render([{ pitch: 'C4', length: '1/4' }]);
+      const noteCountBefore = renderer.getSvgElement().querySelectorAll('.note').length;
+
+      renderer.setSong([
+        { pitch: 'C4', length: '1/4' },
+        { pitch: 'D4', length: '1/4' },
+        { pitch: 'E4', length: '1/4' },
+      ]);
+      tick(renderer);
+
+      const noteCountAfter = renderer.getSvgElement().querySelectorAll('.note').length;
+      expect(noteCountAfter).toBeGreaterThan(noteCountBefore);
+    });
+
+    it('setScale batches and re-renders with new SVG dimensions', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 800,
+        scale: 1,
+      });
+      renderer.render([{ pitch: 'C4', length: '1/4' }]);
+      const w1 = parseFloat(renderer.getSvgElement().getAttribute('width'));
+
+      renderer.setScale(2);
+      tick(renderer);
+
+      const w2 = parseFloat(renderer.getSvgElement().getAttribute('width'));
+      expect(w2).toBeCloseTo(w1 * 2, 0);
+    });
+
+    it('setWidth before any render(song) is a no-op (no SVG appears)', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 800,
+      });
+      renderer.setWidth(400);
+      // Manually drain any pending work — nothing should appear.
+      renderer._flush();
+      expect(renderer.getSvgElement()).toBeNull();
+    });
+
+    describe('ResizeObserver integration', () => {
+      // Minimal jsdom-friendly ResizeObserver mock. Captures the callback so
+      // tests can fire it on demand with a synthetic size.
+      let observerInstances;
+      let originalRO;
+
+      beforeEach(() => {
+        observerInstances = [];
+        originalRO = global.ResizeObserver;
+        global.ResizeObserver = class {
+          constructor(cb) {
+            this.cb = cb;
+            this.targets = [];
+            observerInstances.push(this);
+          }
+          observe(target) { this.targets.push(target); }
+          unobserve(target) {
+            this.targets = this.targets.filter((t) => t !== target);
+          }
+          disconnect() { this.targets = []; }
+          // Test helper: trigger the callback as if a resize fired.
+          fire() { this.cb([], this); }
+        };
+      });
+
+      afterEach(() => {
+        global.ResizeObserver = originalRO;
+      });
+
+      it('observe() attaches a ResizeObserver to the container', () => {
+        const container = document.createElement('div');
+        const renderer = new NotationRenderer({ container, width: 800 });
+        renderer.render([{ pitch: 'C4', length: '1/4' }]);
+        renderer.observe();
+        expect(observerInstances.length).toBe(1);
+        expect(observerInstances[0].targets).toContain(container);
+      });
+
+      it('reflow mode: callback maps clientWidth/scale to setWidth', () => {
+        const container = document.createElement('div');
+        Object.defineProperty(container, 'clientWidth', {
+          configurable: true,
+          get: () => 1200,
+        });
+        const renderer = new NotationRenderer({
+          container,
+          width: 1600,
+          scale: 2,
+          responsiveMode: 'reflow',
+        });
+        renderer.render(makeLongPiece());
+        renderer.observe();
+
+        observerInstances[0].fire();
+        tick(renderer);
+
+        // 1200 / scale(2) = 600
+        expect(renderer._width).toBeCloseTo(600, 0);
+        // Reflow at width=600 should produce multiple systems for a 64-quarter piece.
+        const staves = renderer.getSvgElement().querySelectorAll('.staff-lines');
+        expect(staves.length).toBeGreaterThan(1);
+      });
+
+      it('zoom-to-fit mode: callback updates scale, not width; system count unchanged', () => {
+        const container = document.createElement('div');
+        Object.defineProperty(container, 'clientWidth', {
+          configurable: true,
+          get: () => 1200,
+        });
+        const renderer = new NotationRenderer({
+          container,
+          width: 800,
+          scale: 1,
+          responsiveMode: 'zoom-to-fit',
+        });
+        renderer.render(makeLongPiece());
+        const stavesBefore =
+          renderer.getSvgElement().querySelectorAll('.staff-lines').length;
+
+        renderer.observe();
+        observerInstances[0].fire();
+        tick(renderer);
+
+        // scale = clientWidth / naturalWidth = 1200/800 = 1.5
+        expect(renderer._scale).toBeCloseTo(1.5, 3);
+        const stavesAfter =
+          renderer.getSvgElement().querySelectorAll('.staff-lines').length;
+        // Same logical width, so same system count — only the scale changed.
+        expect(stavesAfter).toBe(stavesBefore);
+      });
+
+      it('clear() disconnects the ResizeObserver so callbacks no longer render', () => {
+        const container = document.createElement('div');
+        Object.defineProperty(container, 'clientWidth', {
+          configurable: true,
+          get: () => 600,
+        });
+        const renderer = new NotationRenderer({ container, width: 1200 });
+        renderer.render(makeLongPiece());
+        renderer.observe();
+        const obs = observerInstances[0];
+
+        renderer.clear();
+        // Targets cleared; further fires must not crash or render.
+        obs.fire();
+        renderer._flush(); // best-effort manual drain
+        expect(renderer.getSvgElement()).toBeNull();
+      });
+
+      it('observeContainer:true in constructor attaches an observer without an explicit observe() call', () => {
+        const container = document.createElement('div');
+        // eslint-disable-next-line no-new
+        new NotationRenderer({ container, observeContainer: true });
+        expect(observerInstances.length).toBe(1);
+      });
+    });
+  });
 });
