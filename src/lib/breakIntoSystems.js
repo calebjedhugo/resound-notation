@@ -104,3 +104,53 @@ export function justifySystem(systemPlan, combinedIntrinsics, availableMusicWidt
 
   return intrinsics.map((w) => w * stretch);
 }
+
+/**
+ * Spring-equilibrium justification.
+ *
+ * Each inter-event gap is a spring with a natural length `natLength` and
+ * a stretchability `K`. Notes (noteheads, accidentals, dots) have fixed
+ * widths and don't stretch. We solve for a single force `F` that applies
+ * to every spring such that:
+ *   sum(natLength + F * K) + sum(fixed) = availableMusicWidth
+ * → F = (availableMusicWidth - sum(fixed) - sum(natLength)) / sum(K)
+ *
+ * Longer-duration gaps have larger K (more slack above MIN_GAP), so they
+ * absorb more of the available stretch — matching Gould "Behind Bars"
+ * (Spacing) and Lilypond's log-proportional natural-length + floor model.
+ *
+ * Last-system rule (Gould): if `isLast` AND (system has 1 measure OR the
+ * effective stretch factor (= 1 + F*sumK/sumNat) exceeds 1.5), return
+ * natural lengths unchanged.
+ *
+ * @param {Array<{ natLength: number, K: number }>} springs
+ * @param {number} sumFixed  sum of fixed (non-stretching) widths across the system
+ * @param {number} availableMusicWidth
+ * @param {{ isLast: boolean, measureCount: number }} options
+ * @returns {Array<number>} per-spring stretched lengths
+ */
+export function justifySystemSpring(springs, sumFixed, availableMusicWidth, options = {}) {
+  const { isLast = false, measureCount = 1 } = options;
+  if (springs.length === 0) return [];
+
+  const sumNat = springs.reduce((a, s) => a + s.natLength, 0);
+  const sumK = springs.reduce((a, s) => a + s.K, 0);
+  const stretchBudget = availableMusicWidth - sumFixed;
+  const slack = stretchBudget - sumNat;
+
+  if (slack <= 0 || sumK <= 0) {
+    return springs.map((s) => s.natLength);
+  }
+
+  const F = slack / sumK;
+  // Effective music stretch ratio: total music / natural music.
+  const naturalMusic = sumFixed + sumNat;
+  const stretchedMusic = naturalMusic + F * sumK;
+  const stretchRatio = naturalMusic > 0 ? stretchedMusic / naturalMusic : 1;
+
+  if (isLast && (measureCount === 1 || stretchRatio > 1.5)) {
+    return springs.map((s) => s.natLength);
+  }
+
+  return springs.map((s) => s.natLength + F * s.K);
+}

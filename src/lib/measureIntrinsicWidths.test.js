@@ -6,7 +6,12 @@ import {
   __TESTING__,
 } from './measureIntrinsicWidths.js';
 
-const { ACCIDENTAL_WIDTH, DOT_WIDTH, noteheadWidthFor } = __TESTING__;
+const {
+  ACCIDENTAL_WIDTH,
+  DOT_WIDTH,
+  noteheadWidthFor,
+  springNatLength,
+} = __TESTING__;
 
 describe('measureIntrinsicWidths', () => {
   test('single quarter-note measure', () => {
@@ -77,8 +82,13 @@ describe('measureIntrinsicWidths', () => {
     });
     const dPlain = plain.perVoice[0].measures[0].intrinsicWidth;
     const dDotted = dotted.perVoice[0].measures[0].intrinsicWidth;
-    // Plain has 3 notehead+gap events; dotted has 1 half+gap+dot.
-    expect(dDotted).toBe(noteheadWidthFor('1/2') + DOT_WIDTH + MIN_NOTE_GAP + BARLINE_GAP);
+    // Spring model: dotted half = fixedWidth (notehead + dot) + dotted gap
+    // (= springNatLength(2) * 1.5) + trailing barline gap.
+    const expectedDotted =
+      noteheadWidthFor('1/2') + DOT_WIDTH + springNatLength(2) * 1.5 + BARLINE_GAP;
+    expect(dDotted).toBeCloseTo(expectedDotted);
+    // Three quarters (each ~30) substantially exceed one dotted half (~73 →
+    // 18 + 45 + 10). The quarter-note pile-up still wins on raw width.
     expect(dPlain).toBeGreaterThan(dDotted);
   });
 

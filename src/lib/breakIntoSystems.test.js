@@ -1,5 +1,9 @@
 /** @jest-environment jsdom */
-import { breakIntoSystems, justifySystem } from './breakIntoSystems.js';
+import {
+  breakIntoSystems,
+  justifySystem,
+  justifySystemSpring,
+} from './breakIntoSystems.js';
 
 describe('breakIntoSystems', () => {
   it('returns one system for a piece that fits within the width', () => {
@@ -85,5 +89,85 @@ describe('justifySystem', () => {
     const targets = justifySystem(plan, [100], 500);
     // Non-last single-measure system DOES justify.
     expect(targets[0]).toBeCloseTo(500);
+  });
+});
+
+describe('justifySystemSpring', () => {
+  it('solves spring equilibrium so all springs fill the available width', () => {
+    // Two springs: K=10 (very stretchable) and K=1 (barely stretches).
+    const springs = [
+      { natLength: 20, K: 10 },
+      { natLength: 10, K: 1 },
+    ];
+    // sumFixed = 0, available = 50 → sumNat = 30 → slack = 20 → F = 20/11.
+    const out = justifySystemSpring(springs, 0, 50);
+    const F = 20 / 11;
+    expect(out[0]).toBeCloseTo(20 + F * 10);
+    expect(out[1]).toBeCloseTo(10 + F * 1);
+    expect(out[0] + out[1]).toBeCloseTo(50);
+  });
+
+  it('returns natural lengths when slack is non-positive', () => {
+    const springs = [
+      { natLength: 30, K: 10 },
+      { natLength: 30, K: 10 },
+    ];
+    // available = 60 (exactly nat) → slack = 0 → no stretch.
+    expect(justifySystemSpring(springs, 0, 60)).toEqual([30, 30]);
+    // available = 50 (less than nat) → slack < 0 → no stretch.
+    expect(justifySystemSpring(springs, 0, 50)).toEqual([30, 30]);
+  });
+
+  it('unjustifies a last system with a single measure', () => {
+    const springs = [
+      { natLength: 20, K: 5 },
+      { natLength: 20, K: 5 },
+    ];
+    const out = justifySystemSpring(springs, 0, 200, { isLast: true, measureCount: 1 });
+    expect(out).toEqual([20, 20]);
+  });
+
+  it('unjustifies a last system when stretch ratio exceeds 1.5×', () => {
+    const springs = [
+      { natLength: 20, K: 5 },
+      { natLength: 20, K: 5 },
+    ];
+    // sumFixed=0, available=80 → stretchRatio = 80/40 = 2.0 → too much.
+    const out = justifySystemSpring(springs, 0, 80, { isLast: true, measureCount: 3 });
+    expect(out).toEqual([20, 20]);
+  });
+
+  it('justifies a last system when stretch stays ≤ 1.5×', () => {
+    const springs = [
+      { natLength: 20, K: 5 },
+      { natLength: 20, K: 5 },
+    ];
+    // available=50 → stretchRatio = 50/40 = 1.25 → OK.
+    const out = justifySystemSpring(springs, 0, 50, { isLast: true, measureCount: 3 });
+    expect(out[0] + out[1]).toBeCloseTo(50);
+  });
+
+  it('quarter-note gap is larger than eighth-note gap, both at rest and under stretch', () => {
+    // Use the canonical formula values: L_nat(1)=18,K=8; L_nat(0.5)=10,K=1.
+    const quarter = { natLength: 18, K: 8 };
+    const eighth = { natLength: 10, K: 1 };
+
+    // At rest: quarter > eighth.
+    expect(quarter.natLength).toBeGreaterThan(eighth.natLength);
+
+    // Under stretch: gap with a quarter still wins by a larger margin.
+    const springs = [quarter, eighth, eighth, eighth];
+    const naturalSum = 18 + 10 + 10 + 10; // 48
+    const out = justifySystemSpring(springs, 0, 100); // big stretch
+    const stretchedQuarter = out[0];
+    const stretchedEighth = out[1];
+    expect(stretchedQuarter).toBeGreaterThan(stretchedEighth);
+    // Margin should grow under stretch (spring soaks slack proportional to K).
+    const restMargin = quarter.natLength - eighth.natLength; // 8
+    const stretchedMargin = stretchedQuarter - stretchedEighth;
+    expect(stretchedMargin).toBeGreaterThan(restMargin);
+    // Sanity: total sums to available.
+    expect(out.reduce((a, b) => a + b, 0)).toBeCloseTo(100);
+    void naturalSum;
   });
 });

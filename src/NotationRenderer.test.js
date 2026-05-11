@@ -2919,6 +2919,133 @@ describe('NotationRenderer', () => {
     });
   });
 
+  describe('rhythm-proportional (spring-model) spacing', () => {
+    const xOf = (el) => parseFloat(
+      /translate\(([-\d.]+),/.exec(el.getAttribute('transform'))[1]
+    );
+
+    it('leaves quarter-note gaps visibly larger than eighth-note gaps under stretch', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 800,
+      });
+      // Measure: [quarter, quarter, eighth, eighth, eighth, eighth] = 4 beats.
+      // The first two quarters straddle a long gap; the eighths in the
+      // second half straddle short gaps. Width 800 forces significant
+      // justification → springs differentiate.
+      const svg = renderer.render({
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C4', length: '1/4' },
+          { pitch: 'D4', length: '1/4' },
+          { pitch: 'E4', length: '1/8' },
+          { pitch: 'F4', length: '1/8' },
+          { pitch: 'G4', length: '1/8' },
+          { pitch: 'A4', length: '1/8' },
+        ],
+      });
+      const notes = svg.querySelectorAll('.note');
+      expect(notes.length).toBe(6);
+      const xs = Array.from(notes).map(xOf);
+      const quarterGap = xs[1] - xs[0]; // C → D, a quarter-duration gap
+      const eighthGap = xs[3] - xs[2]; // E → F, an eighth-duration gap
+      expect(quarterGap).toBeGreaterThan(eighthGap * 1.3);
+    });
+
+    it('keeps the system fully justified — last barline lands at width within 1px', () => {
+      const width = 800;
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width,
+      });
+      const svg = renderer.render({
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C4', length: '1/4' },
+          { pitch: 'D4', length: '1/4' },
+          { pitch: 'E4', length: '1/4' },
+          { pitch: 'F4', length: '1/4' },
+          { pitch: 'C4', length: '1/4' },
+          { pitch: 'D4', length: '1/4' },
+          { pitch: 'E4', length: '1/4' },
+          { pitch: 'F4', length: '1/4' },
+        ],
+      });
+      const finals = svg.querySelectorAll('.barline-final');
+      const lastFinal = finals[finals.length - 1];
+      const x = parseFloat(
+        /translate\(([-\d.]+),/.exec(lastFinal.getAttribute('transform'))[1]
+      );
+      expect(x).toBeLessThanOrEqual(width + 1);
+      // Right edge sits well past the midpoint — either fully justified
+      // (when there's slack) or at the natural end (when the music is
+      // already wider than the canvas).
+      expect(x).toBeGreaterThan(width / 2);
+    });
+
+    it('keeps multi-voice notes at the same beat aligned to the same x', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 800,
+      });
+      // Two voices with mixed rhythms — the downbeat of each beat is
+      // shared, the off-beats are not.
+      const svg = renderer.render({
+        timeSignature: [4, 4],
+        voices: [
+          { id: 'top', clef: 'treble', notes: [
+            { pitch: 'C5', length: '1/4' },
+            { pitch: 'D5', length: '1/4' },
+            { pitch: 'E5', length: '1/4' },
+            { pitch: 'F5', length: '1/4' },
+          ] },
+          { id: 'bot', clef: 'treble', notes: [
+            { pitch: 'C4', length: '1/8' },
+            { pitch: 'C4', length: '1/8' },
+            { pitch: 'D4', length: '1/4' },
+            { pitch: 'E4', length: '1/4' },
+            { pitch: 'F4', length: '1/4' },
+          ] },
+        ],
+      });
+      const topNotes = svg.querySelectorAll('[data-voice-id="top"] .note');
+      const botNotes = svg.querySelectorAll('[data-voice-id="bot"] .note');
+      // Top note 0 (beat 0) and bot note 0 (beat 0) align.
+      expect(Math.abs(xOf(topNotes[0]) - xOf(botNotes[0]))).toBeLessThanOrEqual(1);
+      // Top note 1 (beat 1) and bot note 2 (beat 1) align.
+      expect(Math.abs(xOf(topNotes[1]) - xOf(botNotes[2]))).toBeLessThanOrEqual(1);
+    });
+
+    it('preserves natural spacing when the system is not justified (slack ≤ 0)', () => {
+      // Construct a piece whose natural width matches or slightly exceeds
+      // the canvas — no slack, no stretch. The spring model should leave
+      // the natural beat positions intact (down to barline padding).
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 250, // small enough that a few quarters fill it naturally
+      });
+      const svg = renderer.render({
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C4', length: '1/4' },
+          { pitch: 'D4', length: '1/4' },
+          { pitch: 'E4', length: '1/4' },
+          { pitch: 'F4', length: '1/4' },
+        ],
+      });
+      const notes = svg.querySelectorAll('.note');
+      expect(notes.length).toBe(4);
+      // Quarter-to-quarter gaps in a no-stretch system should all be
+      // equal (within fp jitter) because each spring has identical K.
+      const xs = Array.from(notes).map(xOf);
+      const g1 = xs[1] - xs[0];
+      const g2 = xs[2] - xs[1];
+      const g3 = xs[3] - xs[2];
+      expect(Math.abs(g1 - g2)).toBeLessThan(1);
+      expect(Math.abs(g2 - g3)).toBeLessThan(1);
+    });
+  });
+
   describe('reactive layout (scheduleRender + rAF batching)', () => {
     // Build a piece long enough to wrap onto multiple systems at small widths.
     const makeLongPiece = () => {

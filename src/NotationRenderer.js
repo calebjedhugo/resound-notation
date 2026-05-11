@@ -57,7 +57,8 @@ import { createBracket } from './components/Bracket.js';
 import { createSharedBarLine } from './components/SharedBarLine.js';
 import { analyzeOttava } from './lib/segmentOttava.js';
 import { createOttavaBracket } from './components/OttavaBracket.js';
-import { breakIntoSystems, justifySystem } from './lib/breakIntoSystems.js';
+import { breakIntoSystems, justifySystem, justifySystemSpring } from './lib/breakIntoSystems.js';
+import { springStretchability } from './lib/measureIntrinsicWidths.js';
 import { sliceVoiceByMeasure } from './lib/sliceVoiceByMeasure.js';
 
 // Chromatic offsets for converting scientific pitch (C4 = MIDI 60) to MIDI.
@@ -808,17 +809,36 @@ export class NotationRenderer {
         const systemRightX = justified
           ? this._width
           : perSystemMusicStartX + naturalMusicWidth + barlinePadAtSystemEnd;
-        // Stretch ratio for music portion.
-        const stretchRatio = naturalMusicWidth > 0
-          ? (systemRightX - perSystemMusicStartX - barlinePadAtSystemEnd) / naturalMusicWidth
-          : 1;
-        // Build stretched beatToX.
+        // Rhythm-proportional (spring-model) stretch of the music portion.
+        // Each gap between consecutive beats in the natural layout is a
+        // spring whose K scales with log2(durationBeats / quarter) — longer
+        // durations soak more of the available slack, mirroring Gould
+        // "Behind Bars" (Spacing) and Lilypond's spacing model.
+        const sortedBeats = [...naturalBeatToX.keys()].sort((a, b) => a - b);
+        const targetMusicWidth = systemRightX - perSystemMusicStartX - barlinePadAtSystemEnd;
+        const springs = [];
+        for (let i = 0; i < sortedBeats.length - 1; i += 1) {
+          const a = sortedBeats[i];
+          const z = sortedBeats[i + 1];
+          const natLength = naturalBeatToX.get(z) - naturalBeatToX.get(a);
+          const durationBeats = z - a;
+          // Floor K at a small positive so degenerate near-zero-duration
+          // boundaries still contribute something to the spring sum.
+          const K = Math.max(springStretchability(durationBeats), 1);
+          springs.push({ natLength, K });
+        }
+        const stretchedGaps = justifySystemSpring(springs, 0, targetMusicWidth, {
+          isLast: false, // last-system gating already handled by `justified` above
+          measureCount: measureCountInSystem,
+        });
         const stretchedBeatToX = new Map();
-        for (const [beat, x] of naturalBeatToX.entries()) {
-          stretchedBeatToX.set(
-            beat,
-            perSystemMusicStartX + (x - perSystemMusicStartX) * stretchRatio
-          );
+        let runX = perSystemMusicStartX;
+        if (sortedBeats.length > 0) {
+          stretchedBeatToX.set(sortedBeats[0], runX);
+          for (let i = 0; i < stretchedGaps.length; i += 1) {
+            runX += stretchedGaps[i];
+            stretchedBeatToX.set(sortedBeats[i + 1], runX);
+          }
         }
 
         // Re-slice ottava segments to be relative to the slice'd voice
