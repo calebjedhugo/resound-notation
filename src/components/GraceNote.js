@@ -60,6 +60,11 @@ const RUN_HEAD_HALF_HEIGHT = 250 * SMUFL_SCALE * RUN_HEAD_SCALE / 2; // ~6.6 px
 const RUN_STEM_LENGTH = 26; // shorter than principal stems (70) — grace proportions
 const RUN_STEM_THICKNESS = 1.2;
 const RUN_BEAM_THICKNESS = 4; // grace beams are thinner than principal (10)
+// Vertical gap between the two cross-beams of a beamed grace run. Standard
+// practice (Gould p. 125, mirroring principal 16th beams) sets the gap at
+// ~one beam thickness; we use a slightly tighter 3px so the doubled stack
+// reads as grace-proportioned rather than principal-weight.
+const RUN_BEAM_GAP = 3;
 // Stem attaches at the notehead's stem-up tip (font-unit (283, 0) for
 // noteheadBlack — right edge, vertical center) scaled to grace size.
 // Pinning y to 0 puts the stem's lower end inside the head body, matching
@@ -217,22 +222,28 @@ function renderRunGraces({ container, notes, mainX, mainY, clef }) {
     container.appendChild(graceGroup);
   }
 
-  // Beam — a flat horizontal bar spanning the first to last stem. Real
-  // engravers may slope grace beams to follow the contour, but a flat
-  // beam reads cleanly for short 2-3 note runs and avoids implying a
-  // pitch direction the user didn't ask for.
+  // Beams — two parallel horizontal bars (sixteenth-note value) spanning
+  // first to last stem. Per Gould "Behind Bars" p. 125, beamed grace notes
+  // are conventionally drawn as sixteenths regardless of how a single
+  // (unbeamed) grace is rendered. The second beam sits one beam-thickness
+  // plus a small gap below the first, toward the heads, mirroring the
+  // principal-beam stack ordering (outer beam on the stem-far side).
   const firstStemX = heads[0].x + RUN_HEAD_TIP_X;
   const lastStemX = heads[heads.length - 1].x + RUN_HEAD_TIP_X;
-  container.appendChild(
-    createSvgElement('rect', {
-      x: firstStemX - RUN_STEM_THICKNESS / 2,
-      y: beamY,
-      width: lastStemX - firstStemX + RUN_STEM_THICKNESS,
-      height: RUN_BEAM_THICKNESS,
-      fill: 'currentColor',
-      class: 'grace-beam',
-    })
-  );
+  const beamX = firstStemX - RUN_STEM_THICKNESS / 2;
+  const beamWidth = lastStemX - firstStemX + RUN_STEM_THICKNESS;
+  for (let level = 0; level < 2; level += 1) {
+    container.appendChild(
+      createSvgElement('rect', {
+        x: beamX,
+        y: beamY + level * (RUN_BEAM_THICKNESS + RUN_BEAM_GAP),
+        width: beamWidth,
+        height: RUN_BEAM_THICKNESS,
+        fill: 'currentColor',
+        class: 'grace-beam',
+      })
+    );
+  }
 
   // Acciaccatura slash — a single diagonal line crossing the beam group.
   // Render if ANY grace in the run is an acciaccatura (engraver's
@@ -253,7 +264,11 @@ function renderRunGraces({ container, notes, mainX, mainY, clef }) {
     // diagonal ascends through the beam to above-right of the next stem.
     // We anchor a few px below the beam and let the diagonal cross it.
     const slashX = firstStemX - 5;
-    const slashY = beamY + RUN_BEAM_THICKNESS + 7;
+    // Anchor below the outer (lower) beam so the diagonal ascends through
+    // both cross-beams. Outer beam bottom edge sits at
+    //   beamY + 2*RUN_BEAM_THICKNESS + RUN_BEAM_GAP
+    // and we pad a few px further down for a visible bridge.
+    const slashY = beamY + 2 * RUN_BEAM_THICKNESS + RUN_BEAM_GAP + 4;
     const slashGroup = createGroup('grace-slash', {
       transform: `translate(${slashX}, ${slashY}) scale(${slashScale}, ${-slashScale})`,
     });

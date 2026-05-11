@@ -3918,4 +3918,42 @@ describe('NotationRenderer', () => {
       expect(y).toBeLessThanOrEqual(-20);
     });
   });
+
+  describe('beamed grace-note runs (Gould p. 125)', () => {
+    // Beamed grace notes are conventionally rendered as sixteenths — two
+    // parallel beam bars — regardless of how a single (unbeamed) grace is
+    // drawn. Gould "Behind Bars" p. 125 makes this explicit for both
+    // acciaccatura and appoggiatura runs.
+    it('renders two parallel beams across a beamed acciaccatura run', () => {
+      ctx.render([
+        {
+          pitch: 'A5',
+          length: '1/4',
+          grace: [
+            { pitch: 'F5', type: 'acciaccatura' },
+            { pitch: 'G5', type: 'acciaccatura' },
+          ],
+        },
+      ]);
+
+      const beams = ctx.container.querySelectorAll('rect.grace-beam');
+      expect(beams).toHaveLength(2);
+
+      // The two beams should be parallel (same width, same thickness, same x)
+      // and offset vertically by approximately one beam thickness + a gap.
+      const [b0, b1] = beams;
+      expect(b0.getAttribute('width')).toBe(b1.getAttribute('width'));
+      expect(b0.getAttribute('height')).toBe(b1.getAttribute('height'));
+      expect(b0.getAttribute('x')).toBe(b1.getAttribute('x'));
+
+      const y0 = parseFloat(b0.getAttribute('y'));
+      const y1 = parseFloat(b1.getAttribute('y'));
+      const dy = Math.abs(y1 - y0);
+      // Beam thickness is 4; standard practice puts the gap at ~one beam
+      // thickness. Accept a generous range so the test pins the qualitative
+      // "two parallel sixteenth-beams" convention without over-fitting.
+      expect(dy).toBeGreaterThanOrEqual(6);
+      expect(dy).toBeLessThanOrEqual(12);
+    });
+  });
 });
