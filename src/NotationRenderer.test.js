@@ -440,6 +440,49 @@ describe('NotationRenderer', () => {
       expect(staves[1].getAttribute('data-voice-id')).toBe('1');
     });
 
+    it('leaves at least 6 staff spaces of empty space between independent staves in multi-system layouts (Gould p. 488)', () => {
+      // Two independent (un-braced) staves wrapped across multiple
+      // systems. Per Elaine Gould "Behind Bars" p. 488, the empty
+      // white space between independent staves within one system
+      // should be ~6 staff spaces. With STAFF_HEIGHT=80 and
+      // LINE_SPACING=20, the second staff's translate-Y must
+      // therefore be at least STAFF_HEIGHT + 6*LINE_SPACING = 200
+      // below the first. The previous compressed multi-system path
+      // used STAFF_HEIGHT + VOICE_GAP = 120 (only 2 staff spaces of
+      // white space), which read as the inter-system gap rather
+      // than intra-system stave pairing.
+      const longNotes = Array.from({ length: 16 }, () => ({ pitch: 'C5', length: '1/4' }));
+      const altoNotes = Array.from({ length: 16 }, () => ({ pitch: 'A4', length: '1/4' }));
+      // Force multi-system wrap by shrinking renderer width before render.
+      ctx.renderer._width = 400;
+      ctx.render({
+        timeSignature: [4, 4],
+        voices: [
+          { id: 'soprano', clef: 'treble', notes: longNotes },
+          { id: 'alto', clef: 'treble', notes: altoNotes },
+        ],
+      });
+
+      // Pin: layout truly wrapped (else the multi-system path isn't exercised).
+      const firstSystemStaves = ctx.container.querySelectorAll('.staff[data-system-index="0"]');
+      expect(firstSystemStaves.length).toBe(2);
+      const secondSystemStaves = ctx.container.querySelectorAll('.staff[data-system-index="1"]');
+      expect(secondSystemStaves.length).toBe(2);
+
+      const staves = firstSystemStaves;
+
+      const parseY = (g) => {
+        const m = /translate\(\s*0\s*,\s*([-\d.]+)\s*\)/.exec(g.getAttribute('transform') || '');
+        return m ? parseFloat(m[1]) : NaN;
+      };
+      const y0 = parseY(staves[0]);
+      const y1 = parseY(staves[1]);
+      expect(Number.isFinite(y0)).toBe(true);
+      expect(Number.isFinite(y1)).toBe(true);
+      // STAFF_HEIGHT (80) + 6 * LINE_SPACING (20) = 200
+      expect(y1 - y0).toBeGreaterThanOrEqual(200);
+    });
+
     it('uses custom voice ids in multi-voice input', () => {
       ctx.render({
         voices: [

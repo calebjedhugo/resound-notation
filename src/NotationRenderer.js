@@ -152,6 +152,12 @@ const VOICE_HEIGHT = 200;
 const VOICE_GAP = 40;
 const GRAND_STAFF_GAP = 60;
 const STAFF_HEIGHT = 80; // 5 lines, 20px apart
+// White space between independent (un-braced) staves within one system,
+// per Elaine Gould "Behind Bars" p. 488 ("Distance between staves"):
+// ~6 staff spaces (120px at 20px/space). Keeps the intra-system gap
+// distinguishable from — but tighter than — the inter-system gap,
+// without crowding the staves into a grand-staff-like pair.
+const INDEPENDENT_STAFF_WHITE_SPACE = 120;
 // Vertical gap between systems (Gould "Behind Bars", Systems p.595).
 // 6 staff spaces ≈ enough room for cross-system dynamics/lyrics without
 // the next system crowding.
@@ -676,10 +682,13 @@ export class NotationRenderer {
     // the voices are independent (no brace group), the per-voice Y
     // gaps computed above (VOICE_HEIGHT + VOICE_GAP = 240) are visually
     // too large — adjacent staves end up looking like separate systems
-    // rather than a paired system. Compress to STAFF_HEIGHT + VOICE_GAP
-    // (= 120, exactly SYSTEM_GAP) so intra-system stays smaller than
-    // the SYSTEM_GAP visually inserted between systems. The original
-    // single-system layout is preserved when there's only one system.
+    // rather than a paired system. Compress so intra-system stays
+    // smaller than the SYSTEM_GAP visually inserted between systems,
+    // but per Elaine Gould "Behind Bars" p. 488 leave ~6 staff spaces
+    // (= INDEPENDENT_STAFF_WHITE_SPACE) of empty space between the
+    // staff lines so the two staves still read as paired rather than
+    // cramped. The original single-system layout is preserved when
+    // there's only one system.
     const multiSystem = systemPlans.length > 1;
     let effectiveVoiceYPositions = voiceYPositions;
     if (multiSystem && !hasBraceGroups && voiceCount > 1) {
@@ -687,7 +696,7 @@ export class NotationRenderer {
       let y = bracketTopMargin;
       for (let vi = 0; vi < voiceCount; vi += 1) {
         effectiveVoiceYPositions.push(y);
-        y += STAFF_HEIGHT + VOICE_GAP;
+        y += STAFF_HEIGHT + INDEPENDENT_STAFF_WHITE_SPACE;
       }
     }
 
