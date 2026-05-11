@@ -26,8 +26,8 @@ Visual issues caught in the dev playground after the SMuFL Bravura swap (commits
 
 ## System layout — deferred from the responsive-layout work
 
-- [ ] **Final-system justification is too coarse.** Current Gould rule (don't justify if 1 measure final OR stretch >1.5) leaves visually short last systems ragged. Some short-last-system cases should still justify (Gould has nuanced sub-cases). Look at how Lilypond / Dorico decide.
-- [ ] **Backflow when the final system is very short.** When the last system contains far less content than the prior systems, an optimal break would pull a measure from system N-1 to balance. Requires Knuth-Plass-style optimal break-point selection (sketched as "Iteration E" in the responsive-layout plan) — DP across all candidate break points minimizing total badness.
+- [x] ~~**Final-system justification is too coarse.**~~ Closed by Iteration E: Knuth-Plass optimal break-point selection picks balanced finals on its own, and the renderer dropped the ">1.5 stretch" escape hatch. The 1-measure-final-stays-ragged convention is retained.
+- [x] ~~**Backflow when the final system is very short.**~~ Closed by Iteration E: the optimizer sees the whole piece, so 17 uniform measures at budget 5/system now wrap [4,4,4,5] instead of greedy's [5,5,5,2].
 - [ ] **Cross-system ties and slurs.** Currently truncated at boundaries with a `console.warn`. Engraving convention is a half-tie at end of system N and a half-tie at start of system N+1 reconnecting the same pitch. Needs a per-system handoff state in `_renderSystem` and a new tie-fragment renderer.
 
 ## Notes
