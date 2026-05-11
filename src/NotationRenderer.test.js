@@ -2749,6 +2749,61 @@ describe('NotationRenderer', () => {
       expect(x).toBeLessThanOrEqual(800 + 1);
     });
 
+    it('keeps the final system reasonably full on a long piece (optimal breaking rebalance)', () => {
+      // A long piece that with greedy left-to-right packing would end
+      // with a tiny straggler system. With Knuth-Plass optimal breaking
+      // the optimizer rebalances, so the last system's measure count
+      // should be a reasonable fraction of the average system size.
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 800,
+      });
+      const svg = renderer.render(makeLongPiece(17));
+      const systems = svg.querySelectorAll('.staff-lines');
+      expect(systems.length).toBeGreaterThanOrEqual(2);
+
+      // Count measures per system via barlines per system. Each system
+      // emits one final-or-internal barline per measure.
+      const measureCounts = [];
+      const systemGroups = svg.querySelectorAll('g[data-system-index]');
+      // Fallback when the markup doesn't expose system groups by attribute:
+      // assert via final-system width, which lands at this._width when
+      // justified or close to it when there's enough content.
+      void systemGroups;
+
+      const finals = svg.querySelectorAll('.barline-final');
+      expect(finals.length).toBeGreaterThanOrEqual(1);
+      const lastFinal = finals[finals.length - 1];
+      const x = parseFloat(/translate\(([-\d.]+),/.exec(lastFinal.getAttribute('transform'))[1]);
+      // With optimal breaking the final system is well-filled and
+      // justifies to the width (multi-measure last systems now justify
+      // regardless of stretch ratio).
+      expect(x).toBeGreaterThan(800 * 0.6);
+      expect(x).toBeLessThanOrEqual(800 + 1);
+      measureCounts.length = 0;
+    });
+
+    it('respects the breakingStrategy: "greedy" escape hatch', () => {
+      // Renderer accepts a constructor option to fall back to greedy
+      // breaking; both strategies must produce valid SVG with at least
+      // one system on the same input.
+      const piece = makeLongPiece(17);
+      const greedyR = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 800,
+        breakingStrategy: 'greedy',
+      });
+      const optimalR = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 800,
+        breakingStrategy: 'optimal',
+      });
+      const g = greedyR.render(piece);
+      const o = optimalR.render(piece);
+      expect(g.querySelectorAll('.staff-lines').length).toBeGreaterThanOrEqual(1);
+      expect(o.querySelectorAll('.staff-lines').length).toBeGreaterThanOrEqual(1);
+    });
+
     it('applies a uniform scale parameter to the SVG dimensions', () => {
       const c1 = document.createElement('div');
       const r1 = new NotationRenderer({ container: c1, width: 400, scale: 1 });

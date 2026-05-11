@@ -1,8 +1,10 @@
 /** @jest-environment jsdom */
 import {
   breakIntoSystems,
+  breakIntoSystemsOptimal,
   justifySystem,
   justifySystemSpring,
+  systemBadness,
 } from './breakIntoSystems.js';
 
 describe('breakIntoSystems', () => {
@@ -174,5 +176,106 @@ describe('justifySystemSpring', () => {
     // Sanity: total sums to available.
     expect(out.reduce((a, b) => a + b, 0)).toBeCloseTo(100);
     void naturalSum;
+  });
+});
+
+describe('systemBadness', () => {
+  it('returns zero badness at a perfect fit on an intermediate system', () => {
+    // stretch = 1.0 exactly → no cost.
+    expect(systemBadness(400, 400, false)).toBeCloseTo(0);
+  });
+
+  it('grows as stretch increases above 1.0', () => {
+    const b1 = systemBadness(400, 440, false); // stretch 1.10
+    const b2 = systemBadness(400, 480, false); // stretch 1.20
+    const b3 = systemBadness(400, 560, false); // stretch 1.40
+    expect(b2).toBeGreaterThan(b1);
+    expect(b3).toBeGreaterThan(b2);
+  });
+
+  it('penalizes overflow with a large finite cost (not Infinity)', () => {
+    const b = systemBadness(800, 400, false);
+    expect(b).toBeGreaterThan(100);
+    expect(Number.isFinite(b)).toBe(true);
+  });
+
+  it('treats a last system as ragged-allowed: cost rises only mildly with underfill', () => {
+    // Last system at half-fill: small cost, not zero, not huge.
+    const b = systemBadness(200, 400, true);
+    expect(b).toBeGreaterThan(0);
+    expect(b).toBeLessThan(systemBadness(200, 400, false));
+  });
+});
+
+describe('breakIntoSystemsOptimal', () => {
+  it('returns one system for a piece that fits within the width', () => {
+    const plans = breakIntoSystemsOptimal([100, 100, 100], 500, () => 100);
+    expect(plans).toHaveLength(1);
+    expect(plans[0]).toMatchObject({ startMeasure: 0, endMeasure: 2, isLast: true });
+  });
+
+  it('matches greedy on an even-distribution piece (no rebalance possible)', () => {
+    // 6 identical measures; both algorithms have only one sensible split.
+    const intrinsics = [200, 200, 200, 200, 200, 200];
+    const greedy = breakIntoSystems(intrinsics, 500, () => 100);
+    const optimal = breakIntoSystemsOptimal(intrinsics, 500, () => 100);
+    expect(optimal).toHaveLength(greedy.length);
+    for (let i = 0; i < greedy.length; i += 1) {
+      expect(optimal[i].startMeasure).toBe(greedy[i].startMeasure);
+      expect(optimal[i].endMeasure).toBe(greedy[i].endMeasure);
+    }
+  });
+
+  it('rebalances 17 uniform measures away from greedy [5,5,5,2] toward a fuller final system', () => {
+    // The textbook pathological case the user flagged: 17 measures,
+    // budget fits ~5 per system. Greedy: [5,5,5,2] — a tiny straggler.
+    // Optimal: rebalances (e.g. [4,4,4,5] or [5,4,4,4]) so the last
+    // system is a larger fraction of the average system content.
+    const intrinsics = Array(17).fill(100);
+    const greedy = breakIntoSystems(intrinsics, 600, () => 80);
+    const optimal = breakIntoSystemsOptimal(intrinsics, 600, () => 80);
+
+    const greedyLastCount = greedy[greedy.length - 1].endMeasure
+      - greedy[greedy.length - 1].startMeasure + 1;
+    const optimalLastCount = optimal[optimal.length - 1].endMeasure
+      - optimal[optimal.length - 1].startMeasure + 1;
+
+    const greedyAvg = intrinsics.length / greedy.length;
+    const optimalAvg = intrinsics.length / optimal.length;
+
+    // Optimal's last-system measure count should be a much larger
+    // fraction of its system average than greedy's was.
+    expect(optimalLastCount / optimalAvg).toBeGreaterThan(greedyLastCount / greedyAvg);
+    // Concretely: greedy's last system is 2 measures, optimal's >= 4.
+    expect(greedyLastCount).toBe(2);
+    expect(optimalLastCount).toBeGreaterThanOrEqual(4);
+  });
+
+  it('handles a single-measure-too-wide degenerate case without crashing', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const plans = breakIntoSystemsOptimal([1000, 100], 500, () => 100);
+    expect(plans.length).toBeGreaterThanOrEqual(1);
+    // Wide measure is placed alone in some system.
+    const solo = plans.find((p) => p.startMeasure === 0 && p.endMeasure === 0);
+    expect(solo).toBeDefined();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('returns no systems for an empty piece', () => {
+    expect(breakIntoSystemsOptimal([], 500, () => 100)).toEqual([]);
+  });
+
+  it('covers all measures exactly once with monotonically increasing ranges', () => {
+    const intrinsics = [120, 80, 100, 200, 90, 110, 130, 70, 150];
+    const plans = breakIntoSystemsOptimal(intrinsics, 500, () => 60);
+    let expected = 0;
+    for (const p of plans) {
+      expect(p.startMeasure).toBe(expected);
+      expect(p.endMeasure).toBeGreaterThanOrEqual(p.startMeasure);
+      expected = p.endMeasure + 1;
+    }
+    expect(expected).toBe(intrinsics.length);
+    expect(plans[plans.length - 1].isLast).toBe(true);
   });
 });

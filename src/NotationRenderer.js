@@ -57,7 +57,7 @@ import { createBracket } from './components/Bracket.js';
 import { createSharedBarLine } from './components/SharedBarLine.js';
 import { analyzeOttava } from './lib/segmentOttava.js';
 import { createOttavaBracket } from './components/OttavaBracket.js';
-import { breakIntoSystems, justifySystem, justifySystemSpring } from './lib/breakIntoSystems.js';
+import { breakIntoSystems, breakIntoSystemsOptimal, justifySystem, justifySystemSpring } from './lib/breakIntoSystems.js';
 import { springStretchability } from './lib/measureIntrinsicWidths.js';
 import { sliceVoiceByMeasure } from './lib/sliceVoiceByMeasure.js';
 
@@ -358,11 +358,13 @@ export class NotationRenderer {
     scale,
     observeContainer = false,
     responsiveMode = 'reflow',
+    breakingStrategy = 'optimal',
   } = {}) {
     this._container = container || null;
     this._width = width || DEFAULT_WIDTH;
     this._height = height || DEFAULT_HEIGHT;
     this._scale = scale || 1.0;
+    this._breakingStrategy = breakingStrategy;
     this._svg = null;
     this._noteData = [];
     this._intrinsicWidths = null;
@@ -667,7 +669,8 @@ export class NotationRenderer {
       return maxPrelude;
     };
 
-    const systemPlans = breakIntoSystems(combinedIntrinsics, this._width, preludePerSystem);
+    const breakFn = this._breakingStrategy === 'greedy' ? breakIntoSystems : breakIntoSystemsOptimal;
+    const systemPlans = breakFn(combinedIntrinsics, this._width, preludePerSystem);
 
     // Multi-system tightening: when the piece wraps onto >1 system AND
     // the voices are independent (no brace group), the per-voice Y
