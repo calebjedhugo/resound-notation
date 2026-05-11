@@ -2721,10 +2721,12 @@ describe('NotationRenderer', () => {
       expect(v0.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('leaves the last system unjustified when stretch would exceed 1.5×', () => {
-      // 3-measure piece with whole notes so each measure has minimal
-      // natural width. With a wide canvas, two whole-note measures fit
-      // per system, the trailing measure is solo → unjustified.
+    it('keeps a solo trailing measure unjustified (1-measure last-system rule)', () => {
+      // A piece whose only sensible final break leaves a single measure
+      // alone on the last system should leave that measure unjustified
+      // — engraving convention preserved. Optimal break-point selection
+      // may avoid producing such finals when it can, but when it does,
+      // the 1-measure rule still applies.
       const renderer = new NotationRenderer({
         container: document.createElement('div'),
         width: 800,

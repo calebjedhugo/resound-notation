@@ -70,14 +70,17 @@ describe('justifySystem', () => {
     expect(targets).toEqual([100]);
   });
 
-  it('leaves a last system unjustified when stretch would exceed 1.5×', () => {
+  it('justifies a multi-measure last system regardless of stretch ratio', () => {
+    // Optimal break-point selection avoids producing pathological tiny
+    // final systems, so the workaround ">1.5 stretch → leave ragged"
+    // rule is gone. Multi-measure final systems justify to width.
     const plan = { startMeasure: 0, endMeasure: 1, intrinsicSum: 200, isLast: true };
-    // availableMusicWidth=400 → stretch=2.0 → too much.
     const targets = justifySystem(plan, [100, 100], 400);
-    expect(targets).toEqual([100, 100]);
+    expect(targets[0] + targets[1]).toBeCloseTo(400);
+    expect(targets[0]).toBeCloseTo(200);
   });
 
-  it('justifies a last system when stretch stays ≤ 1.5×', () => {
+  it('justifies a last system at moderate stretch', () => {
     const plan = { startMeasure: 0, endMeasure: 1, intrinsicSum: 200, isLast: true };
     const targets = justifySystem(plan, [100, 100], 280);
     expect(targets[0] + targets[1]).toBeCloseTo(280);
@@ -127,14 +130,16 @@ describe('justifySystemSpring', () => {
     expect(out).toEqual([20, 20]);
   });
 
-  it('unjustifies a last system when stretch ratio exceeds 1.5×', () => {
+  it('justifies a multi-measure last system even at large stretch ratios', () => {
+    // Optimal break-point selection prevents pathological tiny finals
+    // at the breaking stage, so the spring justifier no longer needs
+    // a stretch-ratio escape hatch on final systems.
     const springs = [
       { natLength: 20, K: 5 },
       { natLength: 20, K: 5 },
     ];
-    // sumFixed=0, available=80 → stretchRatio = 80/40 = 2.0 → too much.
     const out = justifySystemSpring(springs, 0, 80, { isLast: true, measureCount: 3 });
-    expect(out).toEqual([20, 20]);
+    expect(out[0] + out[1]).toBeCloseTo(80);
   });
 
   it('justifies a last system when stretch stays ≤ 1.5×', () => {
