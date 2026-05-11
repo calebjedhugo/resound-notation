@@ -721,6 +721,7 @@ export class NotationRenderer {
         renderTimeSignature: true,
         systemContext,
         braceGroups,
+        systemIndex: 0,
       });
     } else {
       for (let si = 0; si < systemPlans.length; si += 1) {
@@ -935,6 +936,7 @@ export class NotationRenderer {
           renderTimeSignature: isFirst,
           systemContext,
           braceGroups,
+          systemIndex: si,
         });
 
         // Advance Y for the next system. Use effectiveVoiceYPositions so
@@ -1030,9 +1032,7 @@ export class NotationRenderer {
     voiceBarlineXPositions,
     beatToX,
     musicStartX,
-    // eslint-disable-next-line no-unused-vars
     startMeasure,
-    // eslint-disable-next-line no-unused-vars
     endMeasure,
     // eslint-disable-next-line no-unused-vars
     measureTargetWidths,
@@ -1043,6 +1043,7 @@ export class NotationRenderer {
     renderTimeSignature = true,
     systemContext,
     braceGroups,
+    systemIndex = 0,
   }) {
     let contentMinY = systemContext.contentMinY;
     let contentMaxY = systemContext.contentMaxY;
@@ -1058,6 +1059,9 @@ export class NotationRenderer {
       const staffGroup = createGroup(`staff staff-${index}`, {
         'data-voice-id': voice.id,
         'data-clef': clef,
+        'data-system-index': String(systemIndex),
+        'data-start-measure': String(startMeasure),
+        'data-end-measure': String(endMeasure),
         transform: `translate(0, ${voiceY})`,
       });
 

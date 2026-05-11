@@ -2696,6 +2696,129 @@ describe('NotationRenderer', () => {
       const svg = renderer.render(makeLongPiece(16));
       const systems = svg.querySelectorAll('.staff-lines');
       expect(systems.length).toBeGreaterThanOrEqual(2);
+      // Upper bound: a 16-measure piece can produce at most 16 systems
+      // (one measure per system). Catches a runaway-split bug where the
+      // wrapper somehow produces more systems than measures.
+      expect(systems.length).toBeLessThanOrEqual(16);
+      // Each system must contain at least one bar line (otherwise the
+      // system is empty / measureless). Use .bar-line OR .barline-final
+      // to count any barline shape.
+      const staffGroups = svg.querySelectorAll('g[data-system-index]');
+      for (const g of staffGroups) {
+        const bars =
+          g.querySelectorAll('.bar-line').length
+          + g.querySelectorAll('.barline-final').length;
+        expect(bars).toBeGreaterThanOrEqual(1);
+      }
+    });
+
+    it('keeps voices synchronized across system boundaries — Y-bucketing (synthetic 2-voice)', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 600,
+      });
+      // 16-measure 2-voice piece, identical rhythm.
+      const piece = {
+        timeSignature: [4, 4],
+        voices: [
+          { id: 'top', clef: 'treble', notes: makeLongPiece(16).notes },
+          { id: 'bot', clef: 'treble', notes: makeLongPiece(16).notes.map((n) => ({ ...n, pitch: 'G3' })) },
+        ],
+      };
+      const svg = renderer.render(piece);
+      const staves = svg.querySelectorAll('.staff-lines');
+      const numVoices = 2;
+      expect(staves.length).toBeGreaterThan(numVoices);
+      expect(staves.length % numVoices).toBe(0);
+      const numSystems = staves.length / numVoices;
+
+      // Bucket per system via data-system-index (added instrumentation).
+      const byIdx = new Map();
+      Array.from(staves).forEach((sl) => {
+        const g = sl.parentNode;
+        const si = g.getAttribute('data-system-index');
+        const vid = g.getAttribute('data-voice-id');
+        const startM = g.getAttribute('data-start-measure');
+        const endM = g.getAttribute('data-end-measure');
+        if (!byIdx.has(si)) byIdx.set(si, []);
+        byIdx.get(si).push({ vid, startM, endM });
+      });
+      expect(byIdx.size).toBe(numSystems);
+      for (const [, entries] of byIdx) {
+        // Each system has exactly one staff per voice with matching
+        // start/end measure across voices.
+        expect(entries.length).toBe(numVoices);
+        const vids = entries.map((e) => e.vid).sort();
+        expect(vids).toEqual(['bot', 'top']);
+        const starts = new Set(entries.map((e) => e.startM));
+        const ends = new Set(entries.map((e) => e.endM));
+        expect(starts.size).toBe(1);
+        expect(ends.size).toBe(1);
+      }
+    });
+
+    it('keeps 3-voice piece synchronized across system boundaries', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 500,
+      });
+      const noteList = (pitch) => {
+        const out = [];
+        for (let m = 0; m < 12; m += 1) for (let b = 0; b < 4; b += 1) out.push({ pitch, length: '1/4' });
+        return out;
+      };
+      const piece = {
+        timeSignature: [4, 4],
+        voices: [
+          { id: 'a', clef: 'treble', notes: noteList('C5') },
+          { id: 'b', clef: 'treble', notes: noteList('G4') },
+          { id: 'c', clef: 'bass', notes: noteList('C3') },
+        ],
+      };
+      const svg = renderer.render(piece);
+      const staves = svg.querySelectorAll('.staff-lines');
+      const numVoices = 3;
+      expect(staves.length).toBeGreaterThan(numVoices);
+      expect(staves.length % numVoices).toBe(0);
+    });
+
+    it('keeps 4-voice piece synchronized across system boundaries', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 500,
+      });
+      const noteList = (pitch) => {
+        const out = [];
+        for (let m = 0; m < 10; m += 1) for (let b = 0; b < 4; b += 1) out.push({ pitch, length: '1/4' });
+        return out;
+      };
+      const piece = {
+        timeSignature: [4, 4],
+        voices: [
+          { id: 'a', clef: 'treble', notes: noteList('C5') },
+          { id: 'b', clef: 'treble', notes: noteList('A4') },
+          { id: 'c', clef: 'bass', notes: noteList('F3') },
+          { id: 'd', clef: 'bass', notes: noteList('C3') },
+        ],
+      };
+      const svg = renderer.render(piece);
+      const staves = svg.querySelectorAll('.staff-lines');
+      const numVoices = 4;
+      expect(staves.length).toBeGreaterThan(numVoices);
+      expect(staves.length % numVoices).toBe(0);
+    });
+
+    it('system-break preserves total note content across all systems', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 600,
+      });
+      // 16 measures × 4 quarters = 64 sounding events.
+      const svg = renderer.render(makeLongPiece(16));
+      // System count > 1 confirms wrapping happened.
+      expect(svg.querySelectorAll('.staff-lines').length).toBeGreaterThan(1);
+      const notes = svg.querySelectorAll('.note');
+      expect(notes.length).toBe(64);
     });
 
     it('keeps voices synchronized across system boundaries (same measure breakpoints)', () => {
@@ -2722,31 +2845,34 @@ describe('NotationRenderer', () => {
     });
 
     it('keeps a solo trailing measure unjustified (1-measure last-system rule)', () => {
-      // A piece whose only sensible final break leaves a single measure
-      // alone on the last system should leave that measure unjustified
-      // — engraving convention preserved. Optimal break-point selection
-      // may avoid producing such finals when it can, but when it does,
-      // the 1-measure rule still applies.
+      // Use whole-note measures so greedy can fit 4 per system at width
+      // 1000 → greedy splits [4,4,4,4,1]. Single-measure final → ragged.
       const renderer = new NotationRenderer({
         container: document.createElement('div'),
-        width: 800,
+        width: 1000,
+        breakingStrategy: 'greedy',
       });
       const piece = {
         timeSignature: [4, 4],
-        notes: [
-          { pitch: 'C4', length: '1/1' },
-          { pitch: 'D4', length: '1/1' },
-          { pitch: 'E4', length: '1/1' },
-        ],
+        notes: Array.from({ length: 17 }, () => ({ pitch: 'C4', length: '1/1' })),
       };
       const svg = renderer.render(piece);
+      // Identify the last system by max data-system-index.
+      const staffGroups = Array.from(svg.querySelectorAll('g[data-system-index]'));
+      const lastIdx = Math.max(...staffGroups.map((g) => Number(g.getAttribute('data-system-index'))));
+      const lastSystemGroups = staffGroups.filter((g) => Number(g.getAttribute('data-system-index')) === lastIdx);
+      // Pin: the last system is exactly 1 measure wide (greedy [5,5,1]).
+      const lastStart = Number(lastSystemGroups[0].getAttribute('data-start-measure'));
+      const lastEnd = Number(lastSystemGroups[0].getAttribute('data-end-measure'));
+      expect(lastEnd - lastStart + 1).toBe(1);
+      // Final barline must land genuinely ragged, well shy of width.
       const finals = svg.querySelectorAll('.barline-final');
-      expect(finals.length).toBeGreaterThanOrEqual(1);
+      expect(finals.length).toBe(1);
       const lastFinal = finals[finals.length - 1];
       const x = parseFloat(
         /translate\(([-\d.]+),/.exec(lastFinal.getAttribute('transform'))[1]
       );
-      expect(x).toBeLessThanOrEqual(800 + 1);
+      expect(x).toBeLessThan(1000 * 0.95);
     });
 
     it('keeps the final system reasonably full on a long piece (optimal breaking rebalance)', () => {
@@ -2783,11 +2909,17 @@ describe('NotationRenderer', () => {
       measureCounts.length = 0;
     });
 
-    it('respects the breakingStrategy: "greedy" escape hatch', () => {
-      // Renderer accepts a constructor option to fall back to greedy
-      // breaking; both strategies must produce valid SVG with at least
-      // one system on the same input.
-      const piece = makeLongPiece(17);
+    it('respects the breakingStrategy: "greedy" escape hatch (greedy differs from optimal)', () => {
+      // 17 uniform whole-note measures at width 800: a known-pathological
+      // greedy-vs-optimal input. Greedy packs [3,3,3,3,3,2] (last = 2);
+      // optimal rebalances to [2,3,3,3,3,3] (last = 3). If breakingStrategy
+      // is silently ignored, both render the same.
+      const makeWholePiece = (mc) => {
+        const notes = [];
+        for (let m = 0; m < mc; m += 1) notes.push({ pitch: 'C4', length: '1/1' });
+        return { timeSignature: [4, 4], notes };
+      };
+      const piece = makeWholePiece(17);
       const greedyR = new NotationRenderer({
         container: document.createElement('div'),
         width: 800,
@@ -2800,8 +2932,23 @@ describe('NotationRenderer', () => {
       });
       const g = greedyR.render(piece);
       const o = optimalR.render(piece);
-      expect(g.querySelectorAll('.staff-lines').length).toBeGreaterThanOrEqual(1);
-      expect(o.querySelectorAll('.staff-lines').length).toBeGreaterThanOrEqual(1);
+
+      const lastSystemMeasureCount = (svg) => {
+        const groups = Array.from(svg.querySelectorAll('g[data-system-index]'));
+        const lastIdx = Math.max(...groups.map((gg) => Number(gg.getAttribute('data-system-index'))));
+        const last = groups.find((gg) => Number(gg.getAttribute('data-system-index')) === lastIdx);
+        return Number(last.getAttribute('data-end-measure'))
+          - Number(last.getAttribute('data-start-measure'))
+          + 1;
+      };
+      const greedyLast = lastSystemMeasureCount(g);
+      const optimalLast = lastSystemMeasureCount(o);
+      // Greedy: 2-measure straggler. Optimal: rebalanced to ≥3.
+      expect(greedyLast).toBe(2);
+      expect(optimalLast).toBeGreaterThanOrEqual(3);
+      // The strategies produce DIFFERENT layouts — neither silently
+      // falls back to the other.
+      expect(greedyLast).not.toBe(optimalLast);
     });
 
     it('applies a uniform scale parameter to the SVG dimensions', () => {
@@ -2810,20 +2957,59 @@ describe('NotationRenderer', () => {
       r1.render([{ pitch: 'C4', length: '1/4' }]);
       const w1 = parseFloat(c1.querySelector('svg').getAttribute('width'));
       const h1 = parseFloat(c1.querySelector('svg').getAttribute('height'));
+      const vb1 = c1.querySelector('svg').getAttribute('viewBox');
 
       const c2 = document.createElement('div');
       const r2 = new NotationRenderer({ container: c2, width: 400, scale: 2 });
       r2.render([{ pitch: 'C4', length: '1/4' }]);
       const w2 = parseFloat(c2.querySelector('svg').getAttribute('width'));
       const h2 = parseFloat(c2.querySelector('svg').getAttribute('height'));
+      const vb2 = c2.querySelector('svg').getAttribute('viewBox');
 
       expect(w2).toBeCloseTo(w1 * 2, 0);
       expect(h2).toBeCloseTo(h1 * 2, 0);
+
+      // Design invariant: scale acts via width/height multiplication.
+      // viewBox stays in internal coordinates — IDENTICAL across scales.
+      // If a refactor introduces a transform="scale(N)" wrapper or
+      // mutates viewBox, this test fails.
+      expect(vb2).toBe(vb1);
 
       // Same number of systems regardless of scale (scale is display-only).
       const sysCount1 = c1.querySelectorAll('.staff-lines').length;
       const sysCount2 = c2.querySelectorAll('.staff-lines').length;
       expect(sysCount2).toBe(sysCount1);
+    });
+
+    it('applies fractional and larger scale factors (0.5, 3)', () => {
+      const baseC = document.createElement('div');
+      const baseR = new NotationRenderer({ container: baseC, width: 400, scale: 1 });
+      baseR.render([{ pitch: 'C4', length: '1/4' }]);
+      const wBase = parseFloat(baseC.querySelector('svg').getAttribute('width'));
+
+      const halfC = document.createElement('div');
+      new NotationRenderer({ container: halfC, width: 400, scale: 0.5 })
+        .render([{ pitch: 'C4', length: '1/4' }]);
+      const wHalf = parseFloat(halfC.querySelector('svg').getAttribute('width'));
+      expect(wHalf).toBeCloseTo(wBase * 0.5, 0);
+
+      const tripleC = document.createElement('div');
+      new NotationRenderer({ container: tripleC, width: 400, scale: 3 })
+        .render([{ pitch: 'C4', length: '1/4' }]);
+      const wTriple = parseFloat(tripleC.querySelector('svg').getAttribute('width'));
+      expect(wTriple).toBeCloseTo(wBase * 3, 0);
+    });
+
+    it('scale-independence of system count on a wrapping piece', () => {
+      const piece = makeLongPiece(16);
+      const c1 = document.createElement('div');
+      const c2 = document.createElement('div');
+      new NotationRenderer({ container: c1, width: 600, scale: 1 }).render(piece);
+      new NotationRenderer({ container: c2, width: 600, scale: 2 }).render(piece);
+      const sys1 = c1.querySelectorAll('.staff-lines').length;
+      const sys2 = c2.querySelectorAll('.staff-lines').length;
+      expect(sys1).toBe(sys2);
+      expect(sys1).toBeGreaterThan(1);
     });
 
     it('renders a thin-final barline at the very end of the piece', () => {
@@ -2832,27 +3018,160 @@ describe('NotationRenderer', () => {
         width: 800,
       });
       const svg = renderer.render(makeLongPiece(8));
-      // The final barline group is class "barline barline-final" and
-      // appears exactly once (only on the last system).
+      // The final barline group appears EXACTLY once (only on the last system).
       const finals = svg.querySelectorAll('.barline-final');
-      expect(finals.length).toBeGreaterThanOrEqual(1);
+      expect(finals.length).toBe(1);
+      // It must live inside the last system's staffGroup — i.e. its
+      // ancestor data-system-index equals the maximum index.
+      let g = finals[0].parentNode;
+      while (g && g.getAttribute && !g.getAttribute('data-system-index')) {
+        g = g.parentNode;
+      }
+      const finalSysIdx = Number(g.getAttribute('data-system-index'));
+      const allGroups = Array.from(svg.querySelectorAll('g[data-system-index]'));
+      const maxSysIdx = Math.max(...allGroups.map((gg) => Number(gg.getAttribute('data-system-index'))));
+      expect(finalSysIdx).toBe(maxSysIdx);
     });
 
     it('renders an ottava bracket per system when a segment spans a system break', async () => {
       const { default: preset } = await import(
         '../dev/presets/ottava-showcase.js'
       );
+      // Wide render: one system, baseline bracket count.
+      const wideC = document.createElement('div');
+      new NotationRenderer({ container: wideC, width: 4000 }).render(preset.song);
+      const wideBrackets = wideC.querySelectorAll('.ottava-bracket');
+      const wideSystems = wideC.querySelectorAll('.staff-lines');
+
+      // Narrow render: multi-system. Cross-system 8va segments split.
+      const narrowC = document.createElement('div');
+      new NotationRenderer({ container: narrowC, width: 500 }).render(preset.song);
+      const narrowSystems = narrowC.querySelectorAll('.staff-lines');
+      const narrowBrackets = narrowC.querySelectorAll('.ottava-bracket');
+      expect(narrowSystems.length).toBeGreaterThan(wideSystems.length);
+
+      // Narrow must have STRICTLY more brackets — at least one segment
+      // got split across a boundary.
+      expect(narrowBrackets.length).toBeGreaterThan(wideBrackets.length);
+
+      // Bucket narrow brackets by their ancestor staffGroup's
+      // data-system-index. At least two adjacent system indices must
+      // contain a bracket from the SAME voice — i.e. one segment split.
+      const byVoiceSystem = new Map(); // vid → Set<systemIdx>
+      narrowBrackets.forEach((b) => {
+        let g = b.parentNode;
+        while (g && g.getAttribute && !g.getAttribute('data-system-index')) {
+          g = g.parentNode;
+        }
+        if (!g || !g.getAttribute) return;
+        const si = Number(g.getAttribute('data-system-index'));
+        const vid = g.getAttribute('data-voice-id');
+        if (!byVoiceSystem.has(vid)) byVoiceSystem.set(vid, new Set());
+        byVoiceSystem.get(vid).add(si);
+      });
+      let foundAdjacent = false;
+      for (const [, set] of byVoiceSystem) {
+        const arr = [...set].sort((a, b) => a - b);
+        for (let i = 1; i < arr.length; i += 1) {
+          if (arr[i] === arr[i - 1] + 1) { foundAdjacent = true; break; }
+        }
+        if (foundAdjacent) break;
+      }
+      expect(foundAdjacent).toBe(true);
+    });
+
+    it('Bach Invention 1: optimal break-point plan is stable across widths (real-music fixture)', async () => {
+      const { default: preset } = await import(
+        '../dev/presets/piece-bach-invention-1.js'
+      );
+      const planAt = (width) => {
+        const c = document.createElement('div');
+        new NotationRenderer({ container: c, width, breakingStrategy: 'optimal' }).render(preset.song);
+        // Read one voice's worth of staffGroups (since voices replicate
+        // the same plan after voice-sync), bucketed by data-system-index.
+        const groups = Array.from(c.querySelectorAll('g[data-system-index][data-voice-id]'));
+        const byIdx = new Map();
+        for (const g of groups) {
+          const si = Number(g.getAttribute('data-system-index'));
+          const startM = Number(g.getAttribute('data-start-measure'));
+          const endM = Number(g.getAttribute('data-end-measure'));
+          if (!byIdx.has(si)) byIdx.set(si, { startM, endM });
+        }
+        return Array.from(byIdx.keys())
+          .sort((a, b) => a - b)
+          .map((k) => byIdx.get(k));
+      };
+      const wide = planAt(2000);
+      const narrow = planAt(400);
+      // Wide: single system covering all measures. Pin the full plan.
+      expect(wide).toHaveLength(1);
+      expect(wide[0].startM).toBe(0);
+      const lastMeasure = wide[0].endM;
+      // Narrow: multiple systems — optimal must have split.
+      expect(narrow.length).toBeGreaterThan(1);
+      // Coverage invariant: contiguous and complete.
+      let expected = 0;
+      for (const p of narrow) {
+        expect(p.startM).toBe(expected);
+        expected = p.endM + 1;
+      }
+      expect(narrow[narrow.length - 1].endM).toBe(lastMeasure);
+      // Determinism: rendering twice at the same width gives the same plan.
+      const narrow2 = planAt(400);
+      expect(narrow2).toEqual(narrow);
+    });
+
+    it('monotonicity w.r.t. width: widening never produces more systems', () => {
+      const piece = makeLongPiece(16);
+      const sysAt = (w) => {
+        const c = document.createElement('div');
+        new NotationRenderer({ container: c, width: w }).render(piece);
+        const groups = Array.from(c.querySelectorAll('g[data-system-index]'));
+        return new Set(groups.map((g) => g.getAttribute('data-system-index'))).size;
+      };
+      const s400 = sysAt(400);
+      const s800 = sysAt(800);
+      const s1200 = sysAt(1200);
+      expect(s800).toBeLessThanOrEqual(s400);
+      expect(s1200).toBeLessThanOrEqual(s800);
+    });
+
+    it('does not reopen a phantom ottava on the next system when a segment ended cleanly', async () => {
+      // Use a 2-measure preset slice: place 8va in bar 1 only, then
+      // force wrapping. Bar 2 must NOT carry a bracket.
+      const piece = {
+        timeSignature: [4, 4],
+        notes: [
+          // Bar 1 — 8va run
+          { pitch: 'G6', length: '1/4' },
+          { pitch: 'A6', length: '1/4' },
+          { pitch: 'B6', length: '1/4' },
+          { pitch: 'C7', length: '1/4' },
+          // Bar 2 — back to mid-staff (should NOT trigger 8va)
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'E5', length: '1/4' },
+          { pitch: 'G5', length: '1/4' },
+          { pitch: 'C5', length: '1/4' },
+        ],
+      };
+      // Width small enough to force a break between the two bars.
       const renderer = new NotationRenderer({
         container: document.createElement('div'),
-        width: 500, // narrow enough to force a break in the 10-bar preset
+        width: 280,
       });
-      renderer.render(preset.song);
-      const systems = renderer.getSvgElement().querySelectorAll('.staff-lines');
-      // The 10-bar showcase should wrap on a 500px width.
-      expect(systems.length).toBeGreaterThanOrEqual(2);
-      // At least some 8va/8vb brackets remain present after slicing.
-      const brackets = renderer.getSvgElement().querySelectorAll('.ottava-bracket');
-      expect(brackets.length).toBeGreaterThan(0);
+      const svg = renderer.render(piece);
+      const staves = svg.querySelectorAll('.staff-lines');
+      expect(staves.length).toBeGreaterThanOrEqual(2);
+      // No bracket may appear in the system holding bar 2.
+      const brackets = svg.querySelectorAll('.ottava-bracket');
+      brackets.forEach((b) => {
+        let g = b.parentNode;
+        while (g && g.getAttribute && !g.getAttribute('data-start-measure')) {
+          g = g.parentNode;
+        }
+        const startM = g && g.getAttribute ? Number(g.getAttribute('data-start-measure')) : -1;
+        expect(startM).toBe(0); // brackets only in the first system
+      });
     });
 
     // Failure-catching test: catches the previous regression where the
@@ -3067,10 +3386,70 @@ describe('NotationRenderer', () => {
       });
       const topNotes = svg.querySelectorAll('[data-voice-id="top"] .note');
       const botNotes = svg.querySelectorAll('[data-voice-id="bot"] .note');
-      // Top note 0 (beat 0) and bot note 0 (beat 0) align.
+      // Top voice: quarters at beats 0, 1, 2, 3.
+      // Bot voice: eighths at beats 0, 0.5, then quarters at 1, 2, 3.
+      // Sample EVERY shared downbeat (0, 1, 2, 3).
+      // Beat 0: top[0] and bot[0]
       expect(Math.abs(xOf(topNotes[0]) - xOf(botNotes[0]))).toBeLessThanOrEqual(1);
-      // Top note 1 (beat 1) and bot note 2 (beat 1) align.
+      // Beat 1: top[1] and bot[2]
       expect(Math.abs(xOf(topNotes[1]) - xOf(botNotes[2]))).toBeLessThanOrEqual(1);
+      // Beat 2: top[2] and bot[3]
+      expect(Math.abs(xOf(topNotes[2]) - xOf(botNotes[3]))).toBeLessThanOrEqual(1);
+      // Beat 3: top[3] and bot[4]
+      expect(Math.abs(xOf(topNotes[3]) - xOf(botNotes[4]))).toBeLessThanOrEqual(1);
+    });
+
+    it('rhythmic gap proportions preserved across widths (quarter:eighth)', () => {
+      const piece = {
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C4', length: '1/4' },
+          { pitch: 'D4', length: '1/4' },
+          { pitch: 'E4', length: '1/8' },
+          { pitch: 'F4', length: '1/8' },
+          { pitch: 'G4', length: '1/8' },
+          { pitch: 'A4', length: '1/8' },
+        ],
+      };
+      const ratioAt = (width) => {
+        const c = document.createElement('div');
+        new NotationRenderer({ container: c, width }).render(piece);
+        const ns = c.querySelectorAll('.note');
+        const xs = Array.from(ns).map(xOf);
+        return (xs[1] - xs[0]) / (xs[3] - xs[2]);
+      };
+      const r400 = ratioAt(400);
+      const r800 = ratioAt(800);
+      // Same piece at very different widths must preserve rhythmic
+      // proportions within 20% — the engraving-quality property the
+      // spring model is supposed to deliver.
+      expect(Math.abs(r400 - r800) / Math.max(r400, r800)).toBeLessThan(0.2);
+    });
+
+    it('preserves natural spacing when the system is not justified — gap is strictly smaller than under stretch', () => {
+      // Whole-note piece of 4 bars fits naturally in a small width.
+      const piece = {
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C4', length: '1/1' },
+          { pitch: 'D4', length: '1/1' },
+          { pitch: 'E4', length: '1/1' },
+          { pitch: 'F4', length: '1/1' },
+        ],
+      };
+      const gapAt = (width) => {
+        const c = document.createElement('div');
+        new NotationRenderer({ container: c, width }).render(piece);
+        const notes = c.querySelectorAll('.note');
+        const xs = Array.from(notes).map(xOf);
+        return xs[1] - xs[0];
+      };
+      // At a width close to the natural minimum vs. wide width with
+      // lots of slack: the gap MUST be larger under stretch. A bug
+      // that uniformly scaled would produce equal gaps and fail this.
+      const tight = gapAt(280);
+      const loose = gapAt(1600);
+      expect(loose).toBeGreaterThan(tight + 1);
     });
 
     it('preserves natural spacing when the system is not justified (slack ≤ 0)', () => {
@@ -3176,39 +3555,125 @@ describe('NotationRenderer', () => {
       ).toBeCloseTo(600, 0);
     });
 
-    it('setSong batches and re-renders with the new song', () => {
+    it('setSong batches: pre-tick SVG unchanged, post-tick note count matches new song', () => {
       const renderer = new NotationRenderer({
         container: document.createElement('div'),
         width: 800,
       });
       renderer.render([{ pitch: 'C4', length: '1/4' }]);
-      const noteCountBefore = renderer.getSvgElement().querySelectorAll('.note').length;
+      const beforeSvg = renderer.getSvgElement();
+      const noteCountBefore = beforeSvg.querySelectorAll('.note').length;
+      expect(noteCountBefore).toBe(1);
 
-      renderer.setSong([
+      const newSong = [
         { pitch: 'C4', length: '1/4' },
         { pitch: 'D4', length: '1/4' },
         { pitch: 'E4', length: '1/4' },
-      ]);
+      ];
+      renderer.setSong(newSong);
+
+      // Pre-tick: SVG identity unchanged AND note count still old value.
+      expect(renderer.getSvgElement()).toBe(beforeSvg);
+      expect(beforeSvg.querySelectorAll('.note').length).toBe(noteCountBefore);
+
       tick(renderer);
 
       const noteCountAfter = renderer.getSvgElement().querySelectorAll('.note').length;
-      expect(noteCountAfter).toBeGreaterThan(noteCountBefore);
+      // Exact note count, not just "greater than".
+      expect(noteCountAfter).toBe(3);
     });
 
-    it('setScale batches and re-renders with new SVG dimensions', () => {
+    it('setScale batches: pre-tick invariance + post-tick height-doubled + viewBox unchanged + system count unchanged', () => {
       const renderer = new NotationRenderer({
         container: document.createElement('div'),
         width: 800,
         scale: 1,
       });
-      renderer.render([{ pitch: 'C4', length: '1/4' }]);
-      const w1 = parseFloat(renderer.getSvgElement().getAttribute('width'));
+      renderer.render({
+        timeSignature: [4, 4],
+        notes: (() => {
+          const out = [];
+          for (let i = 0; i < 16; i += 1) out.push({ pitch: 'C4', length: '1/4' });
+          return out;
+        })(),
+      });
+      const beforeSvg = renderer.getSvgElement();
+      const w1 = parseFloat(beforeSvg.getAttribute('width'));
+      const h1 = parseFloat(beforeSvg.getAttribute('height'));
+      const vb1 = beforeSvg.getAttribute('viewBox');
+      const sys1 = beforeSvg.querySelectorAll('.staff-lines').length;
 
       renderer.setScale(2);
+
+      // Pre-tick invariance: SVG identity unchanged, width unchanged.
+      expect(renderer.getSvgElement()).toBe(beforeSvg);
+      expect(parseFloat(beforeSvg.getAttribute('width'))).toBe(w1);
+
       tick(renderer);
 
-      const w2 = parseFloat(renderer.getSvgElement().getAttribute('width'));
-      expect(w2).toBeCloseTo(w1 * 2, 0);
+      const after = renderer.getSvgElement();
+      expect(parseFloat(after.getAttribute('width'))).toBeCloseTo(w1 * 2, 0);
+      expect(parseFloat(after.getAttribute('height'))).toBeCloseTo(h1 * 2, 0);
+      // viewBox is in internal coords — unchanged by scale.
+      expect(after.getAttribute('viewBox')).toBe(vb1);
+      // System count unchanged — scale is display-only.
+      expect(after.querySelectorAll('.staff-lines').length).toBe(sys1);
+    });
+
+    it('cross-setter coalescing: setSong + setWidth + setScale → exactly one flush', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 1600,
+        scale: 1,
+      });
+      renderer.render([{ pitch: 'C4', length: '1/4' }]);
+      const flushSpy = jest.spyOn(renderer, '_flush');
+
+      renderer.setSong([
+        { pitch: 'C4', length: '1/4' },
+        { pitch: 'D4', length: '1/4' },
+        { pitch: 'E4', length: '1/4' },
+        { pitch: 'F4', length: '1/4' },
+      ]);
+      renderer.setWidth(800);
+      renderer.setScale(2);
+
+      expect(flushSpy).not.toHaveBeenCalled();
+      tick(renderer);
+      expect(flushSpy).toHaveBeenCalledTimes(1);
+
+      // After tick: all three setters applied.
+      const svg = renderer.getSvgElement();
+      expect(svg.querySelectorAll('.note').length).toBe(4);
+      // Width: 800 internal × scale 2 = 1600 displayed.
+      expect(parseFloat(svg.getAttribute('width'))).toBeCloseTo(1600, 0);
+    });
+
+    it('rAF is scheduled exactly once across multiple setters in one tick', () => {
+      const originalRAF = global.requestAnimationFrame;
+      const rafSpy = jest.fn((cb) => {
+        // Return a dummy id; don't actually invoke cb until tick().
+        return 1;
+      });
+      global.requestAnimationFrame = rafSpy;
+      try {
+        const renderer = new NotationRenderer({
+          container: document.createElement('div'),
+          width: 1600,
+        });
+        renderer.render([{ pitch: 'C4', length: '1/4' }]);
+        rafSpy.mockClear();
+
+        renderer.setWidth(400);
+        renderer.setWidth(500);
+        renderer.setWidth(600);
+        // Exactly ONE rAF scheduled across three setters.
+        expect(rafSpy).toHaveBeenCalledTimes(1);
+        // Argument is a function.
+        expect(typeof rafSpy.mock.calls[0][0]).toBe('function');
+      } finally {
+        global.requestAnimationFrame = originalRAF;
+      }
     });
 
     it('setWidth before any render(song) is a no-op (no SVG appears)', () => {
@@ -3243,7 +3708,18 @@ describe('NotationRenderer', () => {
           }
           disconnect() { this.targets = []; }
           // Test helper: trigger the callback as if a resize fired.
-          fire() { this.cb([], this); }
+          // Passes realistic entries[] so future code that reads
+          // entries[0].contentRect.width works correctly. Matches the
+          // real spec: callbacks only fire for observed targets — if
+          // targets has been cleared (disconnect), this is a no-op.
+          fire() {
+            if (this.targets.length === 0) return;
+            const entries = this.targets.map((t) => ({
+              target: t,
+              contentRect: { width: t.clientWidth || 0, height: t.clientHeight || 0 },
+            }));
+            this.cb(entries, this);
+          }
         };
       });
 
@@ -3258,6 +3734,38 @@ describe('NotationRenderer', () => {
         renderer.observe();
         expect(observerInstances.length).toBe(1);
         expect(observerInstances[0].targets).toContain(container);
+      });
+
+      it('observe() is idempotent — a second call does not double-attach', () => {
+        const container = document.createElement('div');
+        const renderer = new NotationRenderer({ container, width: 800 });
+        renderer.render([{ pitch: 'C4', length: '1/4' }]);
+        renderer.observe();
+        renderer.observe();
+        expect(observerInstances.length).toBe(1);
+      });
+
+      it('unobserve() after observe + fire — no render', () => {
+        const container = document.createElement('div');
+        Object.defineProperty(container, 'clientWidth', {
+          configurable: true,
+          get: () => 600,
+        });
+        const renderer = new NotationRenderer({
+          container,
+          width: 1200,
+          responsiveMode: 'reflow',
+        });
+        renderer.render(makeLongPiece());
+        renderer.observe();
+        const obs = observerInstances[0];
+        renderer.unobserve();
+        // After unobserve, targets must be empty.
+        expect(obs.targets.length).toBe(0);
+        const widthBefore = renderer._width;
+        obs.fire(); // would be a no-op since disconnected
+        tick(renderer);
+        expect(renderer._width).toBe(widthBefore);
       });
 
       it('reflow mode: callback maps clientWidth/scale to setWidth', () => {
@@ -3325,7 +3833,10 @@ describe('NotationRenderer', () => {
         const obs = observerInstances[0];
 
         renderer.clear();
-        // Targets cleared; further fires must not crash or render.
+        // Directly assert the observer's targets were emptied — pins
+        // the disconnect contract independent of _song being nulled.
+        expect(obs.targets.length).toBe(0);
+        // Further fires must not crash or render.
         obs.fire();
         renderer._flush(); // best-effort manual drain
         expect(renderer.getSvgElement()).toBeNull();

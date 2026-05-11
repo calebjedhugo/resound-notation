@@ -92,6 +92,76 @@ describe('measureIntrinsicWidths', () => {
     expect(dPlain).toBeGreaterThan(dDotted);
   });
 
+  test('combined takes the per-measure max when different voices win different measures', () => {
+    // Two-measure piece: voice 0 wins measure 0 (many 8ths), voice 1
+    // wins measure 1 (many 16ths). combined[i] must equal the max of
+    // per-voice widths at each measure i — not always voice 0.
+    const song = {
+      timeSignature: [4, 4],
+      voices: [
+        {
+          id: 'a',
+          notes: [
+            // Measure 0: dense (8 eighths)
+            { pitch: 'C5', length: '1/8' }, { pitch: 'D5', length: '1/8' },
+            { pitch: 'E5', length: '1/8' }, { pitch: 'F5', length: '1/8' },
+            { pitch: 'G5', length: '1/8' }, { pitch: 'A5', length: '1/8' },
+            { pitch: 'B5', length: '1/8' }, { pitch: 'C6', length: '1/8' },
+            // Measure 1: sparse (1 whole)
+            { pitch: 'C5', length: '1/1' },
+          ],
+        },
+        {
+          id: 'b',
+          notes: [
+            // Measure 0: sparse
+            { pitch: 'C3', length: '1/1' },
+            // Measure 1: very dense (16 sixteenths)
+            ...Array.from({ length: 16 }, () => ({ pitch: 'C3', length: '1/16' })),
+          ],
+        },
+      ],
+    };
+    const out = measureIntrinsicWidths(song);
+    const aWidths = out.perVoice[0].measures.map((m) => m.intrinsicWidth);
+    const bWidths = out.perVoice[1].measures.map((m) => m.intrinsicWidth);
+    expect(aWidths.length).toBeGreaterThanOrEqual(2);
+    expect(bWidths.length).toBeGreaterThanOrEqual(2);
+    // Voice a wins measure 0; voice b wins measure 1.
+    expect(aWidths[0]).toBeGreaterThan(bWidths[0]);
+    expect(bWidths[1]).toBeGreaterThan(aWidths[1]);
+    // combined[i] = max(perVoice[*][i]) for every i.
+    for (let i = 0; i < out.combined.length; i += 1) {
+      expect(out.combined[i].intrinsicWidth).toBe(Math.max(aWidths[i], bWidths[i]));
+    }
+  });
+
+  test('rests contribute to intrinsic width like notes of the same duration', () => {
+    const allNotes = measureIntrinsicWidths({
+      timeSignature: [4, 4],
+      notes: [
+        { pitch: 'C4', length: '1/4' },
+        { pitch: 'C4', length: '1/4' },
+        { pitch: 'C4', length: '1/4' },
+        { pitch: 'C4', length: '1/4' },
+      ],
+    });
+    const withRests = measureIntrinsicWidths({
+      timeSignature: [4, 4],
+      notes: [
+        { pitch: 'C4', length: '1/4' },
+        { rest: true, length: '1/4' },
+        { pitch: 'C4', length: '1/4' },
+        { rest: true, length: '1/4' },
+      ],
+    });
+    const wAll = allNotes.combined[0].intrinsicWidth;
+    const wWith = withRests.combined[0].intrinsicWidth;
+    // Rests participate at all — width must be positive and on the
+    // same order of magnitude. (Catches a bug where rests get 0 width.)
+    expect(wWith).toBeGreaterThan(wAll * 0.5);
+  });
+
   test('combined takes the max across voices', () => {
     const song = {
       timeSignature: [4, 4],

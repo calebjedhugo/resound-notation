@@ -205,6 +205,26 @@ describe('systemBadness', () => {
     expect(b).toBeGreaterThan(0);
     expect(b).toBeLessThan(systemBadness(200, 400, false));
   });
+
+  it('grows convexly (super-linearly) as stretch increases', () => {
+    // Convexity: b(s+Δ) − b(s) is itself increasing in s. Without
+    // convexity, Knuth-Plass degenerates into greedy.
+    const b1 = systemBadness(400, 440, false); // stretch 1.10
+    const b2 = systemBadness(400, 480, false); // stretch 1.20
+    const b3 = systemBadness(400, 520, false); // stretch 1.30
+    const delta12 = b2 - b1;
+    const delta23 = b3 - b2;
+    expect(delta23).toBeGreaterThan(delta12);
+  });
+
+  it('overflow penalty dwarfs the worst in-range stretch cost', () => {
+    // The whole point of the 1000-base overflow is that the optimizer
+    // never picks an overflowed system if any non-overflowed alternative
+    // exists. Pin: overflow >> 10× the worst in-range stretch.
+    const overflow = systemBadness(800, 400, false);
+    const stretched = systemBadness(400, 480, false); // 1.20 stretch
+    expect(overflow).toBeGreaterThan(stretched * 10);
+  });
 });
 
 describe('breakIntoSystemsOptimal', () => {
