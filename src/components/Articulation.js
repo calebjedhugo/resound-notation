@@ -23,7 +23,13 @@ function bravuraSymbol(type, below) {
   return { element: wrapper, height: heightPx };
 }
 
-const NOTEHEAD_GAP = 4;
+// Distance from notehead center to the articulation's center axis. A notehead
+// spans roughly one staff space (~20px here, so ~10px above/below center).
+// Gould "Behind Bars" p. 117 calls for ~0.5 staff space between the notehead
+// edge and the articulation's nearest edge, so the gap from head center must
+// cover the head's half-height (10) plus a half staff space (10) — plus the
+// articulation's own half-height, which the caller adds via `height/2`.
+const NOTEHEAD_GAP = 20;
 const STACK_GAP = 3;
 
 const VALID_ARTICULATIONS = [

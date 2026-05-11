@@ -3893,4 +3893,29 @@ describe('NotationRenderer', () => {
       });
     });
   });
+
+  describe('articulation clearance from notehead', () => {
+    // Per Gould "Behind Bars" p. 117, the gap between the notehead edge and
+    // the articulation's nearest edge should be approximately 0.5 staff space
+    // (~10px here, where 1 staff space = 20px). Since articulation transforms
+    // are measured from notehead center, the nearest edge of the articulation
+    // must sit at least 20px (head half-height 10 + half staff space 10)
+    // above/below note center.
+    it('places a marcato above a stem-down F5 with at least 0.5 staff space of clearance from the notehead', () => {
+      // F5 sits above the middle line -> stem points down -> articulation above.
+      ctx.render([{ pitch: 'F5', length: '1/4', articulation: 'marcato' }]);
+
+      const artic = ctx.container.querySelector('.articulation-marcato');
+      expect(artic).not.toBeNull();
+      const transform = artic.getAttribute('transform');
+      const yMatch = transform.match(/translate\(0,\s*(-?[\d.]+)\)/);
+      expect(yMatch).not.toBeNull();
+      const y = parseFloat(yMatch[1]);
+
+      // The articulation's center must sit at least 20px above note center
+      // (head half-height 10 + half staff space 10), so its nearest edge
+      // clears the notehead's top edge by at least 0.5 staff space.
+      expect(y).toBeLessThanOrEqual(-20);
+    });
+  });
 });
