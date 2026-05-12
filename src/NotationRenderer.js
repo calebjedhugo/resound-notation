@@ -178,10 +178,14 @@ const ACCIDENTAL_OFFSET_BEAMED_PRIOR = ACCIDENTAL_OFFSET - 6;
 // Trailing padding (px) after the time-sig glyph before the first note —
 // ~1 staff space of clearance so the digits don't crowd the music.
 const TIME_SIG_PADDING = 25;
-// Padding (px) before and after each barline. ~1 staff space gives the
-// barline room to read as a measure boundary instead of crowding the
-// last/first notes of adjacent measures.
-const BAR_LINE_PADDING = 12;
+// Padding (px) before and after each barline. The cursor advance lands
+// at the next/previous note's CENTER, but stems sit ~10px to one side of
+// the head (HEAD_TIP_X for stem-up on the right; -HEAD_TIP_X for stem-down
+// on the left), so the worst-case gap from the barline to the nearest
+// stem is `BAR_LINE_PADDING - 10`. Use 30 to buy ~20px (≈1 staff space)
+// of visible clearance between the stem and the barline — enough that a
+// stem-down first note in the next measure has clear breathing room.
+const BAR_LINE_PADDING = 30;
 const MIDDLE_LINE_Y = 50;
 // SMuFL Bravura black notehead stem-up tip (in local pixel coords). All
 // chord rendering paths use the black-notehead tip; quarter/8th/16th heads
