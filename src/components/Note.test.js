@@ -130,10 +130,13 @@ describe('Note', () => {
       expect(flag).not.toBeNull();
     });
 
-    it('renders flags for 16th notes', () => {
+    it('renders the 16th-note flag glyph', () => {
+      // SMuFL ships 16th flags as a single glyph with both flags stacked
+      // (U+E242 / U+E243), so the per-note DOM has one .note-flag group
+      // — not two separate path elements.
       const g = createNote({ pitch: 'C4', length: '1/16', x: 0, clef: 'treble' });
       const flags = g.querySelectorAll('.note-flag');
-      expect(flags).toHaveLength(2);
+      expect(flags).toHaveLength(1);
     });
 
     it('does not render flags for quarter notes', () => {

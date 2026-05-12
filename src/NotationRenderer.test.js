@@ -921,6 +921,21 @@ describe('NotationRenderer', () => {
       expect(flags).toHaveLength(2);
     });
 
+    it('unbeamed eighth note renders the SMuFL Bravura flag glyph', () => {
+      // Single C5 1/8 in unmetered mode (no beaming). C5 sits above the
+      // middle line, so the stem goes down and the flag is flag8thDown.
+      // The hand-rolled squiggle (M ... c 8 4 12 12 8 20) is replaced
+      // by the Bravura SMuFL path; assert a distinctive substring from
+      // flag8thDown that the squiggle never produced.
+      ctx.render([{ pitch: 'C5', length: '1/8' }]);
+      const flag = ctx.container.querySelector('.note-flag');
+      expect(flag).not.toBeNull();
+      const path = flag.querySelector('path');
+      expect(path).not.toBeNull();
+      const d = path.getAttribute('d');
+      expect(d).toContain('M240 760C254 718');
+    });
+
     it('renders beam groups alongside non-beamed notes', () => {
       ctx.render({
         timeSignature: [4, 4],

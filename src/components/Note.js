@@ -3,7 +3,7 @@
  * Creates SVG group for a single note with head, stem, and flags.
  */
 
-import { createGroup, createLine, createPath } from '../lib/svgHelpers.js';
+import { createGroup, createLine } from '../lib/svgHelpers.js';
 import { pitchToStaffY } from '../lib/notePositions.js';
 import { getDurationInfo } from '../lib/durationSymbols.js';
 import {
@@ -12,6 +12,7 @@ import {
   NOTEHEAD_BLACK_GLYPH,
   NOTEHEAD_HALF_GLYPH,
   NOTEHEAD_WHOLE_GLYPH,
+  FLAG_GLYPHS,
 } from '../assets/glyphs.js';
 import { beamStemExtension } from './Beam.js';
 
@@ -22,6 +23,14 @@ function glyphForDuration(info) {
   if (info.name === 'whole') return NOTEHEAD_WHOLE_GLYPH;
   if (info.name === 'half') return NOTEHEAD_HALF_GLYPH;
   return NOTEHEAD_BLACK_GLYPH;
+}
+
+function pickFlagGlyph(flagCount, stemDown) {
+  const dir = stemDown ? 'Down' : 'Up';
+  if (flagCount === 1) return FLAG_GLYPHS[`flag8th${dir}`];
+  if (flagCount === 2) return FLAG_GLYPHS[`flag16th${dir}`];
+  if (flagCount >= 3) return FLAG_GLYPHS[`flag32nd${dir}`];
+  return null;
 }
 
 /**
@@ -65,15 +74,21 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
       createLine(stemX, stemY1, stemX, stemY2, { class: 'note-stem', stroke: 'currentColor' })
     );
 
-    // Flags (suppressed when beamed — beams replace flags)
+    // Flags (suppressed when beamed — beams replace flags). Multi-flag
+    // durations (16th, 32nd) ship as a single SMuFL glyph with secondary
+    // flags already stacked, so the dispatch is one glyph keyed on
+    // info.flags, not a per-flag loop.
     if (beamed) return group;
-    for (let i = 0; i < info.flags; i++) {
-      const flagOffset = i * 8;
-      const flagPath = stemDown
-        ? `M ${stemX} ${stemY2 - flagOffset} c 8 4 12 12 8 20`
-        : `M ${stemX} ${stemY2 + flagOffset} c 8 -4 12 -12 8 -20`;
-
-      group.appendChild(createPath(flagPath, { class: 'note-flag', fill: 'currentColor' }));
+    if (info.flags > 0) {
+      const flagGlyph = pickFlagGlyph(info.flags, stemDown);
+      if (flagGlyph) {
+        const flag = createSmuflGlyph(flagGlyph, 'note-flag');
+        // Anchor the flag at the stem tip. The SMuFL flag origin (0, 0)
+        // sits at the stem-tip end; createSmuflGlyph honors headCx: 0
+        // so the glyph translates to local (stemX, stemY2) directly.
+        flag.setAttribute('transform', `translate(${stemX}, ${stemY2})`);
+        group.appendChild(flag);
+      }
     }
   }
 
