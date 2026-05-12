@@ -86,7 +86,10 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
         // Anchor the flag at the stem tip. The SMuFL flag origin (0, 0)
         // sits at the stem-tip end; createSmuflGlyph honors headCx: 0
         // so the glyph translates to local (stemX, stemY2) directly.
-        flag.setAttribute('transform', `translate(${stemX}, ${stemY2})`);
+        // Scale 0.85 trims Bravura's chunky default flag thickness to a
+        // more elegant proportion against our LINE_SPACING=20 staff
+        // (Bravura is drawn for ~24-26 LS, hence the slight over-weight).
+        flag.setAttribute('transform', `translate(${stemX}, ${stemY2}) scale(0.85)`);
         group.appendChild(flag);
       }
     }
