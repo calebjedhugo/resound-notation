@@ -16,7 +16,10 @@ const presets = Object.entries(presetModules)
   .filter((p) => p && p.name && p.song);
 
 // Default preset = first API-coverage preset, fallback to first overall.
+// Honor ?preset=<name> in the URL so a refresh sticks on the current sample.
+const urlPreset = new URLSearchParams(window.location.search).get('preset');
 const defaultPreset =
+  (urlPreset && presets.find((p) => p.name === urlPreset)) ||
   presets.find((p) => p.group === 'api' && p.name === 'single-voice-treble') ||
   presets[0];
 
@@ -27,6 +30,8 @@ const presetBar = document.getElementById('preset-bar');
 const gridToggle = document.getElementById('grid-toggle');
 const widthSlider = document.getElementById('width-slider');
 const widthValue = document.getElementById('width-value');
+
+const presetButtons = new Map();
 
 // Build preset buttons grouped by category.
 function buildPresetBar() {
@@ -45,6 +50,7 @@ function buildPresetBar() {
       btn.title = preset.description || preset.name;
       btn.addEventListener('click', () => loadPreset(preset));
       presetBar.appendChild(btn);
+      presetButtons.set(preset.name, btn);
     }
   };
 
@@ -52,8 +58,20 @@ function buildPresetBar() {
   addGroup('Pieces', piecePresets);
 }
 
+function setActiveButton(name) {
+  for (const [n, btn] of presetButtons) {
+    btn.classList.toggle('active', n === name);
+  }
+}
+
 function loadPreset(preset) {
   editor.value = JSON.stringify(preset.song, null, 2);
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('preset') !== preset.name) {
+    params.set('preset', preset.name);
+    window.history.replaceState(null, '', `?${params.toString()}`);
+  }
+  setActiveButton(preset.name);
   scheduleRender();
 }
 

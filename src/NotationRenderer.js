@@ -23,7 +23,7 @@ import { createClef } from './components/Clef.js';
 import { createRest } from './components/Rest.js';
 import { createLedgerLines } from './components/LedgerLine.js';
 import { createAccidental } from './components/Accidental.js';
-import { createKeySignature } from './components/KeySignature.js';
+import { createKeySignature, keySignatureAdvance } from './components/KeySignature.js';
 import { createBarLine } from './components/BarLine.js';
 import { createTimeSignature } from './components/TimeSignature.js';
 import { getKeySignature } from './lib/keySignatures.js';
@@ -175,10 +175,6 @@ const ACCIDENTAL_OFFSET = 30;
 // minimum (~1/4 staff space). Pulling the accidental ~6px closer to
 // its own head buys ~6px of breathing room from the prior head.
 const ACCIDENTAL_OFFSET_BEAMED_PRIOR = ACCIDENTAL_OFFSET - 6;
-// Per-accidental cursor advance for the key signature. Matches
-// ACCIDENTAL_SPACING in KeySignature.js plus a little trailing room
-// before the time-signature.
-const KEY_SIG_ACCIDENTAL_WIDTH = 14;
 // Trailing padding (px) after the time-sig glyph before the first note —
 // ~1 staff space of clearance so the digits don't crowd the music.
 const TIME_SIG_PADDING = 25;
@@ -556,7 +552,7 @@ export class NotationRenderer {
       let x = STAFF_START_X + CLEF_WIDTH;
       const keyInfo = getKeySignature(voice.keySignature || 'C');
       if (keyInfo.count > 0) {
-        x += keyInfo.count * KEY_SIG_ACCIDENTAL_WIDTH;
+        x += keySignatureAdvance(keyInfo.count);
       }
       if (voice.timeSignature) {
         const { width: tsWidth } = createTimeSignature(voice.timeSignature);
@@ -690,7 +686,7 @@ export class NotationRenderer {
       for (const voice of parsed.voices) {
         let p = STAFF_START_X + CLEF_WIDTH;
         const keyInfo = getKeySignature(voice.keySignature || 'C');
-        if (keyInfo.count > 0) p += keyInfo.count * KEY_SIG_ACCIDENTAL_WIDTH;
+        if (keyInfo.count > 0) p += keySignatureAdvance(keyInfo.count);
         if (systemIndex === 0 && voice.timeSignature) {
           const { width: tsWidth } = createTimeSignature(voice.timeSignature);
           p += tsWidth + TIME_SIG_PADDING;
@@ -809,7 +805,7 @@ export class NotationRenderer {
         for (const voice of parsed.voices) {
           let x = STAFF_START_X + CLEF_WIDTH;
           const keyInfo = getKeySignature(voice.keySignature || 'C');
-          if (keyInfo.count > 0) x += keyInfo.count * KEY_SIG_ACCIDENTAL_WIDTH;
+          if (keyInfo.count > 0) x += keySignatureAdvance(keyInfo.count);
           if (isFirst && voice.timeSignature) {
             const { width: tsWidth } = createTimeSignature(voice.timeSignature);
             x += tsWidth + TIME_SIG_PADDING;
@@ -1120,7 +1116,7 @@ export class NotationRenderer {
         keySigGroup.setAttribute('transform', `translate(${cursorX}, 0)`);
         staffGroup.appendChild(keySigGroup);
         const keyInfo = getKeySignature(keySignature);
-        cursorX += keyInfo.count * KEY_SIG_ACCIDENTAL_WIDTH;
+        cursorX += keySignatureAdvance(keyInfo.count);
       }
 
       // Time signature — first system only. Subsequent systems use the

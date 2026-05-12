@@ -1290,6 +1290,40 @@ describe('NotationRenderer', () => {
       expect(secondAccidentals).toHaveLength(1);
       expect(secondAccidentals[0].classList.contains('flat')).toBe(true);
     });
+
+    it('spaces multi-accidental key sig flats and gives the first note breathing room (Gould, Behind Bars pp. 90-95)', () => {
+      // Bb major: two flats (Bb4, Eb5) followed by Bb4 then D5. Reads
+      // both the intra-key-sig flat-to-flat spacing and the gap from the
+      // last flat to the first notehead. Both should be >= ~1 staff
+      // space; the previous 14px spacing let glyphs touch and the
+      // count*14 cursor advance crowded the first note onto the last
+      // flat.
+      ctx.render({
+        keySignature: 'Bb',
+        notes: [
+          { pitch: 'Bb4', length: '1/4' },
+          { pitch: 'D5', length: '1/4' },
+        ],
+      });
+
+      const keySig = ctx.getKeySignature();
+      const accidentals = keySig.querySelectorAll('.accidental');
+      expect(accidentals).toHaveLength(2);
+
+      const getX = (el) =>
+        parseFloat(el.getAttribute('transform').match(/translate\(([^,]+)/)[1]);
+
+      const keySigX = getX(keySig);
+      const acc0X = keySigX + getX(accidentals[0]);
+      const acc1X = keySigX + getX(accidentals[1]);
+
+      // (a) intra-key-sig spacing: adjacent flats >= 18px apart
+      expect(acc1X - acc0X).toBeGreaterThanOrEqual(18);
+
+      // (b) trailing clearance: first notehead >= 20px right of last flat
+      const firstNoteX = getX(ctx.getNotes()[0]);
+      expect(firstNoteX - acc1X).toBeGreaterThanOrEqual(20);
+    });
   });
 
   describe('tie rendering', () => {

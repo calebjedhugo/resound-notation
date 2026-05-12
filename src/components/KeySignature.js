@@ -31,14 +31,47 @@ export const KEY_SIG_POSITIONS = {
   },
 };
 
-// Bravura accidentalSharp/Flat are ~20px wide. 14 lets adjacent glyphs
-// interlock vertically (engraving convention) without horizontal overlap
-// of their bodies.
-const ACCIDENTAL_SPACING = 14;
+// Bravura accidentalSharp/Flat are ~20px wide. Gould (Behind Bars pp.
+// 90-95) calls for ~1 staff space (20px here) center-to-center for
+// non-interlocking accidental pairs; 18 (~0.9 staff space) is the
+// safe-across-the-board value since sharps/flats are designed to nest
+// vertically. 14 was too tight — flat bodies visually touched.
+const ACCIDENTAL_SPACING = 18;
 // SMuFL accidentals are centered on their x=0; offset the first glyph by
 // half its width so the key-sig group's left edge sits at parent x=0
 // (i.e. the accidental doesn't extend left of the caller's translate).
 const ACCIDENTAL_LEAD = 10;
+// Half-width of a Bravura sharp/flat glyph, used so the cursor advance
+// past the key signature covers the right edge of the last glyph (whose
+// center sits at the last ACCIDENTAL_SPACING step), not just its center.
+const ACCIDENTAL_HALF_WIDTH = 10;
+// Trailing pad (px) after the last key-sig accidental before the next
+// glyph (time-sig or first note). ~0.7 staff space of breathing room
+// per Gould "every glyph needs breathing room."
+const KEY_SIG_TRAILING_PAD = 14;
+
+/**
+ * Total horizontal advance (px) for a key signature of `count`
+ * accidentals, measured from the caller's cursor to where the next
+ * glyph (time-sig or first note) should be placed.
+ *
+ * Geometry: ACCIDENTAL_LEAD positions the first glyph's center;
+ * each additional glyph adds ACCIDENTAL_SPACING; the last glyph's
+ * right edge sits ACCIDENTAL_HALF_WIDTH beyond its center; then a
+ * KEY_SIG_TRAILING_PAD of breathing room.
+ *
+ * @param {number} count
+ * @returns {number}
+ */
+export function keySignatureAdvance(count) {
+  if (count <= 0) return 0;
+  return (
+    ACCIDENTAL_LEAD +
+    (count - 1) * ACCIDENTAL_SPACING +
+    ACCIDENTAL_HALF_WIDTH +
+    KEY_SIG_TRAILING_PAD
+  );
+}
 
 /**
  * Create an SVG group representing a key signature.
