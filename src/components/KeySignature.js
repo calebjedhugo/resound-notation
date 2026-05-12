@@ -46,9 +46,13 @@ const ACCIDENTAL_LEAD = 10;
 // center sits at the last ACCIDENTAL_SPACING step), not just its center.
 const ACCIDENTAL_HALF_WIDTH = 10;
 // Trailing pad (px) after the last key-sig accidental before the next
-// glyph (time-sig or first note). ~0.7 staff space of breathing room
-// per Gould "every glyph needs breathing room."
-const KEY_SIG_TRAILING_PAD = 14;
+// glyph (time-sig or first note). The cursor advance lands at the next
+// glyph's CENTER, but downstream glyphs (noteheads especially) extend
+// ~12px to the left of that center, so a 14px pad collapses to ~2px of
+// visible gap. Use 32 = ~12 (notehead half-width) + 20 (≈1 staff space)
+// so the visible gap between the last accidental's right edge and the
+// next glyph's left edge is roughly one staff space.
+const KEY_SIG_TRAILING_PAD = 32;
 
 /**
  * Total horizontal advance (px) for a key signature of `count`
