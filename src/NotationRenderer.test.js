@@ -750,6 +750,44 @@ describe('NotationRenderer', () => {
       const accLeftEdge = accX - SHARP_HALF;
       expect(accLeftEdge - prevRightEdge).toBeGreaterThanOrEqual(MIN_GAP);
     });
+
+    // Per Gould "Behind Bars" pp. 80-85 ("Accidentals: when to use
+    // them"): an accidental is printed before a note only when the
+    // pitch differs from the key signature's default for that letter,
+    // or when restoring after a prior alteration in the measure. A
+    // pitch that already matches the key signature (e.g. F#5 in D
+    // major) draws as a plain notehead. Conversely, a pitch that
+    // contradicts the key signature (e.g. F-natural in D major) MUST
+    // show its accidental — here a natural — to override the key.
+    it('does not redraw an on-note accidental that matches the key signature, but renders a natural when the key signature would otherwise alter the letter', () => {
+      // D major has 2 sharps (F#, C#). F#5 should NOT add an on-note
+      // sharp; the only sharps in the SVG must be the two from the
+      // key signature.
+      ctx.render({
+        keySignature: 'D',
+        notes: [
+          { pitch: 'D5', length: '1/4' },
+          { pitch: 'F#5', length: '1/4' },
+        ],
+      });
+      const sharps = ctx.container.querySelectorAll('.accidental.sharp');
+      expect(sharps).toHaveLength(2); // both from the key signature
+      const naturals = ctx.container.querySelectorAll('.accidental.natural');
+      expect(naturals).toHaveLength(0);
+
+      // F-natural in D major MUST render a natural sign to override
+      // the key signature.
+      ctx.renderer.clear();
+      ctx.render({
+        keySignature: 'D',
+        notes: [
+          { pitch: 'D5', length: '1/4' },
+          { pitch: 'F5', length: '1/4' },
+        ],
+      });
+      const naturals2 = ctx.container.querySelectorAll('.accidental.natural');
+      expect(naturals2).toHaveLength(1);
+    });
   });
 
   describe('Level 2 input', () => {

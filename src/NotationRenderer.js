@@ -343,6 +343,31 @@ const ACCIDENTAL_TYPE_MAP = {
   b: 'flat',
 };
 
+/**
+ * Decide which accidental glyph (if any) to draw before a note, given
+ * the active key signature for the voice. Implements Gould "Behind
+ * Bars" pp. 80-85: an accidental is printed only when the pitch's
+ * alteration differs from what the key signature dictates for that
+ * letter. A pitch matching the key signature draws no accidental; a
+ * natural-letter pitch in a key that would otherwise alter it draws a
+ * natural sign to override the key.
+ *
+ * @param {string} pitchAccidental - "" | "#" | "b" from parsePitch
+ * @param {string} pitchLetter - "A".."G"
+ * @param {{ type: 'sharp'|'flat'|'none', accidentals: string[] }} keyInfo
+ * @returns {'sharp'|'flat'|'natural'|null}
+ */
+function accidentalGlyphForPitch(pitchAccidental, pitchLetter, keyInfo) {
+  const keyAltersLetter =
+    keyInfo && keyInfo.type !== 'none' && keyInfo.accidentals.includes(pitchLetter);
+  const keyAlteration = keyAltersLetter
+    ? (keyInfo.type === 'sharp' ? '#' : 'b')
+    : '';
+  if (pitchAccidental === keyAlteration) return null;
+  if (pitchAccidental === '') return 'natural';
+  return ACCIDENTAL_TYPE_MAP[pitchAccidental] || null;
+}
+
 export class NotationRenderer {
   /**
    * @param {Object} options
@@ -1580,9 +1605,10 @@ export class NotationRenderer {
             const chordAccOffset = chordBeamInfo && !chordBeamInfo.isFirst
               ? ACCIDENTAL_OFFSET_BEAMED_PRIOR
               : ACCIDENTAL_OFFSET;
+            const chordKeyInfo = getKeySignature(keySignature);
             for (let j = 0; j < chordNotes.length; j += 1) {
-              const { accidental } = parsePitch(chordNotes[j].pitch);
-              const accidentalType = ACCIDENTAL_TYPE_MAP[accidental];
+              const { accidental, noteName } = parsePitch(chordNotes[j].pitch);
+              const accidentalType = accidentalGlyphForPitch(accidental, noteName, chordKeyInfo);
               if (accidentalType) {
                 const accGroup = createAccidental(accidentalType);
                 accGroup.setAttribute(
@@ -1758,8 +1784,12 @@ export class NotationRenderer {
           // a beamed sibling — no clef/barline/rest buffer between the
           // two heads — so the visible gap reads tightest. Bump the
           // offset there to keep ~1.5 staff spaces of breathing room.
-          const { accidental } = parsePitch(element.pitch);
-          const accidentalType = ACCIDENTAL_TYPE_MAP[accidental];
+          const { accidental, noteName } = parsePitch(element.pitch);
+          const accidentalType = accidentalGlyphForPitch(
+            accidental,
+            noteName,
+            getKeySignature(keySignature)
+          );
           if (accidentalType) {
             const accOffset = isBeamed && !beamInfo.isFirst
               ? ACCIDENTAL_OFFSET_BEAMED_PRIOR
