@@ -2161,6 +2161,51 @@ describe('NotationRenderer', () => {
       expect(barLines).toHaveLength(2);
     });
 
+    // Polymetric layout: when voices declare DIFFERENT time signatures in
+    // the same system (e.g. 4/4 over 3/4 over 6/8), they still share the
+    // same horizontal "music starts here" gridline. The widest prelude
+    // (clef + key sig + time sig) determines the shared content-start X,
+    // and narrower voices simply get extra whitespace between their time
+    // sig and first note. Without this rule each voice's first note
+    // drifts to a different x (the bug this test pins).
+    it('aligns first notes across voices with different time signatures (polymetric)', () => {
+      ctx.render({
+        voices: [
+          {
+            id: 'v1',
+            clef: 'treble',
+            timeSignature: [4, 4],
+            notes: [{ pitch: 'G4', length: '1/4' }],
+          },
+          {
+            id: 'v2',
+            clef: 'treble',
+            timeSignature: [3, 4],
+            notes: [{ pitch: 'E4', length: '1/4' }],
+          },
+          {
+            id: 'v3',
+            clef: 'treble',
+            timeSignature: [6, 8],
+            notes: [{ pitch: 'C4', length: '1/8' }],
+          },
+        ],
+      });
+
+      const staves = ctx.container.querySelectorAll('.staff');
+      expect(staves).toHaveLength(3);
+
+      const firstNoteX = (staff) => {
+        const note = staff.querySelector('.note');
+        const m = /translate\(([-0-9.]+),/.exec(note.getAttribute('transform'));
+        return parseFloat(m[1]);
+      };
+      const xs = Array.from(staves).map(firstNoteX);
+      const [a, b, c] = xs;
+      expect(Math.abs(b - a)).toBeLessThanOrEqual(1);
+      expect(Math.abs(c - a)).toBeLessThanOrEqual(1);
+    });
+
     it('renders chords in a multi-voice context', () => {
       ctx.render({
         voices: [
