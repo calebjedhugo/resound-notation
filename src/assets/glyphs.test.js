@@ -17,9 +17,16 @@ describe('OTTAVA_GLYPHS', () => {
     },
   );
 
-  test('ottavaBassaVb is wider than ottavaAlta (it has the extra "vb")', () => {
+  test('both ottava glyphs are composed (wider than the bare "8" digit)', () => {
+    // The bare SMuFL ottava digit (U+E510) is ~386 font-units wide. The
+    // composed "8va" (U+E511) and "8vb" (U+E51C) glyphs add letter
+    // outlines and should be substantially wider — pin that we're using
+    // the composed glyphs, not the bare digit (regression catch for the
+    // earlier ottavaAlta data which was U+E510 misnamed).
+    const BARE_8_WIDTH = 386;
     const a = OTTAVA_GLYPHS.ottavaAlta.bbox;
     const b = OTTAVA_GLYPHS.ottavaBassaVb.bbox;
-    expect(b.xMax - b.xMin).toBeGreaterThan(a.xMax - a.xMin);
+    expect(a.xMax - a.xMin).toBeGreaterThan(BARE_8_WIDTH * 1.5);
+    expect(b.xMax - b.xMin).toBeGreaterThan(BARE_8_WIDTH * 1.5);
   });
 });

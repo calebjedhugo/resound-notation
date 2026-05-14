@@ -2699,6 +2699,33 @@ describe('NotationRenderer', () => {
       expect(line.getAttribute('stroke-dasharray')).toBeTruthy();
     });
 
+    // Gould "Behind Bars" (Octave displacement, p. 75): the marking reads
+    // "8va" / "8vb" — the modifier letters are part of the glyph, not an
+    // optional decoration. SMuFL ottavaAlta (U+E511) ships the composed
+    // "8va" glyph already; rendering only the bare ottava digit (U+E510)
+    // is wrong. Pin that the rendered glyph's path data contains the
+    // multi-subpath signature of a composed "8va" — the bare-8 glyph has
+    // exactly 3 M-subpaths (outer 8 + two counters), the composed "8va"
+    // adds the v and a outlines for 6+ subpaths total.
+    it('8va glyph renders the composed "8va" letters, not the bare ottava digit', () => {
+      ctx.render([
+        { pitch: 'G6', length: '1/4' },
+        { pitch: 'A6', length: '1/4' },
+        { pitch: 'B6', length: '1/4' },
+        { pitch: 'C7', length: '1/4' },
+      ]);
+      const glyph = ctx.container.querySelector(
+        '.ottava-bracket.ottava-8va .ottava-glyph'
+      );
+      expect(glyph).not.toBeNull();
+      const path = glyph.querySelector('path');
+      expect(path).not.toBeNull();
+      const d = path.getAttribute('d') || '';
+      const subpathCount = (d.match(/M/g) || []).length;
+      // Bare "8" = 3 subpaths. Composed "8va" should have 6+.
+      expect(subpathCount).toBeGreaterThanOrEqual(6);
+    });
+
     it('shifts a G6+ run\'s noteheads down by one octave (matching G5/A5/B5/C6 Y)', () => {
       ctx.render([
         { pitch: 'G6', length: '1/4' },

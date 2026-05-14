@@ -10,11 +10,12 @@
  */
 
 import { createSvgElement, createGroup, createLine } from '../lib/svgHelpers.js';
-import { createSmuflGlyph, OTTAVA_GLYPHS } from '../assets/glyphs.js';
+import { createSmuflGlyph, OTTAVA_GLYPHS, SMUFL_SCALE } from '../assets/glyphs.js';
 
 const DASH_PATTERN = '4 3';
 const LINE_TAIL = 10; // px past last-note X
 const HOOK_LENGTH = 6; // px
+const LINE_GAP = 3;   // px between glyph right edge and dashed line start
 
 export function createOttavaBracket({ kind, startX, endX, y }) {
   const group = createGroup(`ottava-bracket ottava-${kind}`);
@@ -24,8 +25,11 @@ export function createOttavaBracket({ kind, startX, endX, y }) {
   glyphGroup.setAttribute('transform', `translate(${startX}, ${y})`);
   group.appendChild(glyphGroup);
 
-  // Dashed continuation from past the glyph to endX + LINE_TAIL
-  const lineStart = startX + 12; // clear of the glyph
+  // Dashed continuation starts just past the composed "8va"/"8vb" glyph's
+  // right edge. createSmuflGlyph centers the bbox on local x=0, so the
+  // glyph spans ±(bboxWidth/2) * SMUFL_SCALE around startX.
+  const glyphHalfWidth = ((glyph.bbox.xMax - glyph.bbox.xMin) / 2) * SMUFL_SCALE;
+  const lineStart = startX + glyphHalfWidth + LINE_GAP;
   const lineEnd = endX + LINE_TAIL;
   const line = createLine(lineStart, y, lineEnd, y, {
     class: 'ottava-line',
