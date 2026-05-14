@@ -15,11 +15,14 @@ const HALF_HEIGHT = HAIRPIN_HEIGHT / 2;
  * @param {string} params.type - "crescendo" or "decrescendo"
  * @param {number} params.startX - Start horizontal position
  * @param {number} params.endX - End horizontal position
- * @param {number} params.y - Vertical center position
+ * @param {number} params.y - Vertical CENTER of the wedge (aligned with the
+ *   adjacent dynamic letter's visual centerline per Gould "Behind Bars").
  * @returns {SVGGElement}
  */
 export function renderHairpin({ type, startX, endX, y }) {
   const width = endX - startX;
+  // Translate so the wedge's vertical center sits at y; local y runs
+  // from -HALF_HEIGHT (top) to +HALF_HEIGHT (bottom).
   const group = createGroup(`hairpin hairpin-${type}`, {
     transform: `translate(${startX}, ${y})`,
   });
@@ -28,13 +31,13 @@ export function renderHairpin({ type, startX, endX, y }) {
   let d2;
 
   if (type === 'crescendo') {
-    // < shape: vertex on left, opens to right
-    d1 = `M 0,${HALF_HEIGHT} L ${width},0`;
-    d2 = `M 0,${HALF_HEIGHT} L ${width},${HAIRPIN_HEIGHT}`;
+    // < shape: vertex on left at center y, opens to right.
+    d1 = `M 0,0 L ${width},${-HALF_HEIGHT}`;
+    d2 = `M 0,0 L ${width},${HALF_HEIGHT}`;
   } else {
-    // > shape: opens on left, vertex on right
-    d1 = `M 0,0 L ${width},${HALF_HEIGHT}`;
-    d2 = `M 0,${HAIRPIN_HEIGHT} L ${width},${HALF_HEIGHT}`;
+    // > shape: opens on left, vertex on right at center y.
+    d1 = `M 0,${-HALF_HEIGHT} L ${width},0`;
+    d2 = `M 0,${HALF_HEIGHT} L ${width},0`;
   }
 
   group.appendChild(

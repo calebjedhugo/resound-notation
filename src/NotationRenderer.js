@@ -37,7 +37,11 @@ import {
 } from './components/Beam.js';
 import { resolveTies } from './lib/tieResolver.js';
 import { createTieArc } from './components/Tie.js';
-import { renderDynamic } from './components/Dynamic.js';
+import {
+  renderDynamic,
+  dynamicLeftVisualOffset,
+  dynamicCenterYOffset,
+} from './components/Dynamic.js';
 import { renderHairpin } from './components/Hairpin.js';
 import { renderArticulations } from './components/Articulation.js';
 import { resolveSlurs } from './lib/slurGrouping.js';
@@ -2054,9 +2058,15 @@ export class NotationRenderer {
         staffGroup.appendChild(slursGroup);
       }
 
-      // Dynamics rendering pass
+      // Dynamics rendering pass.
+      // Per Gould "Behind Bars" (Hairpins): the wedge's vertical center
+      // aligns with the dynamic letter's visual centerline (so dynamics
+      // and hairpins read as a single horizontal line of music-direction
+      // marks), and the wedge tip clears the adjacent dynamic letter by
+      // ≥0.5 staff space.
       if (pendingDynamics.length > 0 || completedHairpins.length > 0) {
         const dynamicsGroup = createGroup('dynamics-layer');
+        const HAIRPIN_DYNAMIC_GAP = 10; // ≥0.5 staff space @ LINE_SPACING=20.
 
         for (const pd of pendingDynamics) {
           if (pd.x !== undefined) {
@@ -2067,11 +2077,48 @@ export class NotationRenderer {
         }
 
         for (const hp of completedHairpins) {
-          const startX = hp.startX !== undefined ? hp.startX : hp.endX;
-          const endX = hp.endX !== undefined ? hp.endX : hp.startX;
+          let startX = hp.startX !== undefined ? hp.startX : hp.endX;
+          let endX = hp.endX !== undefined ? hp.endX : hp.startX;
           if (startX !== undefined && endX !== undefined) {
+            // If the closing tip lands on the x of a pending dynamic on the
+            // same beat, pull it back past the letter's left visual edge
+            // with a 0.5-space gap. (Likewise for the opening side if it
+            // collides with a preceding dynamic on the same beat.)
+            for (const pd of pendingDynamics) {
+              if (pd.x === undefined) continue;
+              if (Math.abs(pd.x - endX) < 0.5) {
+                const leftOffset = dynamicLeftVisualOffset(pd.dynamic);
+                endX = pd.x + leftOffset - HAIRPIN_DYNAMIC_GAP;
+              }
+              if (Math.abs(pd.x - startX) < 0.5) {
+                // Approximate right visual edge ≈ -leftOffset (letters are
+                // ~symmetric about anchor; advance is xMax*scale on right,
+                // descender extends xMin*scale on left).
+                const rightOffset = -dynamicLeftVisualOffset(pd.dynamic);
+                startX = pd.x + rightOffset + HAIRPIN_DYNAMIC_GAP;
+              }
+            }
+            // Anchor wedge center to the dynamic letter's visual center.
+            // Use the closing dynamic if present; else the opening one;
+            // else fall back to the average letter center offset (~-5px).
+            let centerYOffset = -5;
+            for (const pd of pendingDynamics) {
+              if (pd.x === undefined) continue;
+              if (
+                Math.abs(pd.x - (hp.endX !== undefined ? hp.endX : hp.startX)) <
+                0.5
+              ) {
+                centerYOffset = dynamicCenterYOffset(pd.dynamic);
+                break;
+              }
+            }
             dynamicsGroup.appendChild(
-              renderHairpin({ type: hp.type, startX, endX, y: DYNAMICS_Y })
+              renderHairpin({
+                type: hp.type,
+                startX,
+                endX,
+                y: DYNAMICS_Y + centerYOffset,
+              })
             );
           }
         }

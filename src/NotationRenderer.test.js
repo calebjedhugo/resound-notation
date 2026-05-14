@@ -2632,6 +2632,100 @@ describe('NotationRenderer', () => {
     });
   });
 
+  // Hairpin-to-dynamic clearance: Gould "Behind Bars" (Hairpins) requires
+  // (A) ≥0.5 staff space (≥10px at LINE_SPACING=20) of horizontal clearance
+  // between the hairpin tip and the adjacent dynamic letter, and (B) the
+  // hairpin's vertical center aligned with the dynamic letter's visual
+  // center so the two marks read as one horizontal line of music-direction.
+  // Before this fix the closing tip of a decrescendo landed at the same x
+  // as the target dynamic (so it ran into the letter's left descender) and
+  // its vertical center was anchored to the dynamic baseline rather than
+  // the letter's visual centerline (~5px above baseline).
+  describe('hairpin clearance and alignment with target dynamic', () => {
+    function parseTranslate(group) {
+      const t = group.getAttribute('transform') || '';
+      const m = /translate\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/.exec(t);
+      return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : null;
+    }
+
+    function parsePath(d) {
+      // Hairpin lines are "M x1,y1 L x2,y2" in the hairpin's local frame.
+      const m = /M\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s+L\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/.exec(
+        d
+      );
+      if (!m) return null;
+      return {
+        x1: parseFloat(m[1]),
+        y1: parseFloat(m[2]),
+        x2: parseFloat(m[3]),
+        y2: parseFloat(m[4]),
+      };
+    }
+
+    it('keeps decrescendo tip ≥0.5 staff space from "p" and centers it on the letter', () => {
+      ctx.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { dynamic: 'ff' },
+          { pitch: 'G5', length: '1/4' },
+          { hairpin: 'decrescendo', start: true },
+          { pitch: 'F5', length: '1/4' },
+          { pitch: 'E5', length: '1/4' },
+          { pitch: 'D5', length: '1/4' },
+          { hairpin: 'decrescendo', stop: true },
+          { dynamic: 'p' },
+          { pitch: 'C5', length: '1/2' },
+        ],
+      });
+
+      // Hairpin: two diverging lines under one .hairpin group.
+      const hairpinGroup = ctx.container.querySelector('.hairpin-decrescendo');
+      expect(hairpinGroup).not.toBeNull();
+      const hpT = parseTranslate(hairpinGroup);
+      expect(hpT).not.toBeNull();
+      const lines = hairpinGroup.querySelectorAll('.hairpin-line');
+      expect(lines.length).toBe(2);
+      const seg1 = parsePath(lines[0].getAttribute('d'));
+      const seg2 = parsePath(lines[1].getAttribute('d'));
+      // Right (closing) endpoints — same x for both lines.
+      const hpRightXLocal = Math.max(seg1.x2, seg2.x2);
+      const hpRightX = hpT.x + hpRightXLocal;
+      // The two right-side y values bracket the closing tip; centerY is
+      // their midpoint.
+      const yRight1 =
+        seg1.x2 === hpRightXLocal ? seg1.y2 : seg1.y1;
+      const yRight2 =
+        seg2.x2 === hpRightXLocal ? seg2.y2 : seg2.y1;
+      const hpCenterY = hpT.y + (yRight1 + yRight2) / 2;
+
+      // Target dynamic "p".
+      const pDynamic = ctx.container.querySelector(
+        '.dynamic[data-dynamic="p"]'
+      );
+      expect(pDynamic).not.toBeNull();
+      const dynT = parseTranslate(pDynamic);
+      expect(dynT).not.toBeNull();
+      // "p" glyph bbox (font units): xMin=-89, xMax=366, yMin=-142, yMax=274.
+      // cx = (xMin+xMax)/2 = 138.5. SMUFL_SCALE = 0.08.
+      // Letter local x extents = (xMin - cx, xMax - cx) * 0.08 → (-18.2, 18.2).
+      // Single-letter renderDynamic places the glyph at local x=0, so the
+      // letter's left visual edge in absolute coords = dynT.x - 18.2.
+      const pLeftX = dynT.x + (-89 - 138.5) * 0.08;
+      // Visual vertical center: baseline at dynT.y; top at dynT.y - 274*0.08,
+      // bottom at dynT.y + 142*0.08; center = dynT.y + (-274 + -142)/2 * -0.08
+      //                                     = dynT.y - 5.28 (above baseline).
+      const pTopVisual = dynT.y - 274 * 0.08;
+      const pBottomVisual = dynT.y - -142 * 0.08;
+      const pCenterY = (pTopVisual + pBottomVisual) / 2; // dynT.y - 5.28
+
+      // (A) horizontal clearance ≥10px (0.5 staff space).
+      expect(pLeftX - hpRightX).toBeGreaterThanOrEqual(10);
+      // (B) vertical centers within 3px.
+      expect(Math.abs(hpCenterY - pCenterY)).toBeLessThanOrEqual(3);
+    });
+  });
+
   // Repeat-barline clearance: Gould "Behind Bars" (Repeats) says the dots
   // of a repeat barline sit on the inside of the heavy stroke and need
   // ≥0.5 staff space (≥10px at LINE_SPACING=20) of clearance between the
