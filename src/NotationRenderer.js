@@ -199,7 +199,16 @@ const BLACK_TIP = smuflTip(NOTEHEAD_BLACK_GLYPH);
 const HEAD_TIP_X = BLACK_TIP.x;
 const HEAD_TIP_Y = BLACK_TIP.y;
 const STEM_LENGTH = 70;
-const DYNAMICS_Y = 110;
+// Per Gould "Behind Bars" (Dynamics): point dynamics below the staff
+// sit ≥1.5 staff spaces clear of the bottom staff line — measured from
+// the TOP of the letter glyph. Bravura's tallest dynamic letter here
+// is 'f' with bbox.yMax = 444 fu × SMUFL_SCALE (0.08) = 35.5px above
+// the glyph origin (after the inner y-flip). Staff bottom on a single
+// staff sits at y = STAFF_TOP_OFFSET + STAFF_HEIGHT = 10 + 80 = 90.
+// To clear the 'f'-hood by ≥30px: 90 + 30 + 35.5 = 155.5 → 160 buys
+// a small safety margin. Previously 110, which put the 'p' top
+// (origin - 21.9) at y≈88 — virtually ON the bottom staff line.
+const DYNAMICS_Y = 160;
 const STAFF_CENTER_Y = STAFF_TOP_OFFSET + 40; // midpoint of 5-line staff
 
 /**

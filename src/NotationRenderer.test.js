@@ -4490,4 +4490,51 @@ describe('NotationRenderer', () => {
       expect(dy).toBeLessThanOrEqual(12);
     });
   });
+
+  // Dynamic-letter clearance from the staff. Per Gould "Behind Bars"
+  // (Dynamics), point dynamics below the staff sit clear of the bottom
+  // staff line — the convention is ≥1.5 staff spaces (30px at
+  // LINE_SPACING=20) between the bottom staff line and the TOP of the
+  // dynamic letters. Earlier passes placed the dynamic origin at y=110,
+  // which put a 'p' (Bravura yMax=274 fu × 0.08 = 21.9px above origin)
+  // top above the staff bottom (y=90) — letters virtually touched the
+  // bottom line.
+  describe('dynamic letter clearance below staff (Gould Dynamics)', () => {
+    it('places "pp" so the letter tops sit ≥1.5 staff spaces below the staff bottom', () => {
+      ctx.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'G5', length: '1/4', dynamic: 'pp' },
+          { pitch: 'G5', length: '1/4' },
+          { pitch: 'G5', length: '1/4' },
+          { pitch: 'G5', length: '1/4' },
+        ],
+      });
+
+      const dyn = ctx.container.querySelector('.dynamic');
+      expect(dyn).not.toBeNull();
+
+      // Pull translate-y from the .dynamic group transform.
+      const t = dyn.getAttribute('transform');
+      const match = t.match(/translate\(\s*[^,]+,\s*([^)]+)\)/);
+      expect(match).not.toBeNull();
+      const groupY = parseFloat(match[1]);
+
+      // Bravura 'p' glyph: bbox.yMax = 274 fu, SMUFL_SCALE = 0.08
+      // → letter top sits 274*0.08 = 21.92px above the group origin
+      // (the scale(x,-y) inner transform flips y).
+      const PP_YMAX_FU = 274;
+      const SMUFL_SCALE = 0.08;
+      const letterTopY = groupY - PP_YMAX_FU * SMUFL_SCALE;
+
+      // Single-staff geometry: STAFF_TOP_OFFSET=10, STAFF_HEIGHT=80
+      // → bottom line y = 90.
+      const STAFF_BOTTOM_Y = 90;
+      const clearance = letterTopY - STAFF_BOTTOM_Y;
+
+      // Gould: ≥1.5 staff spaces between staff bottom and dynamic top.
+      expect(clearance).toBeGreaterThanOrEqual(30);
+    });
+  });
 });
