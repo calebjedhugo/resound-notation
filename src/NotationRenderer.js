@@ -46,6 +46,10 @@ import { getTupletNoteDuration } from './lib/tuplets.js';
 import { renderTupletBracket } from './components/TupletBracket.js';
 import { renderGraceNotes, GRACE_LEAD_IN_PAD, GRACE_SPACING } from './components/GraceNote.js';
 import { renderRepeatBarline } from './components/RepeatBarline.js';
+import {
+  REPEAT_BARLINE_DOT_EDGE_OFFSET,
+  REPEAT_BARLINE_INNER_PAD,
+} from './lib/engravingDefaults.js';
 import { renderEnding } from './components/Ending.js';
 import { renderNavigationMarker } from './components/NavigationMarker.js';
 import { renderTempoMarking, renderTempoChange } from './components/TempoMarking.js';
@@ -1452,9 +1456,35 @@ export class NotationRenderer {
           continue;
         }
         if (markerType === 'barline') {
-          cursorX += BAR_LINE_PADDING;
-          staffGroup.appendChild(renderRepeatBarline({ type: element.barline, x: cursorX }));
-          cursorX += element.barline === 'repeat-both' ? 20 : 15;
+          // Repeat-barlines carry dots on their INSIDE — the side facing the
+          // music. Gould "Behind Bars" (Repeats) calls for ≥0.5 staff space
+          // of clearance between those dots and any adjacent notehead. The
+          // dot's visible edge sits REPEAT_BARLINE_DOT_EDGE_OFFSET past the
+          // group's transform x; the cursor advance must clear the dot edge
+          // *and* leave REPEAT_BARLINE_INNER_PAD beyond it before the next
+          // note lands.
+          const type = element.barline;
+          const innerAdvance =
+            REPEAT_BARLINE_DOT_EDGE_OFFSET + REPEAT_BARLINE_INNER_PAD; // 25.5
+          // Pre-pad: a repeat-end (or repeat-both) needs the inner-pad on
+          // its left so the closing note of the previous measure clears the
+          // dots. BAR_LINE_PADDING (30) is wider than 25.5 so this only
+          // matters when the previous element abuts unusually close, but
+          // we explicitly take max() to keep the geometry honest.
+          const prePad =
+            type === 'repeat-end' || type === 'repeat-both'
+              ? Math.max(BAR_LINE_PADDING, innerAdvance)
+              : BAR_LINE_PADDING;
+          cursorX += prePad;
+          staffGroup.appendChild(renderRepeatBarline({ type, x: cursorX }));
+          // Post-advance: a repeat-start or repeat-both has dots on the
+          // right and needs the inner-pad advance; a repeat-end has only
+          // the thick stroke on the right, so the standard pad suffices.
+          if (type === 'repeat-start' || type === 'repeat-both') {
+            cursorX += innerAdvance;
+          } else {
+            cursorX += 15;
+          }
           // eslint-disable-next-line no-continue
           continue;
         }

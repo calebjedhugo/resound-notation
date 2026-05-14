@@ -2587,6 +2587,103 @@ describe('NotationRenderer', () => {
     });
   });
 
+  // Repeat-barline clearance: Gould "Behind Bars" (Repeats) says the dots
+  // of a repeat barline sit on the inside of the heavy stroke and need
+  // ≥0.5 staff space (≥10px at LINE_SPACING=20) of clearance between the
+  // dots and the adjacent notehead. A start-repeat at the head of a
+  // measure had its dots butted directly against the first note's head;
+  // an end-repeat closing the first volta collided with the second
+  // volta's "2." label and its first note. Both come from the same hole
+  // in the layout: the repeat barline advances the cursor by a few px
+  // *less* than the dot+thick-stroke geometry actually occupies.
+  describe('repeat-barline clearance from adjacent notes and volta labels', () => {
+    function transformX(group) {
+      const t = group.getAttribute('transform') || '';
+      const m = /translate\(\s*(-?\d+(?:\.\d+)?)/.exec(t);
+      return m ? parseFloat(m[1]) : NaN;
+    }
+
+    it('keeps repeat-barline dots ≥0.5 staff space from notes, and volta-2 clear of the end-repeat', () => {
+      ctx.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { barline: 'repeat-start' },
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'D5', length: '1/4' },
+          { pitch: 'E5', length: '1/4' },
+          { pitch: 'F5', length: '1/4' },
+          { ending: { number: 1, type: 'start' } },
+          { pitch: 'G5', length: '1/2' },
+          { pitch: 'F5', length: '1/2' },
+          { ending: { number: 1, type: 'stop' } },
+          { barline: 'repeat-end' },
+          { ending: { number: 2, type: 'start' } },
+          { pitch: 'A5', length: '1/2' },
+          { pitch: 'G5', length: '1/2' },
+          { barline: 'final' },
+        ],
+      });
+
+      // Geometry constants from RepeatBarline.js — the dot center sits at
+      // ±(LINE_GAP + DOT_GAP) from the heavy stroke's x, and the dot
+      // radius (2.5) extends the visible edge another 2.5px outward.
+      const LINE_GAP = 8; // BARLINE_SEPARATION
+      const DOT_GAP = 5;
+      const DOT_RADIUS = 2.5;
+      const DOT_EDGE_OFFSET = LINE_GAP + DOT_GAP + DOT_RADIUS; // 15.5
+      const MIN_CLEARANCE = 10; // 0.5 staff space at LINE_SPACING=20
+
+      const startRepeat = ctx.container.querySelector('.barline-repeat-start');
+      const endRepeat = ctx.container.querySelector('.barline-repeat-end');
+      expect(startRepeat).not.toBeNull();
+      expect(endRepeat).not.toBeNull();
+
+      const startRepeatX = transformX(startRepeat);
+      const endRepeatX = transformX(endRepeat);
+
+      // Collect all note groups in DOM order, with their absolute x.
+      const noteGroups = Array.from(
+        ctx.container.querySelectorAll('g.note')
+      ).map((g) => ({ el: g, x: transformX(g) }));
+      expect(noteGroups.length).toBeGreaterThanOrEqual(8);
+
+      // (A) First note after start-repeat: the C5 — first note whose x
+      // exceeds the start-repeat's dot right edge.
+      const startDotRightX = startRepeatX + DOT_EDGE_OFFSET;
+      const firstNoteAfterStart = noteGroups.find((n) => n.x > startRepeatX);
+      expect(firstNoteAfterStart).toBeDefined();
+      expect(firstNoteAfterStart.x - startDotRightX).toBeGreaterThanOrEqual(
+        MIN_CLEARANCE
+      );
+
+      // (B) Last note before end-repeat: the volta-1 closing note.
+      //     First note after end-repeat: the volta-2 opening note.
+      const endDotLeftX = endRepeatX - DOT_EDGE_OFFSET;
+      const endDotRightX = endRepeatX + LINE_GAP / 2; // outer edge of thick stroke
+      const noteBeforeEnd = [...noteGroups]
+        .reverse()
+        .find((n) => n.x < endRepeatX);
+      const noteAfterEnd = noteGroups.find((n) => n.x > endRepeatX);
+      expect(noteBeforeEnd).toBeDefined();
+      expect(noteAfterEnd).toBeDefined();
+      expect(endDotLeftX - noteBeforeEnd.x).toBeGreaterThanOrEqual(
+        MIN_CLEARANCE
+      );
+      expect(noteAfterEnd.x - endDotRightX).toBeGreaterThanOrEqual(
+        MIN_CLEARANCE
+      );
+
+      // (B cont.) Volta-2 label must not overlap the end-repeat barline.
+      // The "2." text sits at startX + 5 (TEXT_OFFSET_X in Ending.js).
+      const volta2 = ctx.container.querySelector('.ending-2');
+      expect(volta2).not.toBeNull();
+      const volta2Text = volta2.querySelector('.ending-number');
+      const volta2LabelX = parseFloat(volta2Text.getAttribute('x'));
+      expect(volta2LabelX).toBeGreaterThan(endDotRightX);
+    });
+  });
+
   describe('tuplet number / beam clearance', () => {
     // Helper: parse the max Y coordinate present in an SVG path's `d`
     // attribute (treating each pair as x,y after the M/L command letter).

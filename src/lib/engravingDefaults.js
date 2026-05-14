@@ -50,3 +50,16 @@ export const SLUR_MIDPOINT_THICKNESS = 0.22 * LINE_SPACING; // 4.4
 // tieMidpointThickness = 0.22 spaces — Bravura assigns ties the same
 // midpoint weight as slurs. Same closed-shape / apex-0.75× rule.
 export const TIE_MIDPOINT_THICKNESS = 0.22 * LINE_SPACING; // 4.4
+
+// Repeat-barline dot edge offset from the heavy stroke's x — derived
+// from RepeatBarline.js geometry: barlineSeparation (8) + dot gap (5) +
+// dot radius (2.5). The dots sit on the INSIDE of the barline, so this
+// is the visible extent past the group's transform x toward the music.
+export const REPEAT_BARLINE_DOT_EDGE_OFFSET =
+  BARLINE_SEPARATION + 5 + 2.5; // 15.5
+
+// Gould "Behind Bars" (Repeats): repeat-barline dots need ≥0.5 staff
+// space of clearance from any adjacent notehead. Adding this past the
+// dot's right edge (start-repeat) / before the dot's left edge
+// (end-repeat) prevents the dots butting against the next note.
+export const REPEAT_BARLINE_INNER_PAD = 0.5 * LINE_SPACING; // 10
