@@ -426,6 +426,20 @@ describe('NotationRenderer', () => {
         expect(stroke).not.toBe('none');
       }
     });
+
+    // Per Bravura/SMuFL engravingDefaults.staffLineThickness = 0.13 staff
+    // spaces (Gould "Behind Bars", Staff). At LINE_SPACING=20 that's 2.6px.
+    // Without an explicit stroke-width staff lines inherit SVG's 1px
+    // default and read as anemic next to the now-Bravura-weighted stems
+    // (2.4), ledger lines (3.2), and barlines (3.2/10).
+    it('renders staff lines at Bravura staffLineThickness (0.13 spaces = 2.6px)', () => {
+      ctx.render([{ pitch: 'C4', length: '1/4' }]);
+      const lines = ctx.container.querySelectorAll('.staff-line');
+      expect(lines.length).toBeGreaterThan(0);
+      for (const line of lines) {
+        expect(parseFloat(line.getAttribute('stroke-width'))).toBeCloseTo(2.6, 5);
+      }
+    });
   });
 
   describe('staff groups', () => {

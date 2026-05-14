@@ -4,7 +4,7 @@
  */
 
 import { createGroup, createLine } from '../lib/svgHelpers.js';
-import { THIN_BARLINE_THICKNESS } from '../lib/engravingDefaults.js';
+import { STAFF_LINE_THICKNESS, THIN_BARLINE_THICKNESS } from '../lib/engravingDefaults.js';
 
 const LINE_COUNT = 5;
 const LINE_SPACING = 20;
@@ -20,7 +20,14 @@ export function createStaffLines(width) {
 
   for (let i = 0; i < LINE_COUNT; i++) {
     const y = i * LINE_SPACING;
-    group.appendChild(createLine(0, y, width, y, { class: 'staff-line', stroke: 'currentColor' }));
+    group.appendChild(
+      createLine(0, y, width, y, {
+        class: 'staff-line',
+        stroke: 'currentColor',
+        // Bravura engravingDefaults.staffLineThickness = 0.13 spaces = 2.6px.
+        'stroke-width': STAFF_LINE_THICKNESS,
+      })
+    );
   }
 
   // System-start (initial) barline: thin vertical at x=0 spanning the

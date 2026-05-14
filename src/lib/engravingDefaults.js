@@ -9,6 +9,12 @@
 // Staff space → pixels.
 export const LINE_SPACING = 20;
 
+// staffLineThickness = 0.13 spaces — the five horizontal lines of the
+// staff. Without an explicit thickness, SVG defaults to 1px and the
+// staff lines read as anemic next to the Bravura-weighted stems (2.4),
+// ledger lines (3.2), and barlines (3.2/10).
+export const STAFF_LINE_THICKNESS = 0.13 * LINE_SPACING; // 2.6
+
 // thinBarlineThickness = 0.16 spaces — regular barlines, system-start
 // barlines, and the thin stroke of final/repeat barlines. Without an
 // explicit thickness, SVG defaults to 1px which blends into the staff lines.
