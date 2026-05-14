@@ -183,9 +183,21 @@ const ACCIDENTAL_OFFSET = 30;
 // minimum (~1/4 staff space). Pulling the accidental ~6px closer to
 // its own head buys ~6px of breathing room from the prior head.
 const ACCIDENTAL_OFFSET_BEAMED_PRIOR = ACCIDENTAL_OFFSET - 6;
-// Trailing padding (px) after the time-sig glyph before the first note —
-// ~1 staff space of clearance so the digits don't crowd the music.
-const TIME_SIG_PADDING = 25;
+// Trailing padding (px) after the time-sig glyph before the first note.
+// Three terms add up here:
+//   ~19 — overshoot. createTimeSignature returns width = digit bbox
+//         (xMax - xMin) in px and the digits center on that cursor
+//         extent, but each digit's visible content extends past the
+//         cursor's right edge by ~xMin*scale + half the (xMax+xMin)
+//         skew (≈18–19 px for Bravura time-sig digits at scale 0.08).
+//   ~12 — notehead half-width. The cursor advance lands at the first
+//         note's CENTER (HEAD_TIP_X ≈ 11.8 px).
+//    20 — ≥1 staff space of clear visual gap (Gould "Behind Bars",
+//         Spacing — prelude→first-note minimum).
+// Was 25, which left a visible gap of only ~1 px — the digit's right
+// scroll sat almost ON the first notehead. Mirror of
+// KEY_SIG_TRAILING_PAD on the right side of the prelude.
+const TIME_SIG_PADDING = 51;
 // Padding (px) before and after each barline. The cursor advance lands
 // at the next/previous note's CENTER, but stems sit ~10px to one side of
 // the head (HEAD_TIP_X for stem-up on the right; -HEAD_TIP_X for stem-down

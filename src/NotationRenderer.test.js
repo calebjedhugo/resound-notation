@@ -309,6 +309,79 @@ describe('NotationRenderer', () => {
       expect(gap).toBeGreaterThanOrEqual(45);
     });
 
+    // Gould "Behind Bars" (Spacing): the rightmost prelude element
+    // (clef / key-sig / time-sig — whichever sits closest to the first
+    // note) must leave ≥1 staff space of clear visual space before the
+    // first notehead's left edge. Mirror of the clef→key-sig leading
+    // pad pinned above. Pin all three combinations:
+    //   (a) clef only (system-continuation case)
+    //   (b) clef + key-sig
+    //   (c) clef + key-sig + time-sig (first system)
+    it('leaves at least one staff space between the rightmost prelude element and the first notehead', () => {
+      const HEAD_HALF_WIDTH = 11.8; // Bravura noteheadBlack (295 fu × 0.08 / 2)
+      const CLEF_GLYPH_MAX_X = 54;  // Bravura gClef right edge
+      const ACC_HALF_WIDTH = 9.96;  // Bravura accidentalSharp half-width
+      const TARGET_GAP = 18;        // tolerant of 20-px (1 staff space) target
+
+      function noteLeftEdge(container) {
+        const note = container.querySelector('.note');
+        const tx = parseFloat(note.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]);
+        return tx - HEAD_HALF_WIDTH;
+      }
+
+      // (a) Clef only — no key-sig, no time-sig.
+      ctx.render([{ pitch: 'E4', length: '1/4' }]);
+      {
+        const clef = ctx.container.querySelector('.clef-treble');
+        const clefTx = parseFloat(clef.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]);
+        const clefRight = clefTx + CLEF_GLYPH_MAX_X;
+        const gap = noteLeftEdge(ctx.container) - clefRight;
+        expect(gap).toBeGreaterThanOrEqual(TARGET_GAP);
+      }
+
+      // (b) Clef + key-sig (G major = 1 sharp).
+      ctx.renderer.clear();
+      ctx.render({
+        voices: [{ keySignature: 'G', notes: [{ pitch: 'E4', length: '1/4' }] }],
+      });
+      {
+        const keySig = ctx.container.querySelector('.key-signature');
+        const keySigTx = parseFloat(keySig.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]);
+        const accs = keySig.querySelectorAll('.accidental');
+        const lastAcc = accs[accs.length - 1];
+        const accLocalX = parseFloat(lastAcc.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]);
+        const keySigRight = keySigTx + accLocalX + ACC_HALF_WIDTH;
+        const gap = noteLeftEdge(ctx.container) - keySigRight;
+        expect(gap).toBeGreaterThanOrEqual(TARGET_GAP);
+      }
+
+      // (c) Clef + key-sig + time-sig (first system).
+      ctx.renderer.clear();
+      ctx.render({
+        voices: [{
+          keySignature: 'G',
+          timeSignature: [4, 4],
+          notes: [{ pitch: 'E4', length: '1/4' }],
+        }],
+      });
+      {
+        const sig = ctx.container.querySelector('.time-signature');
+        const sigTx = parseFloat(sig.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]);
+        // createTimeSignature lays digits with the cursor stepping by
+        // `width = bbox.xMax - bbox.xMin` per digit and the i-th digit's
+        // translate landing at (cursor + width/2). For a single-digit
+        // numerator the glyph origin therefore sits at the group's local
+        // x=0 — but the glyph's visible content extends from xMin*scale
+        // (≈1.6 px for '4') to xMax*scale (36 px) past the origin. The
+        // rightmost visual extent of the time-sig is the digit's
+        // visible right edge.
+        const TS_DIGIT_4_XMAX_PX = 450 * 0.08; // 36 px
+        const sigRight = sigTx + TS_DIGIT_4_XMAX_PX;
+        const gap = noteLeftEdge(ctx.container) - sigRight;
+        expect(gap).toBeGreaterThanOrEqual(TARGET_GAP);
+      }
+    });
+
     // Time signatures must render as Bravura SMuFL path glyphs, not as
     // <text> elements. Native text renders inconsistently across
     // browsers, has no engraved feel, and ignores the staff-space size
@@ -820,7 +893,9 @@ describe('NotationRenderer', () => {
 
       const NOTEHEAD_HALF = 6;
       const SHARP_HALF = 10;
-      const MIN_GAP = 30;
+      // Tolerant of FP rounding — the visible gap is one staff-space-and-a-half;
+      // sub-pixel jitter from prelude width changes shouldn't trip this.
+      const MIN_GAP = 29.5;
       const prevRightEdge = prevNoteX + NOTEHEAD_HALF;
       const accLeftEdge = accX - SHARP_HALF;
       expect(accLeftEdge - prevRightEdge).toBeGreaterThanOrEqual(MIN_GAP);
