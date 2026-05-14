@@ -4630,5 +4630,57 @@ describe('NotationRenderer', () => {
       // Gould: ≥1.5 staff spaces between staff bottom and dynamic top.
       expect(clearance).toBeGreaterThanOrEqual(30);
     });
+
+    // Per Gould "Behind Bars" (Dynamics), a dynamic sits below the LOWEST
+    // point of the music it pertains to, with ≥1 staff space of clearance,
+    // but never closer than DYNAMICS_Y_MIN to the staff. A fixed y is
+    // non-responsive: a dynamic under a low note (ledger lines below) ends
+    // up colliding with the notehead.
+    it('shifts dynamic y down for low-pitch targets while keeping high-pitch dynamics at the floor', () => {
+      ctx.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { dynamic: 'p' },
+          { pitch: 'G5', length: '1/4' },
+          { dynamic: 'f' },
+          { pitch: 'C3', length: '1/4' },
+          { pitch: 'G5', length: '1/2' },
+        ],
+      });
+
+      const dyns = ctx.container.querySelectorAll('.dynamic');
+      expect(dyns.length).toBe(2);
+
+      function groupY(g) {
+        const t = g.getAttribute('transform') || '';
+        const m = /translate\(\s*[^,]+,\s*([^)]+)\)/.exec(t);
+        return m ? parseFloat(m[1]) : NaN;
+      }
+
+      // Identify the two dynamics by data-dynamic.
+      const pDyn = ctx.container.querySelector('.dynamic[data-dynamic="p"]');
+      const fDyn = ctx.container.querySelector('.dynamic[data-dynamic="f"]');
+      expect(pDyn).not.toBeNull();
+      expect(fDyn).not.toBeNull();
+      const pY = groupY(pDyn);
+      const fY = groupY(fDyn);
+
+      // (1) High-pitch dynamic sits at the configured min (DYNAMICS_Y_MIN=160).
+      expect(pY).toBe(160);
+      // (2) Low-pitch dynamic sits LOWER than the min — responds to C3's
+      // notehead extending well below the staff (4 ledger lines below).
+      expect(fY).toBeGreaterThan(pY);
+
+      // (3) Each dynamic clears its target note's lowest extent by
+      // ≥1 staff space (20px at LINE_SPACING=20). Lowest extent for a
+      // low-pitch note is the notehead bottom (stem points up). Using
+      // pitchToStaffY-equivalent geometry: G5 y=70, C3 y=180; notehead
+      // half ≈ 5px. For G5 stem-down: stem bottom ≈ 70 + STEM_LENGTH(70) = 140.
+      const G5_LOWEST = 70 + 70; // 140
+      const C3_LOWEST = 180 + 5; // 185
+      expect(pY - G5_LOWEST).toBeGreaterThanOrEqual(20);
+      expect(fY - C3_LOWEST).toBeGreaterThanOrEqual(20);
+    });
   });
 });

@@ -212,8 +212,54 @@ const STEM_LENGTH = 70;
 // To clear the 'f'-hood by ≥30px: 90 + 30 + 35.5 = 155.5 → 160 buys
 // a small safety margin. Previously 110, which put the 'p' top
 // (origin - 21.9) at y≈88 — virtually ON the bottom staff line.
-const DYNAMICS_Y = 160;
+// Floor for the dynamic letter origin — never closer to the staff than this,
+// even when the target note sits high. Per-instance computation below may
+// push the y LOWER (further from staff) when the target note's lowest
+// visual extent reaches near or past this floor.
+const DYNAMICS_Y_MIN = 160;
 const STAFF_CENTER_Y = STAFF_TOP_OFFSET + 40; // midpoint of 5-line staff
+const ONE_SPACE = 20; // LINE_SPACING — one staff space in px.
+
+/**
+ * Estimate the lowest visual y of a music element (note/chord) for the
+ * purpose of placing point dynamics below it. Per Gould "Behind Bars"
+ * (Dynamics): point dynamics sit below the LOWEST point of the music they
+ * pertain to, with ≥1 staff space of clearance.
+ *
+ * Approximate model:
+ *   - Single note: lowest is notehead bottom (y + ~5px) when stem-up;
+ *     for stem-down, stem bottom = y + STEM_LENGTH.
+ *   - Chord: same, but use the chord's max pitch-y (lowest pitch).
+ *   - Stem direction here matches the renderer's rule: stemDown when the
+ *     governing y ≤ MIDDLE_LINE_Y (high notes get stems down).
+ *   - Rests and unknown shapes: return 0 (let DYNAMICS_Y_MIN dominate).
+ *
+ * Ledger lines below add a small ~5px bonus but the notehead bottom already
+ * captures most of the visual extent, so we keep this simple.
+ */
+function lowestExtentOf(element, clef) {
+  if (element == null) return 0;
+  if (Array.isArray(element)) {
+    const ys = element
+      .filter((n) => n && n.pitch)
+      .map((n) => pitchToStaffY(n.pitch, clef));
+    if (ys.length === 0) return 0;
+    const maxY = Math.max(...ys);
+    const minY = Math.min(...ys);
+    // Renderer picks stem direction from the note furthest from middle line.
+    const distMax = Math.abs(maxY - MIDDLE_LINE_Y);
+    const distMin = Math.abs(minY - MIDDLE_LINE_Y);
+    const governingY = distMax >= distMin ? maxY : minY;
+    const stemDown = governingY <= MIDDLE_LINE_Y;
+    if (stemDown) return maxY - HEAD_TIP_Y + STEM_LENGTH;
+    return maxY + 5; // notehead bottom for stem-up chord
+  }
+  if (!element.pitch) return 0;
+  const y = pitchToStaffY(element.pitch, clef);
+  const stemDown = y <= MIDDLE_LINE_Y;
+  if (stemDown) return y - HEAD_TIP_Y + STEM_LENGTH;
+  return y + 5;
+}
 
 /**
  * Walk a voice's notes, emitting (startBeat, endBeat, spacing) events for
@@ -1236,6 +1282,7 @@ export class NotationRenderer {
               startIndex: start.noteIndex,
               stopIndex: i,
               startX: start.startX,
+              startY: start.startY,
             });
           }
           // eslint-disable-next-line no-continue
@@ -1574,15 +1621,33 @@ export class NotationRenderer {
           continue;
         }
 
-        // Associate pending dynamics/hairpins with this note's x position
+        // Associate pending dynamics/hairpins with this note's x position.
+        // Per Gould "Behind Bars" (Dynamics): each point dynamic sits below
+        // the LOWEST point of its target note (chord/single) with ≥1 staff
+        // space of clearance, but never closer to the staff than
+        // DYNAMICS_Y_MIN. Compute and pin the y per-instance here so a
+        // dynamic under a high note stays at the floor while one under a
+        // low note (ledger lines below, or stem-down extending far) drops
+        // to clear the music.
+        const targetLowestY = lowestExtentOf(element, clef);
+        const dynamicY = Math.max(DYNAMICS_Y_MIN, targetLowestY + ONE_SPACE);
         for (const pd of pendingDynamics) {
-          if (pd.x === undefined) pd.x = cursorX;
+          if (pd.x === undefined) {
+            pd.x = cursorX;
+            pd.y = dynamicY;
+          }
         }
         for (const hs of hairpinStarts) {
-          if (hs.startX === undefined) hs.startX = cursorX;
+          if (hs.startX === undefined) {
+            hs.startX = cursorX;
+            hs.startY = dynamicY;
+          }
         }
         for (const ch of completedHairpins) {
-          if (ch.endX === undefined) ch.endX = cursorX;
+          if (ch.endX === undefined) {
+            ch.endX = cursorX;
+            ch.endY = dynamicY;
+          }
         }
 
         if (Array.isArray(element)) {
@@ -2070,8 +2135,9 @@ export class NotationRenderer {
 
         for (const pd of pendingDynamics) {
           if (pd.x !== undefined) {
+            const pdY = pd.y !== undefined ? pd.y : DYNAMICS_Y_MIN;
             dynamicsGroup.appendChild(
-              renderDynamic({ dynamic: pd.dynamic, x: pd.x, y: DYNAMICS_Y })
+              renderDynamic({ dynamic: pd.dynamic, x: pd.x, y: pdY })
             );
           }
         }
@@ -2112,12 +2178,33 @@ export class NotationRenderer {
                 break;
               }
             }
+            // Hairpin baseline: dynamics now have per-instance y (a low
+            // target note pushes its dynamic further below the staff). The
+            // hairpin endpoints share a single baseline; pick the LOWER of
+            // start/end dynamic y so neither end rises above its target
+            // letter. If neither end has a same-x dynamic, fall back to
+            // the start-binding y, the end-binding y, then DYNAMICS_Y_MIN.
+            let baseY = DYNAMICS_Y_MIN;
+            const candidates = [];
+            for (const pd of pendingDynamics) {
+              if (pd.x === undefined || pd.y === undefined) continue;
+              if (Math.abs(pd.x - startX) < 0.5) candidates.push(pd.y);
+              if (Math.abs(pd.x - endX) < 0.5) candidates.push(pd.y);
+            }
+            if (candidates.length > 0) {
+              baseY = Math.max(...candidates);
+            } else if (hp.startY !== undefined || hp.endY !== undefined) {
+              baseY = Math.max(
+                hp.startY !== undefined ? hp.startY : DYNAMICS_Y_MIN,
+                hp.endY !== undefined ? hp.endY : DYNAMICS_Y_MIN
+              );
+            }
             dynamicsGroup.appendChild(
               renderHairpin({
                 type: hp.type,
                 startX,
                 endX,
-                y: DYNAMICS_Y + centerYOffset,
+                y: baseY + centerYOffset,
               })
             );
           }
