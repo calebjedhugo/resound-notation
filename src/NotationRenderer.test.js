@@ -2405,6 +2405,52 @@ describe('NotationRenderer', () => {
     });
   });
 
+  // Per Bravura/SMuFL engravingDefaults (Gould "Behind Bars", Barlines):
+  //   thinBarlineThickness  = 0.16 spaces = 3.2px at LINE_SPACING=20
+  //   thickBarlineThickness = 0.5  spaces = 10px
+  //   barlineSeparation     = 0.4  spaces = 8px between line centers
+  // Without these, the final barline reads as a single chunky bar and thin
+  // barlines blend into the staff lines.
+  describe('barline thickness (Bravura engravingDefaults)', () => {
+    it('thin/thick barlines match Bravura thicknesses and final separation is 8px', () => {
+      ctx.render({
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C4', length: '1/4' },
+          { pitch: 'D4', length: '1/4' },
+          { pitch: 'E4', length: '1/4' },
+          { pitch: 'F4', length: '1/4' },
+          // bar line — a regular (thin) one
+          { pitch: 'G4', length: '1/1' },
+        ],
+      });
+      // (a) System-start barline is thin (3.2px).
+      const sysStart = ctx.container.querySelector(
+        '.staff-lines .system-start-bar-line'
+      );
+      expect(parseFloat(sysStart.getAttribute('stroke-width'))).toBeCloseTo(
+        3.2,
+        5
+      );
+      // Regular interior barline is thin (3.2px).
+      const regular = ctx.container.querySelector('.bar-line line');
+      expect(parseFloat(regular.getAttribute('stroke-width'))).toBeCloseTo(
+        3.2,
+        5
+      );
+      // (b) Final barline thick portion is 10px; thin portion is 3.2px.
+      const finalGroup = ctx.container.querySelector('.barline-final');
+      const thick = finalGroup.querySelector('.barline-thick');
+      const thin = finalGroup.querySelector('.barline-thin');
+      expect(parseFloat(thick.getAttribute('stroke-width'))).toBeCloseTo(10, 5);
+      expect(parseFloat(thin.getAttribute('stroke-width'))).toBeCloseTo(3.2, 5);
+      // (c) Separation between the thin-line center and thick-line center is 8px.
+      const thinX = parseFloat(thin.getAttribute('x1'));
+      const thickX = parseFloat(thick.getAttribute('x1'));
+      expect(Math.abs(thinX - thickX)).toBeCloseTo(8, 5);
+    });
+  });
+
   describe('tuplet number / beam clearance', () => {
     // Helper: parse the max Y coordinate present in an SVG path's `d`
     // attribute (treating each pair as x,y after the M/L command letter).

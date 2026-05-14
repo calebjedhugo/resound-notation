@@ -4,16 +4,27 @@
  */
 
 import { createGroup, createLine, createSvgElement } from '../lib/svgHelpers.js';
+import {
+  THIN_BARLINE_THICKNESS,
+  THICK_BARLINE_THICKNESS,
+  BARLINE_SEPARATION,
+} from '../lib/engravingDefaults.js';
 
 const TOP_LINE_Y = 10;
 const BOTTOM_LINE_Y = 90;
 const DOT_Y_UPPER = 40;
 const DOT_Y_LOWER = 60;
 const DOT_RADIUS = 2.5;
-const LINE_GAP = 5;
+// Bravura engravingDefaults:
+//   barlineSeparation     = 0.4 spaces = 8px (center-to-center)
+//   thinBarlineThickness  = 0.16 spaces = 3.2px
+//   thickBarlineThickness = 0.5 spaces = 10px
+// Old values (5/1/3) read as a single chunky stroke; the thin line blended
+// into the staff lines and the separation was visually swallowed.
+const LINE_GAP = BARLINE_SEPARATION;
 const DOT_GAP = 5;
-const THICK_WIDTH = 3;
-const THIN_WIDTH = 1;
+const THICK_WIDTH = THICK_BARLINE_THICKNESS;
+const THIN_WIDTH = THIN_BARLINE_THICKNESS;
 
 function createDot(cx, cy) {
   return createSvgElement('circle', {

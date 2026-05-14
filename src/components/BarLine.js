@@ -4,6 +4,7 @@
  */
 
 import { createGroup, createLine } from '../lib/svgHelpers.js';
+import { THIN_BARLINE_THICKNESS } from '../lib/engravingDefaults.js';
 
 // Staff line positions in staff-group coordinates
 const TOP_LINE_Y = 10;
@@ -19,9 +20,10 @@ export function createBarLine(x) {
   group.appendChild(
     createLine(x, TOP_LINE_Y, x, BOTTOM_LINE_Y, {
       stroke: 'currentColor',
-      // Engraving convention: barlines are slightly thicker than staff
-      // lines so they read as section breaks rather than blending in.
-      'stroke-width': '1.5',
+      // Bravura engravingDefaults.thinBarlineThickness = 0.16 spaces
+      // (= 3.2px at LINE_SPACING=20). The SVG default of 1px reads as
+      // a staff-line lookalike and the section break disappears.
+      'stroke-width': THIN_BARLINE_THICKNESS,
     })
   );
   return group;

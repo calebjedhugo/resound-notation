@@ -4,6 +4,7 @@
  */
 
 import { createGroup, createLine } from '../lib/svgHelpers.js';
+import { THIN_BARLINE_THICKNESS } from '../lib/engravingDefaults.js';
 
 /**
  * Create an SVG group representing a shared bar line spanning multiple staves.
@@ -18,7 +19,8 @@ export function createSharedBarLine({ x, topY, bottomY }) {
   group.appendChild(
     createLine(x, topY, x, bottomY, {
       stroke: 'currentColor',
-      'stroke-width': '1',
+      // Bravura engravingDefaults.thinBarlineThickness = 0.16 spaces = 3.2px.
+      'stroke-width': THIN_BARLINE_THICKNESS,
     })
   );
   return group;
