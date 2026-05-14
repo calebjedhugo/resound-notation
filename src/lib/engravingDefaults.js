@@ -37,3 +37,16 @@ export const HAIRPIN_THICKNESS = 0.16 * LINE_SPACING; // 3.2
 // repeatEndingLineThickness = 0.16 spaces — the bracket of a volta
 // (1./2. ending). Same Bravura weight as a thin barline.
 export const VOLTA_LINE_THICKNESS = 0.16 * LINE_SPACING; // 3.2
+
+// slurMidpointThickness = 0.22 spaces — the rendered apex weight of a
+// slur arc. With LINE_SPACING = 20 px that's 4.4 px, which sits clearly
+// heavier than the 2.6 px staff lines and gives the curve a visible
+// teardrop instead of a uniform-looking stroke. Slurs are filled
+// closed shapes whose apex sits at 0.75 × the control-point offset
+// between the outer and inner Beziers, so consumers should derive
+// the control offset as MIDPOINT_THICKNESS / 0.75.
+export const SLUR_MIDPOINT_THICKNESS = 0.22 * LINE_SPACING; // 4.4
+
+// tieMidpointThickness = 0.22 spaces — Bravura assigns ties the same
+// midpoint weight as slurs. Same closed-shape / apex-0.75× rule.
+export const TIE_MIDPOINT_THICKNESS = 0.22 * LINE_SPACING; // 4.4

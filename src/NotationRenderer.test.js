@@ -1510,6 +1510,44 @@ describe('NotationRenderer', () => {
       const tiesGroup = ctx.container.querySelector('.ties');
       expect(tiesGroup).toBeNull();
     });
+
+    it('slur and tie apex thickness matches Bravura 0.22 staff spaces', () => {
+      // Bravura engravingDefaults: slurMidpointThickness =
+      // tieMidpointThickness = 0.22 staff spaces. At LINE_SPACING = 20 px
+      // that's 4.4 px of rendered apex weight — heavier than the 2.6 px
+      // staff lines so the curve reads as a teardrop instead of vanishing
+      // into a staff line.
+      ctx.render([
+        { pitch: 'C4', length: '1/4', slur: 'start', tie: 'start' },
+        { pitch: 'C4', length: '1/4', slur: 'stop', tie: 'stop' },
+      ]);
+
+      // Closed-shape construction: outer cubic forward, inner cubic
+      // reversed. Path shape:
+      //   M x1 y1 C cp1x outerCp1Y cp2x outerCp2Y x2 y2
+      //           C cp2x innerCp2Y cp1x innerCp1Y x1 y1 Z
+      // A symmetric cubic Bezier's apex sits at 0.75 * control-Y offset
+      // from the chord line, so rendered apex thickness =
+      // 0.75 * (outerOffset - innerOffset).
+      const apexThickness = (path) => {
+        const d = path.getAttribute('d');
+        const nums = d.match(/-?\d+(\.\d+)?/g).map(Number);
+        const y1 = nums[1];
+        const outerCp1Y = nums[3];
+        const innerCp1Y = nums[11];
+        const outerOffset = Math.abs(outerCp1Y - y1);
+        const innerOffset = Math.abs(innerCp1Y - y1);
+        return 0.75 * (outerOffset - innerOffset);
+      };
+
+      const slur = ctx.getSlurs()[0];
+      const tie = ctx.getTies()[0];
+      expect(slur).toBeTruthy();
+      expect(tie).toBeTruthy();
+
+      expect(apexThickness(slur)).toBeCloseTo(4.4, 0);
+      expect(apexThickness(tie)).toBeCloseTo(4.4, 0);
+    });
   });
 
   describe('data-beat attributes', () => {

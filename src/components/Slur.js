@@ -10,6 +10,7 @@
  */
 
 import { createPath } from '../lib/svgHelpers.js';
+import { SLUR_MIDPOINT_THICKNESS } from '../lib/engravingDefaults.js';
 
 // Distance (px) from notehead CENTER to where the slur endpoint sits.
 // Notehead half-height is ~10 px, so 14 puts the slur 4 px outside the
@@ -20,10 +21,12 @@ const BASE_HEIGHT = 15;
 const SPAN_FACTOR = 0.15;
 const MAX_ARC_HEIGHT = 40;
 // Control-point offset between outer and inner Bezier curves. The actual
-// rendered apex thickness is ~3/4 of this value (Bezier apex sits at 3h/4 for
-// a symmetric curve), so THICKNESS = 2.6 yields ~1.95 px middle thickness —
-// roughly 0.10 staff space, squarely in the engravers' 0.08–0.11 range.
-const THICKNESS = 2.6;
+// rendered apex thickness is ~3/4 of this value (a symmetric cubic Bezier's
+// apex sits at 0.75 × control-Y offset), so we derive THICKNESS from the
+// Bravura spec value: slurMidpointThickness = 0.22 spaces = 4.4 px →
+// THICKNESS = 4.4 / 0.75 ≈ 5.87. That yields a 4.4 px apex, visibly
+// heavier than the 2.6 px staff lines.
+const THICKNESS = SLUR_MIDPOINT_THICKNESS / 0.75;
 
 /**
  * Create an SVG path element for a slur arc.

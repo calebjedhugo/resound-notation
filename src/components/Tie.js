@@ -8,6 +8,7 @@
  */
 
 import { createPath } from '../lib/svgHelpers.js';
+import { TIE_MIDPOINT_THICKNESS } from '../lib/engravingDefaults.js';
 
 // Distance (px) from notehead CENTER to tie endpoint. Notehead
 // half-height is ~10 px; 13 puts the tie 3 px clear of the head edge so
@@ -16,9 +17,10 @@ const NOTEHEAD_OFFSET = 13;
 const MIN_ARC_HEIGHT = 8;
 const ARC_HEIGHT_RATIO = 0.2;
 // Control-point offset between outer and inner Bezier curves. Rendered apex
-// thickness is ~3/4 of this, so THICKNESS = 2.0 yields ~1.5 px middle
-// thickness — slightly thinner than slurs, as engravers conventionally render.
-const THICKNESS = 2.0;
+// thickness is ~3/4 of this (Bezier apex sits at 0.75 × control-Y offset),
+// so THICKNESS = MIDPOINT / 0.75. Bravura tieMidpointThickness = 0.22
+// spaces = 4.4 px → 4.4 / 0.75 ≈ 5.87.
+const THICKNESS = TIE_MIDPOINT_THICKNESS / 0.75;
 
 /**
  * Create an SVG path element for a tie arc.
