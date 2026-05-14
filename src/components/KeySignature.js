@@ -37,10 +37,19 @@ export const KEY_SIG_POSITIONS = {
 // safe-across-the-board value since sharps/flats are designed to nest
 // vertically. 14 was too tight — flat bodies visually touched.
 const ACCIDENTAL_SPACING = 18;
+// Leading pad (px) before the first key-sig accidental. The caller
+// places this group right after the clef glyph; without this pad the
+// accidental's left edge sits only ~0.5 staff space from the clef's
+// bbox right edge, and the clef's top scroll visually fuses with the
+// sharp/flat stem. Gould ("Behind Bars", Spacing) treats clef → key-sig
+// as a header gap of ~1 staff space; 10 px lifts the visible gap from
+// ~0.5 to ~1 staff space without disturbing inter-accidental spacing.
+const KEY_SIG_LEADING_PAD = 10;
 // SMuFL accidentals are centered on their x=0; offset the first glyph by
 // half its width so the key-sig group's left edge sits at parent x=0
-// (i.e. the accidental doesn't extend left of the caller's translate).
-const ACCIDENTAL_LEAD = 10;
+// (i.e. the accidental doesn't extend left of the caller's translate),
+// then add the leading pad so the clef has breathing room.
+const ACCIDENTAL_LEAD = 10 + KEY_SIG_LEADING_PAD;
 // Half-width of a Bravura sharp/flat glyph, used so the cursor advance
 // past the key signature covers the right edge of the last glyph (whose
 // center sits at the last ACCIDENTAL_SPACING step), not just its center.

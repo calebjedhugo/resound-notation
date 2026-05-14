@@ -280,6 +280,35 @@ describe('NotationRenderer', () => {
       expect(gap).toBeGreaterThanOrEqual(20);
     });
 
+    // Standard engraving leaves ~1 staff space between the clef glyph's
+    // visual right edge and the first key-signature accidental so the
+    // sharp/flat doesn't visually fuse with the clef body. Gould
+    // ("Behind Bars", Spacing) treats clef→key-sig as a header gap of
+    // roughly one staff space. Pin a conservative minimum (12 px =
+    // ~0.6 staff space) so the visible gap is clearly nonzero.
+    it('leaves clear space between the clef and the first key-sig accidental', () => {
+      ctx.render({
+        voices: [{ keySignature: 'G', notes: [{ pitch: 'E4', length: '1/4' }] }],
+      });
+      const clef = ctx.container.querySelector('.clef-treble');
+      const keySig = ctx.container.querySelector('.key-signature');
+      const firstAcc = keySig.querySelector('.accidental');
+      const clefTx = parseFloat(clef.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]);
+      const keySigTx = parseFloat(keySig.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]);
+      const accLocalX = parseFloat(firstAcc.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]);
+      // Bravura gClef visible width: 671 fu × 0.08 = 53.68 px (right edge).
+      const CLEF_GLYPH_MAX_X = 54;
+      // Bravura accidentalSharp half-width: 249 fu / 2 × 0.08 = 9.96 px.
+      const ACC_HALF_WIDTH = 9.96;
+      const accLeftEdge = keySigTx + accLocalX - ACC_HALF_WIDTH;
+      const clefRightEdge = clefTx + CLEF_GLYPH_MAX_X;
+      const gap = accLeftEdge - clefRightEdge;
+      // Target ~1 staff space (20 px) past the bbox right edge so the
+      // top scroll of the clef glyph doesn't visually fuse with the
+      // accidental's stem.
+      expect(gap).toBeGreaterThanOrEqual(45);
+    });
+
     // Time signatures must render as Bravura SMuFL path glyphs, not as
     // <text> elements. Native text renders inconsistently across
     // browsers, has no engraved feel, and ignores the staff-space size
