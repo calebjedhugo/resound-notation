@@ -2811,6 +2811,70 @@ describe('NotationRenderer', () => {
       const digitTopY = digitTopCenterY - halfDigitHeight;
       expect(digitTopY - beamOuterY).toBeGreaterThanOrEqual(minBreathingRoom);
     });
+
+    // Gould "Behind Bars" (Tuplets ch.): the tuplet number is centered
+    // horizontally on the beam group's geometric midpoint. For a beam
+    // running from the first stem-x to the last stem-x, the number's
+    // visual x-center must equal (firstStemX + lastStemX) / 2.
+    it('centers the tuplet number horizontally on the beam midpoint', () => {
+      ctx.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          {
+            tuplet: [3, 2],
+            notes: [
+              { pitch: 'E4', length: '1/8' },
+              { pitch: 'F4', length: '1/8' },
+              { pitch: 'G4', length: '1/8' },
+            ],
+          },
+        ],
+      });
+
+      const tupletGroup = ctx.container.querySelector('[data-tuplet="3:2"]');
+      expect(tupletGroup).not.toBeNull();
+
+      // Beam horizontal extent: take min/max x across all path.beam vertices.
+      const beamPaths = tupletGroup.querySelectorAll('path.beam');
+      expect(beamPaths.length).toBeGreaterThanOrEqual(1);
+      let beamMinX = Infinity;
+      let beamMaxX = -Infinity;
+      beamPaths.forEach((p) => {
+        const tokens = (p.getAttribute('d') || '')
+          .split(/[\s,MLZ]+/)
+          .filter(Boolean)
+          .map(Number);
+        for (let i = 0; i < tokens.length; i += 2) {
+          const x = tokens[i];
+          if (Number.isFinite(x)) {
+            if (x < beamMinX) beamMinX = x;
+            if (x > beamMaxX) beamMaxX = x;
+          }
+        }
+      });
+      expect(Number.isFinite(beamMinX)).toBe(true);
+      const beamMidX = (beamMinX + beamMaxX) / 2;
+
+      // Visual x-center of the tuplet number: midpoint of the leftmost
+      // and rightmost digit-glyph translate-x values (each digit is
+      // centered on its own translate-x by the renderer).
+      const numberGroup = tupletGroup.querySelector('.tuplet-number');
+      expect(numberGroup).not.toBeNull();
+      const digitCenters = [];
+      for (const d of numberGroup.children) {
+        const m = (d.getAttribute('transform') || '').match(
+          /translate\(\s*([-\d.]+)\s*,\s*[-\d.]+\s*\)/
+        );
+        expect(m).not.toBeNull();
+        digitCenters.push(parseFloat(m[1]));
+      }
+      expect(digitCenters.length).toBeGreaterThan(0);
+      const numberCenterX =
+        (Math.min(...digitCenters) + Math.max(...digitCenters)) / 2;
+
+      expect(Math.abs(numberCenterX - beamMidX)).toBeLessThanOrEqual(1);
+    });
   });
 
   describe('ottava (8va/8vb) integration', () => {

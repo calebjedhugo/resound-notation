@@ -1413,11 +1413,36 @@ export class NotationRenderer {
           const bracketY = stemsDown ? 110 + beamStackExtra : -10 - beamStackExtra;
           const above = !stemsDown;
 
+          // The tuplet number is centered on the bracket/beam span.
+          // For a fully-beamed tuplet the visual span is the beam itself,
+          // which runs from the first to last *stem-x* (offset from the
+          // notehead by HEAD_TIP_X on the flag side; see Beam.js). Using
+          // the cursor-after-last-note x biases the number to the side
+          // opposite the stem direction. Gould "Behind Bars" (Tuplets ch.)
+          // requires horizontal centering on the beam's geometric midpoint.
+          let bracketStartX;
+          let bracketEndX;
+          if (fullyBeamed && tupletNoteData.length >= 2) {
+            const firstX = tupletNoteData[0].x;
+            const lastX = tupletNoteData[tupletNoteData.length - 1].x;
+            const stemOffset = stemsDown ? -HEAD_TIP_X : HEAD_TIP_X;
+            bracketStartX = firstX + stemOffset;
+            bracketEndX = lastX + stemOffset;
+          } else {
+            // Bracket case: span the noteheads (first to last), not the
+            // cursor position after advancing past the last note.
+            bracketStartX = startX;
+            bracketEndX =
+              tupletNoteData.length > 0
+                ? tupletNoteData[tupletNoteData.length - 1].x
+                : endX;
+          }
+
           tupletGroup.appendChild(
             renderTupletBracket({
               actual,
-              startX,
-              endX,
+              startX: bracketStartX,
+              endX: bracketEndX,
               y: bracketY,
               above,
               showBracket: !fullyBeamed,
