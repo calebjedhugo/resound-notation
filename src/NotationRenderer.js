@@ -1277,6 +1277,7 @@ export class NotationRenderer {
                     createLine(stemX, stemY1, stemX, stemY2, {
                       class: 'note-stem',
                       stroke: 'currentColor',
+                      'stroke-width': 2.4,
                     })
                   );
                 }
@@ -1577,6 +1578,7 @@ export class NotationRenderer {
                 createLine(stemX, stemY1, stemX, stemY2, {
                   class: 'note-stem',
                   stroke: 'currentColor',
+                  'stroke-width': 2.4,
                 })
               );
             }
@@ -1711,6 +1713,7 @@ export class NotationRenderer {
               createLine(stemX, stemY1, stemX, stemY2, {
                 class: 'note-stem',
                 stroke: 'currentColor',
+                'stroke-width': 2.4,
               })
             );
           }

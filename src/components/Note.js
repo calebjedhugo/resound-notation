@@ -71,7 +71,7 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
       : tip.y - STEM_LENGTH - beamExt;
 
     group.appendChild(
-      createLine(stemX, stemY1, stemX, stemY2, { class: 'note-stem', stroke: 'currentColor' })
+      createLine(stemX, stemY1, stemX, stemY2, { class: 'note-stem', stroke: 'currentColor', 'stroke-width': 2.4 })
     );
 
     // Flags (suppressed when beamed — beams replace flags). Multi-flag

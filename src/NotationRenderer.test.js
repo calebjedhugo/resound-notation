@@ -135,6 +135,16 @@ describe('NotationRenderer', () => {
       expect(Math.abs(y2 - y1)).toBe(70);
     });
 
+    // Per Bravura/SMuFL engravingDefaults.stemThickness = 0.12 staff spaces
+    // (Gould "Behind Bars", Stems). At LINE_SPACING=20 (1 space = 20px) that's
+    // 2.4px. Without an explicit stroke-width the stem inherits SVG's 1px
+    // default, which matches staff-line weight and reads as anemic.
+    it('renders the note stem at Bravura stemThickness (0.12 spaces = 2.4px)', () => {
+      ctx.render([{ pitch: 'E4', length: '1/4' }]);
+      const stem = ctx.container.querySelector('.note-stem');
+      expect(parseFloat(stem.getAttribute('stroke-width'))).toBeCloseTo(2.4, 5);
+    });
+
     // SMuFL Bravura noteheads are path glyphs, not stroked ellipses. The
     // path is pre-tilted in the font (no rotate transform needed). Black
     // notehead bbox is 295 × 250 font units → 23.6 × 20 px at scale 0.08
