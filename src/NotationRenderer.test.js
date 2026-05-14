@@ -668,6 +668,28 @@ describe('NotationRenderer', () => {
       const ledgerLines = ctx.getLedgerLines();
       expect(ledgerLines.length).toBeGreaterThanOrEqual(2);
     });
+
+    // Bravura engravingDefaults: legerLineThickness = 0.16 spaces (3.2px at
+    // LINE_SPACING=20) and legerLineExtension = 0.4 spaces (8px) past each
+    // notehead edge. Without this, ledgers visually blend with the staff
+    // lines and look pinched against the head.
+    it('draws ledger lines at Bravura thickness and extension', () => {
+      ctx.render([{ pitch: 'C4', length: '1/4' }]);
+      const ledger = ctx.getLedgerLines()[0];
+      expect(ledger).toBeDefined();
+
+      // Thickness: 0.16 * 20 = 3.2
+      expect(Number(ledger.getAttribute('stroke-width'))).toBeCloseTo(3.2, 5);
+
+      // Extension: Bravura noteheadBlack width ~23.6px → half ~11.8px.
+      // Each side should extend ~8px past the head, so total span
+      // >= 23.6 + 16 = ~39.6px.
+      const x1 = Number(ledger.getAttribute('x1'));
+      const x2 = Number(ledger.getAttribute('x2'));
+      const NOTEHEAD_WIDTH = 23.6;
+      const LEGER_EXTENSION = 8;
+      expect(x2 - x1).toBeGreaterThanOrEqual(NOTEHEAD_WIDTH + 2 * LEGER_EXTENSION - 0.5);
+    });
   });
 
   describe('accidental rendering', () => {

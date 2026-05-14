@@ -72,13 +72,20 @@ describe('LedgerLine', () => {
       expect(center).toBe(200);
     });
 
-    it('makes ledger lines 30px wide (Bravura black head 23.6 + 6 overhang)', () => {
+    it('extends ledger lines per Bravura legerLineExtension (0.4 spaces = 8px each side)', () => {
+      // Bravura noteheadBlack ~23.6px wide + 8px extension on each side ⇒ ~39.6px total.
       const el = createLedgerLines({ x: 100, y: 110 });
       const line = el.querySelector('.ledger-line');
 
       const x1 = Number(line.getAttribute('x1'));
       const x2 = Number(line.getAttribute('x2'));
-      expect(x2 - x1).toBe(30);
+      expect(x2 - x1).toBeCloseTo(39.6, 5);
+    });
+
+    it('draws ledger lines at Bravura legerLineThickness (0.16 spaces = 3.2px)', () => {
+      const el = createLedgerLines({ x: 100, y: 110 });
+      const line = el.querySelector('.ledger-line');
+      expect(Number(line.getAttribute('stroke-width'))).toBeCloseTo(3.2, 5);
     });
 
     it('places ledger lines at correct Y positions below staff', () => {

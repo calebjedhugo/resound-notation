@@ -14,9 +14,15 @@ const LINE_STEP = 20;
 const FIRST_LEDGER_ABOVE = TOP_LINE_Y - LINE_STEP; // y = -10
 const FIRST_LEDGER_BELOW = BOTTOM_LINE_Y + LINE_STEP; // y = 110
 
-// Ledger line width: Bravura noteheadBlack (23.6px wide) + 6px overhang
-// = ~30px, centered on note x.
-const LEDGER_HALF_WIDTH = 15;
+// Bravura engravingDefaults at LINE_SPACING=20px:
+//   legerLineExtension = 0.4 spaces = 8px past each notehead edge
+//   legerLineThickness = 0.16 spaces = 3.2px
+// noteheadBlack is ~23.6px wide → half-width 11.8px; add 8px extension
+// each side ⇒ half-width 19.8px, total span ~39.6px.
+const NOTEHEAD_HALF_WIDTH = 11.8;
+const LEGER_EXTENSION = 8;
+const LEDGER_HALF_WIDTH = NOTEHEAD_HALF_WIDTH + LEGER_EXTENSION;
+const LEDGER_THICKNESS = 3.2;
 
 /**
  * Create ledger lines for a note at the given position.
@@ -53,6 +59,7 @@ export function createLedgerLines({ x, y }) {
       createLine(x - LEDGER_HALF_WIDTH, lineY, x + LEDGER_HALF_WIDTH, lineY, {
         class: 'ledger-line',
         stroke: 'currentColor',
+        'stroke-width': LEDGER_THICKNESS,
       })
     );
   }
