@@ -4,6 +4,7 @@
  */
 
 import { createGroup, createPath } from '../lib/svgHelpers.js';
+import { HAIRPIN_THICKNESS } from '../lib/engravingDefaults.js';
 
 const HAIRPIN_HEIGHT = 12;
 const HALF_HEIGHT = HAIRPIN_HEIGHT / 2;
@@ -41,7 +42,7 @@ export function renderHairpin({ type, startX, endX, y }) {
       class: 'hairpin-line',
       fill: 'none',
       stroke: 'currentColor',
-      'stroke-width': '1.5',
+      'stroke-width': String(HAIRPIN_THICKNESS),
     })
   );
 
@@ -50,7 +51,7 @@ export function renderHairpin({ type, startX, endX, y }) {
       class: 'hairpin-line',
       fill: 'none',
       stroke: 'currentColor',
-      'stroke-width': '1.5',
+      'stroke-width': String(HAIRPIN_THICKNESS),
     })
   );
 

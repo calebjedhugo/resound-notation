@@ -28,3 +28,12 @@ export const THICK_BARLINE_THICKNESS = 0.5 * LINE_SPACING; // 10
 // thin and thick lines in a final/repeat barline. Without this, the two
 // strokes mash into one chunky bar.
 export const BARLINE_SEPARATION = 0.4 * LINE_SPACING; // 8
+
+// hairpinThickness = 0.16 spaces — the two diverging lines of a
+// crescendo/decrescendo wedge. Matches thinBarlineThickness per Bravura;
+// Gould groups these as "line on staff" elements at the same weight.
+export const HAIRPIN_THICKNESS = 0.16 * LINE_SPACING; // 3.2
+
+// repeatEndingLineThickness = 0.16 spaces — the bracket of a volta
+// (1./2. ending). Same Bravura weight as a thin barline.
+export const VOLTA_LINE_THICKNESS = 0.16 * LINE_SPACING; // 3.2

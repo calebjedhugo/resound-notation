@@ -4,6 +4,7 @@
  */
 
 import { createGroup, createPath, createText } from '../lib/svgHelpers.js';
+import { VOLTA_LINE_THICKNESS } from '../lib/engravingDefaults.js';
 
 const BRACKET_Y = -15;
 const TICK_HEIGHT = 10;
@@ -41,7 +42,7 @@ export function renderEnding({ number, startX, endX, open }) {
       class: bracketClass,
       fill: 'none',
       stroke: 'currentColor',
-      'stroke-width': '1.5',
+      'stroke-width': String(VOLTA_LINE_THICKNESS),
     })
   );
 

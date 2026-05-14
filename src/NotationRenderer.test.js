@@ -2465,6 +2465,61 @@ describe('NotationRenderer', () => {
     });
   });
 
+  // Per Bravura/SMuFL engravingDefaults:
+  //   hairpinThickness         = 0.16 spaces = 3.2px at LINE_SPACING=20
+  //   repeatEndingLineThickness = 0.16 spaces = 3.2px (volta bracket)
+  // Same weight as a thin barline — these are "line on staff" elements
+  // per Gould's hierarchy. Earlier Bravura passes bumped stems (2.4),
+  // staff lines (2.6), barlines (3.2/10), and ledger lines (3.2); the
+  // hairpin and volta lines were left at the SVG-ish 1.5 default and
+  // now read as spindly outliers against the heavier neighbours.
+  describe('hairpin + volta line thickness (Bravura engravingDefaults)', () => {
+    it('hairpin wedge lines and volta bracket render at 3.2px', () => {
+      ctx.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { ending: { number: 1, type: 'start' } },
+          { pitch: 'G5', length: '1/2' },
+          { pitch: 'A5', length: '1/2' },
+          { ending: { number: 1, type: 'stop' } },
+          { barline: 'repeat-end' },
+          { ending: { number: 2, type: 'start' } },
+          { pitch: 'B5', length: '1/2' },
+          { hairpin: 'decrescendo', start: true },
+          { pitch: 'A5', length: '1/4' },
+          { pitch: 'G5', length: '1/4' },
+          { hairpin: 'decrescendo', stop: true },
+          { barline: 'final' },
+        ],
+      });
+
+      // Hairpin: two diverging lines, both at 3.2px.
+      const hairpinLines = ctx.container.querySelectorAll(
+        '.hairpin .hairpin-line'
+      );
+      expect(hairpinLines.length).toBe(2);
+      hairpinLines.forEach((line) => {
+        expect(parseFloat(line.getAttribute('stroke-width'))).toBeCloseTo(
+          3.2,
+          5
+        );
+      });
+
+      // Volta bracket: every ending bracket path at 3.2px.
+      const endingBrackets = ctx.container.querySelectorAll(
+        '.ending .ending-bracket'
+      );
+      expect(endingBrackets.length).toBeGreaterThan(0);
+      endingBrackets.forEach((bracket) => {
+        expect(parseFloat(bracket.getAttribute('stroke-width'))).toBeCloseTo(
+          3.2,
+          5
+        );
+      });
+    });
+  });
+
   describe('tuplet number / beam clearance', () => {
     // Helper: parse the max Y coordinate present in an SVG path's `d`
     // attribute (treating each pair as x,y after the M/L command letter).
