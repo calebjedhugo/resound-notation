@@ -163,13 +163,15 @@ const STAFF_TOP_OFFSET = 10;
 const CLEF_WIDTH = 90;
 // Extra trailing pad (px) applied past the clef when no key-sig and
 // no time-sig sits between clef and first note. Computed:
-//   gap_target = 1.5 staff spaces = 30 px (Gould, prelude→first-note)
+//   gap_target ≈ 2.75 staff spaces = 55 px (visually generous; matches
+//                the openness Gould describes as a "clear" prelude→note
+//                gap, especially when an accidental sits at the head)
 //   gap_current ≈ 24 px (CLEF_WIDTH 90 − gClef right edge 54 − head
 //                        half-width 12)
-//   delta = 30 − 24 = 6 px
+//   delta = 55 − 24 = 31 px
 // Applied ONLY when the clef is the rightmost prelude element so other
 // header geometries (clef+key-sig, clef+time-sig) are unaffected.
-const CLEF_ONLY_EXTRA_PAD = 6;
+const CLEF_ONLY_EXTRA_PAD = 31;
 const VOICE_HEIGHT = 200;
 const VOICE_GAP = 40;
 const GRAND_STAFF_GAP = 60;
