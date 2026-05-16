@@ -1280,6 +1280,68 @@ describe('NotationRenderer', () => {
       });
       expect(ctx.getBarLines()).toHaveLength(1);
     });
+
+    it('keeps every barline within the staff-line right edge on multi-system layouts', () => {
+      // Engraving convention (Gould, Behind Bars): the staff line must
+      // extend through the right face of every barline that closes a
+      // system. No floating barline outside the staff.
+      //
+      // Regression: in accidentals-sweep the intermediate-system thin
+      // barline drifted to x≈818 while staff lines stopped at x≈800 — a
+      // staff-width vs barline-x mismatch in the system-width formula.
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 800,
+      });
+      // Two measures of eighth notes — wide enough to force a system
+      // break at width=800. Mirrors the accidentals-sweep preset shape.
+      const notes = [];
+      for (let m = 0; m < 2; m += 1) {
+        for (let i = 0; i < 8; i += 1) {
+          notes.push({ pitch: 'C5', length: '1/8' });
+        }
+      }
+      const svg = renderer.render({ timeSignature: [4, 4], notes });
+
+      const staffLineGroups = svg.querySelectorAll('.staff-lines');
+      expect(staffLineGroups.length).toBeGreaterThanOrEqual(2);
+
+      const xFromTranslate = (el) => {
+        const t = el.getAttribute('transform') || '';
+        const m = /translate\(([-\d.]+)/.exec(t);
+        return m ? parseFloat(m[1]) : 0;
+      };
+
+      for (const staffLines of staffLineGroups) {
+        const staffGroup = staffLines.parentNode;
+        const lines = staffLines.querySelectorAll('.staff-line');
+        expect(lines.length).toBe(5);
+        const staffRightX = Math.max(
+          ...Array.from(lines).map((l) => parseFloat(l.getAttribute('x2'))),
+        );
+
+        // Collect every barline x in this system: thin .bar-line groups
+        // (children carry x1=x2=x) plus any final/repeat barlines whose
+        // group transform encodes the x.
+        const barXs = [];
+        for (const bl of staffGroup.querySelectorAll('.bar-line line')) {
+          barXs.push(parseFloat(bl.getAttribute('x1')));
+        }
+        for (const bl of staffGroup.querySelectorAll(
+          '.barline-final, [class*="barline-repeat"]',
+        )) {
+          barXs.push(xFromTranslate(bl));
+        }
+
+        // The system should have at least one barline (otherwise the
+        // assertion is vacuous).
+        expect(barXs.length).toBeGreaterThan(0);
+        const maxBarX = Math.max(...barXs);
+        // Staff lines must reach through the right face of every barline.
+        // Allow a sub-pixel epsilon for the spring-solver's float drift.
+        expect(staffRightX).toBeGreaterThanOrEqual(maxBarX - 0.5);
+      }
+    });
   });
 
   describe('time signature rendering', () => {

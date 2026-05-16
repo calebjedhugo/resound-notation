@@ -911,11 +911,18 @@ export class NotationRenderer {
         const measureCountInSystem = plan.endMeasure - plan.startMeasure + 1;
         const naturalMusicEndX = naturalBeatToX.get(systemEndBeat) || perSystemMusicStartX;
         const naturalMusicWidth = naturalMusicEndX - perSystemMusicStartX;
-        // 2 × BAR_LINE_PADDING per measure-boundary the voice loop will
-        // insert. The final boundary contributes +12 (pre-barline) and
-        // then +12 again (post-barline — but no notes follow so the post
-        // doesn't matter for end-x calc). For barline x we need 24*(N-1)+12.
-        const barlinePadAtSystemEnd = 24 * (measureCountInSystem - 1) + 12;
+        // 2 × BAR_LINE_PADDING per intermediate measure boundary the
+        // voice loop will insert (pre + post). The final boundary that
+        // closes the system contributes only +BAR_LINE_PADDING (pre-
+        // barline); no notes follow so the post-pad doesn't reach the
+        // system right edge. For barline x we need
+        // `2*BAR_LINE_PADDING*(N-1) + BAR_LINE_PADDING`. This must stay
+        // in lockstep with BAR_LINE_PADDING — otherwise the system-end
+        // barline drifts off the right side of the staff lines (Gould
+        // Behind Bars: the staff line terminates at the right face of
+        // the closing barline, never short of it).
+        const barlinePadAtSystemEnd =
+          2 * BAR_LINE_PADDING * (measureCountInSystem - 1) + BAR_LINE_PADDING;
         // Choose system right edge:
         //   justified: width
         //   unjustified: musicStartX + naturalMusicWidth + barline pad at end
