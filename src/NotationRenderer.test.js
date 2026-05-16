@@ -382,6 +382,52 @@ describe('NotationRenderer', () => {
       }
     });
 
+    // On a CONTINUATION (non-first) system, no time-sig sits between
+    // the clef and the first note — the clef alone is the rightmost
+    // prelude element. Per Gould "Behind Bars" (Spacing) the first note
+    // should clear the clef by ~1 to 1.5 staff spaces of visual
+    // whitespace. The clef-only case is tighter than the first system
+    // (which is opened up by TIME_SIG_PADDING after the digits), so it
+    // gets its own pin at ≥1.5 staff spaces (30px). Repro path: wrap
+    // a piece onto a second system and read the second system's clef
+    // right-edge vs. its first note's left-edge.
+    it('clears the clef by ≥1.5 staff spaces before the first note on continuation systems', () => {
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 600,
+      });
+      // 16 measures of quarters at 4/4 — guaranteed to wrap at width 600.
+      const notes = [];
+      for (let m = 0; m < 16; m += 1) {
+        for (let b = 0; b < 4; b += 1) notes.push({ pitch: 'E4', length: '1/4' });
+      }
+      const svg = renderer.render({ timeSignature: [4, 4], notes });
+      // Find the staff group for system index 1 (the continuation system).
+      const sys1Group = svg.querySelector('g[data-system-index="1"]');
+      expect(sys1Group).not.toBeNull();
+      const clef = sys1Group.querySelector('.clef-treble');
+      expect(clef).not.toBeNull();
+      // System-continuation must omit the time signature (no redundant glyph).
+      expect(sys1Group.querySelector('.time-signature')).toBeNull();
+      const firstNote = sys1Group.querySelector('.note');
+      expect(firstNote).not.toBeNull();
+      const clefTx = parseFloat(
+        clef.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]
+      );
+      const noteTx = parseFloat(
+        firstNote.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]
+      );
+      // Bravura gClef visible right edge: bbox.xMax (671 fu) × SMUFL_SCALE
+      // (0.08) = 53.68 px past the clef's translate origin.
+      const CLEF_GLYPH_MAX_X = 53.68;
+      // Bravura noteheadBlack half-width: 295 fu × 0.08 / 2 = 11.8 px.
+      const HEAD_HALF_WIDTH = 11.8;
+      const gap = (noteTx - HEAD_HALF_WIDTH) - (clefTx + CLEF_GLYPH_MAX_X);
+      // ≥1.5 staff spaces (30 px) — Gould's recommended clearance for
+      // the prelude→first-note gap on a clef-only system start.
+      expect(gap).toBeGreaterThanOrEqual(30);
+    });
+
     // Time signatures must render as Bravura SMuFL path glyphs, not as
     // <text> elements. Native text renders inconsistently across
     // browsers, has no engraved feel, and ignores the staff-space size

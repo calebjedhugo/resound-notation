@@ -154,8 +154,22 @@ const DEFAULT_HEIGHT = 200;
 const STAFF_START_X = 20;
 const STAFF_TOP_OFFSET = 10;
 // Bravura clefs render at ~54px (gClef) to ~56px (cClef). 90 leaves
-// ~1.5 staff spaces between clef glyph and first note.
+// ~1 staff space between the clef glyph's visible right edge and the
+// first key-sig/time-sig element when one is present. When NEITHER
+// sits between the clef and the first note (a continuation system in
+// C-major, or any clef-only system start), the head's left edge ends
+// up only ~24 px past the clef — visibly tight per Gould "Behind Bars"
+// (Spacing). For that one case we add CLEF_ONLY_EXTRA_PAD below.
 const CLEF_WIDTH = 90;
+// Extra trailing pad (px) applied past the clef when no key-sig and
+// no time-sig sits between clef and first note. Computed:
+//   gap_target = 1.5 staff spaces = 30 px (Gould, prelude→first-note)
+//   gap_current ≈ 24 px (CLEF_WIDTH 90 − gClef right edge 54 − head
+//                        half-width 12)
+//   delta = 30 − 24 = 6 px
+// Applied ONLY when the clef is the rightmost prelude element so other
+// header geometries (clef+key-sig, clef+time-sig) are unaffected.
+const CLEF_ONLY_EXTRA_PAD = 6;
 const VOICE_HEIGHT = 200;
 const VOICE_GAP = 40;
 const GRAND_STAFF_GAP = 60;
@@ -626,16 +640,21 @@ export class NotationRenderer {
     // jump to musicStartX after their per-voice header (clef + key sig
     // + time sig) so notes at the same beat align vertically across
     // staves.
-    let musicStartX = STAFF_START_X + CLEF_WIDTH;
+    let musicStartX = STAFF_START_X + CLEF_WIDTH + CLEF_ONLY_EXTRA_PAD;
     for (const voice of parsed.voices) {
       let x = STAFF_START_X + CLEF_WIDTH;
       const keyInfo = getKeySignature(voice.keySignature || 'C');
-      if (keyInfo.count > 0) {
+      const hasKeySig = keyInfo.count > 0;
+      if (hasKeySig) {
         x += keySignatureAdvance(keyInfo.count);
       }
       if (voice.timeSignature) {
         const { width: tsWidth } = createTimeSignature(voice.timeSignature);
         x += tsWidth + TIME_SIG_PADDING;
+      } else if (!hasKeySig) {
+        // Clef is the rightmost prelude element — open gap to ≥1.5 staff
+        // spaces past clef's visible right edge.
+        x += CLEF_ONLY_EXTRA_PAD;
       }
       if (x > musicStartX) musicStartX = x;
     }
@@ -765,10 +784,16 @@ export class NotationRenderer {
       for (const voice of parsed.voices) {
         let p = STAFF_START_X + CLEF_WIDTH;
         const keyInfo = getKeySignature(voice.keySignature || 'C');
-        if (keyInfo.count > 0) p += keySignatureAdvance(keyInfo.count);
-        if (systemIndex === 0 && voice.timeSignature) {
+        const hasKeySig = keyInfo.count > 0;
+        if (hasKeySig) p += keySignatureAdvance(keyInfo.count);
+        const hasTimeSig = systemIndex === 0 && voice.timeSignature;
+        if (hasTimeSig) {
           const { width: tsWidth } = createTimeSignature(voice.timeSignature);
           p += tsWidth + TIME_SIG_PADDING;
+        } else if (!hasKeySig) {
+          // Continuation system (or system 0 without a time-sig) where
+          // the clef is the rightmost prelude element — see CLEF_ONLY_EXTRA_PAD.
+          p += CLEF_ONLY_EXTRA_PAD;
         }
         if (p > maxPrelude) maxPrelude = p;
       }
@@ -880,14 +905,20 @@ export class NotationRenderer {
 
         // Per-system music start: same musicStartX rule, but recompute
         // since later systems skip the time sig.
-        let perSystemMusicStartX = STAFF_START_X + CLEF_WIDTH;
+        let perSystemMusicStartX = STAFF_START_X + CLEF_WIDTH + CLEF_ONLY_EXTRA_PAD;
         for (const voice of parsed.voices) {
           let x = STAFF_START_X + CLEF_WIDTH;
           const keyInfo = getKeySignature(voice.keySignature || 'C');
-          if (keyInfo.count > 0) x += keySignatureAdvance(keyInfo.count);
-          if (isFirst && voice.timeSignature) {
+          const hasKeySig = keyInfo.count > 0;
+          if (hasKeySig) x += keySignatureAdvance(keyInfo.count);
+          const hasTimeSig = isFirst && voice.timeSignature;
+          if (hasTimeSig) {
             const { width: tsWidth } = createTimeSignature(voice.timeSignature);
             x += tsWidth + TIME_SIG_PADDING;
+          } else if (!hasKeySig) {
+            // Continuation system (or first system with no time-sig)
+            // where the clef alone is the prelude — see CLEF_ONLY_EXTRA_PAD.
+            x += CLEF_ONLY_EXTRA_PAD;
           }
           if (x > perSystemMusicStartX) perSystemMusicStartX = x;
         }
