@@ -2712,6 +2712,89 @@ describe('NotationRenderer', () => {
       // Spans 3 staves — much taller than 80
       expect(y2 - y1).toBeGreaterThan(160);
     });
+
+    // Per Gould "Behind Bars" (Barlines, p. 95): on a braced/bracketed grand
+    // staff, barlines are drawn THROUGH THE GAP between staves, not just on
+    // each staff individually. This includes the closing final barline
+    // (thin+thick combo) at the right edge of the last system — both lines
+    // should run continuously from the top of the upper staff to the bottom
+    // of the lower staff. Previously the renderer emitted a per-staff final
+    // pair on each staff, leaving a visible gap between staves.
+    it('bridges the system-end final barline across both staves of a brace group', () => {
+      ctx.render({
+        timeSignature: [4, 4],
+        voices: [
+          {
+            id: 'treble',
+            clef: 'treble',
+            notes: [
+              { pitch: 'C5', length: '1/4' },
+              { pitch: 'E5', length: '1/4' },
+              { pitch: 'G5', length: '1/4' },
+              { pitch: 'C6', length: '1/4' },
+            ],
+          },
+          {
+            id: 'bass',
+            clef: 'bass',
+            notes: [
+              { pitch: 'C3', length: '1/2' },
+              { pitch: 'G2', length: '1/2' },
+            ],
+          },
+        ],
+        staffGroups: [{ type: 'brace', voiceIds: ['treble', 'bass'] }],
+      });
+
+      // Locate the two staves' top/bottom Ys from the rendered staff-lines.
+      const staffLineGroups = Array.from(
+        ctx.container.querySelectorAll('.staff-lines')
+      );
+      expect(staffLineGroups.length).toBe(2);
+      // Each staff-lines group has 5 horizontal lines; pull all line y's.
+      const allLineYs = staffLineGroups.flatMap((g) =>
+        Array.from(g.querySelectorAll('line')).map((l) => {
+          // Account for the parent staffGroup transform (translate(0, voiceY))
+          // and the staff-lines transform (translate(0, STAFF_TOP_OFFSET)).
+          // SVG getCTM is unreliable in jsdom, so just parse the chain.
+          const staffGroup = g.closest('g.staff');
+          const staffTr = staffGroup?.getAttribute('transform') || '';
+          const m = /translate\(\s*0\s*,\s*([\d.-]+)\s*\)/.exec(staffTr);
+          const dy = m ? parseFloat(m[1]) : 0;
+          const linesTr = g.getAttribute('transform') || '';
+          const lm = /translate\(\s*0\s*,\s*([\d.-]+)\s*\)/.exec(linesTr);
+          const ldy = lm ? parseFloat(lm[1]) : 0;
+          return parseFloat(l.getAttribute('y1')) + dy + ldy;
+        })
+      );
+      const upperStaffTop = Math.min(...allLineYs);
+      const lowerStaffBottom = Math.max(...allLineYs);
+
+      // There must be EXACTLY ONE final barline group for the system end —
+      // not one per staff. Per-staff finals leave a gap between staves.
+      const finalGroups = Array.from(
+        ctx.container.querySelectorAll('.barline-final')
+      );
+      expect(finalGroups).toHaveLength(1);
+
+      const finalGroup = finalGroups[0];
+      const thick = finalGroup.querySelector('.barline-thick');
+      const thin = finalGroup.querySelector('.barline-thin');
+      expect(thick).not.toBeNull();
+      expect(thin).not.toBeNull();
+
+      // Both the thin and the thick lines must span from the top of the
+      // upper staff to the bottom of the lower staff (with tolerance).
+      const thickY1 = parseFloat(thick.getAttribute('y1'));
+      const thickY2 = parseFloat(thick.getAttribute('y2'));
+      const thinY1 = parseFloat(thin.getAttribute('y1'));
+      const thinY2 = parseFloat(thin.getAttribute('y2'));
+      const tol = 0.5;
+      expect(Math.min(thickY1, thickY2)).toBeLessThanOrEqual(upperStaffTop + tol);
+      expect(Math.max(thickY1, thickY2)).toBeGreaterThanOrEqual(lowerStaffBottom - tol);
+      expect(Math.min(thinY1, thinY2)).toBeLessThanOrEqual(upperStaffTop + tol);
+      expect(Math.max(thinY1, thinY2)).toBeGreaterThanOrEqual(lowerStaffBottom - tol);
+    });
   });
 
   // Per Bravura/SMuFL engravingDefaults (Gould "Behind Bars", Barlines):

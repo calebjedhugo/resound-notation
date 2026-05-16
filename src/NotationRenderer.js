@@ -2398,7 +2398,17 @@ export class NotationRenderer {
       // emit a `final` barline at systemEndX to mark the piece end. Per
       // Gould "Behind Bars", every system terminates with a barline at
       // its right edge; the final system's is thin-thick.
-      if (isLastSystem && systemEndX !== undefined) {
+      //
+      // For voices that belong to a brace/bracket group, the per-staff
+      // final barline is replaced by a single BRIDGED final barline drawn
+      // in the brace-group loop below (so the thick+thin pair runs
+      // continuously through the gap between staves — matching the
+      // bridged interior barlines). Without this skip, the per-staff
+      // pair would still be drawn, leaving a visible gap between staves.
+      const voiceInBraceGroup = braceGroups.some((g) =>
+        g.voiceIds.includes(voice.id)
+      );
+      if (isLastSystem && systemEndX !== undefined && !voiceInBraceGroup) {
         staffGroup.appendChild(
           renderRepeatBarline({ type: 'final', x: systemEndX })
         );
@@ -2465,6 +2475,18 @@ export class NotationRenderer {
       const sharedXPositions = allBarlineXSets[0] || [];
       for (const x of sharedXPositions) {
         this._svg.appendChild(createSharedBarLine({ x, topY, bottomY }));
+      }
+
+      // Bridged final barline on the last system: a single thin+thick pair
+      // at systemEndX whose vertical extent spans from the upper staff's
+      // top line to the lower staff's bottom line. Replaces the per-staff
+      // pair that was suppressed above. Matches Gould "Behind Bars": on
+      // a braced/bracketed system, ALL barlines (including the closing
+      // final pair) are drawn through the gap between staves.
+      if (isLastSystem && systemEndX !== undefined) {
+        this._svg.appendChild(
+          renderRepeatBarline({ type: 'final', x: systemEndX, topY, bottomY })
+        );
       }
     }
 
