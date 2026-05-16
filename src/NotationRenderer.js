@@ -172,6 +172,12 @@ const CLEF_WIDTH = 90;
 // Applied ONLY when the clef is the rightmost prelude element so other
 // header geometries (clef+key-sig, clef+time-sig) are unaffected.
 const CLEF_ONLY_EXTRA_PAD = 31;
+// Gap (px) between the brace's right edge and the system-start barline
+// center. The system-start barline draws at THIN_BARLINE_THICKNESS
+// (3.2 px) centered on x=0, so its left face sits at x ≈ -1.6. A gap of
+// 8 leaves ~6 px of visible whitespace between brace and barline —
+// matches the open feel Gould describes for grand-staff prelude.
+const BRACE_TO_BARLINE_GAP = 8;
 const VOICE_HEIGHT = 200;
 const VOICE_GAP = 40;
 const GRAND_STAFF_GAP = 60;
@@ -626,8 +632,8 @@ export class NotationRenderer {
         const w = getBraceWidth(h);
         if (w > maxBraceWidth) maxBraceWidth = w;
       }
-      // 2 px gap + brace width + 4 px breathing room on the viewBox edge.
-      braceLeftMargin = Math.ceil(2 + maxBraceWidth + 4);
+      // BRACE_TO_BARLINE_GAP + brace width + 4 px viewBox headroom.
+      braceLeftMargin = Math.ceil(BRACE_TO_BARLINE_GAP + maxBraceWidth + 4);
     }
     const bracketLeftMargin = hasBracketGroup ? 50 : braceLeftMargin;
     this._svg = createSvgElement('svg', {
@@ -2434,11 +2440,14 @@ export class NotationRenderer {
         groupEl.setAttribute('transform', `translate(-14, ${bracketTopY})`);
       } else {
         groupEl = createBrace({ height: groupHeight });
-        // Brace sits OUTSIDE the staff with a ~2 px gap. Brace local x
-        // range is [0, ~braceWidth] (where braceWidth scales sub-linearly
-        // with height); position so the brace's right edge lands at x=-2.
+        // Brace sits OUTSIDE the staff. Brace local x range is
+        // [0, ~braceWidth] (where braceWidth scales sub-linearly with
+        // height); position so the brace's right edge lands at
+        // x = -BRACE_TO_BARLINE_GAP. The gap accounts for the
+        // system-start barline's half-thickness (1.6 px at the current
+        // Bravura-spec stroke) plus visible breathing room.
         const braceWidth = getBraceWidth(groupHeight);
-        groupEl.setAttribute('transform', `translate(${-2 - braceWidth}, ${topY})`);
+        groupEl.setAttribute('transform', `translate(${-BRACE_TO_BARLINE_GAP - braceWidth}, ${topY})`);
       }
       this._svg.appendChild(groupEl);
 
