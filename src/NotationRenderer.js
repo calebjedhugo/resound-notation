@@ -1315,6 +1315,16 @@ export class NotationRenderer {
       const endingData = [];
       const activeEndings = new Map();
 
+      // Track the most recently emitted auto-barline so a coincident
+      // repeat-end can REPLACE it (Gould "Behind Bars", Repeats: the
+      // repeat-end IS the measure barline at that position; never draw
+      // both). Reset to null whenever a note/rest/chord renders past it.
+      let pendingAutoBarline = null;
+      // Right visual edge (x of notehead's right side) of the most
+      // recently rendered note/chord — used to verify repeat-end dot
+      // clearance when the barline coincides with a measure boundary.
+      let lastNoteRightEdge = -Infinity;
+
       // Lyric tracking
       const lyricData = [];
 
@@ -1642,34 +1652,87 @@ export class NotationRenderer {
           // the prelude's rightmost visible element (Gould "Behind Bars",
           // Repeats: tight-but-clear clearance).
           const atMusicStart = cursorX === musicStartX;
-          const prePad = atMusicStart
-            ? 0
-            : type === 'repeat-end' || type === 'repeat-both'
-              ? Math.max(BAR_LINE_PADDING, innerAdvance)
-              : BAR_LINE_PADDING;
-          cursorX += prePad;
-          staffGroup.appendChild(renderRepeatBarline({ type, x: cursorX }));
-          // Post-advance: a repeat-start or repeat-both has dots on the
-          // right and needs the inner-pad advance; a repeat-end has only
-          // the thick stroke on the right, so the standard pad suffices.
-          if (type === 'repeat-start' || type === 'repeat-both') {
-            cursorX += innerAdvance;
+          // Distance from a repeat barline's translate x to the CENTER
+          // of the next/prev notehead so the head's left/right edge clears
+          // the dot's visible edge by REPEAT_BARLINE_INNER_PAD. The dot
+          // edge sits DOT_EDGE_OFFSET (15.5) outside the translate; add a
+          // notehead half-width (HEAD_TIP_X) so the EDGE of the head — not
+          // its center — measures the clearance. Gould "Behind Bars"
+          // (Repeats) wants ≥0.5 staff space between dots and the head.
+          const noteCenterAdvance =
+            REPEAT_BARLINE_DOT_EDGE_OFFSET + REPEAT_BARLINE_INNER_PAD + HEAD_TIP_X; // 37.3
+          // For repeat-end the right side has only the thick stroke
+          // (no dots). The thick stroke's outer face sits THICK/2 = 5
+          // outside the translate, so the equivalent right-side advance
+          // is HEAD_TIP_X + THICK/2 + INNER_PAD ≈ 26.8 → round to 28.
+          const thickEdgeAdvance = HEAD_TIP_X + 5 + REPEAT_BARLINE_INNER_PAD; // ~26.8
+
+          // (B) Coincident measure-end + repeat-end: per Gould "Behind
+          // Bars" (Repeats) the repeat-end IS the measure barline at
+          // that position; never draw both. If the previous element
+          // emitted an auto-barline and no note rendered after it,
+          // pop that plain barline and reposition the repeat-end at
+          // a clearance-respecting x (keeping the measure-boundary x
+          // when geometry allows, else nudging right enough to clear
+          // the previous notehead's right edge).
+          const replaceAutoBarline =
+            (type === 'repeat-end' || type === 'repeat-both') &&
+            pendingAutoBarline !== null;
+          if (replaceAutoBarline) {
+            staffGroup.removeChild(pendingAutoBarline.el);
+            const idx = barlineXs.lastIndexOf(pendingAutoBarline.x);
+            if (idx !== -1) barlineXs.splice(idx, 1);
+            const minClearX = lastNoteRightEdge + REPEAT_BARLINE_DOT_EDGE_OFFSET +
+              REPEAT_BARLINE_INNER_PAD;
+            cursorX = Math.max(pendingAutoBarline.x, minClearX);
+            pendingAutoBarline = null;
           } else {
-            cursorX += 15;
+            const prePad = atMusicStart
+              ? 0
+              : type === 'repeat-end' || type === 'repeat-both'
+                ? Math.max(BAR_LINE_PADDING, noteCenterAdvance - HEAD_TIP_X)
+                : BAR_LINE_PADDING;
+            cursorX += prePad;
+          }
+          staffGroup.appendChild(renderRepeatBarline({ type, x: cursorX }));
+          // Post-advance to next note's CENTER. The right side of the
+          // barline has dots (repeat-start / repeat-both) or just the
+          // thick stroke (repeat-end). In both cases the next notehead
+          // must clear the rightmost visible glyph by INNER_PAD.
+          if (type === 'repeat-start' || type === 'repeat-both') {
+            cursorX += noteCenterAdvance;
+          } else {
+            cursorX += thickEdgeAdvance;
           }
           // eslint-disable-next-line no-continue
           continue;
         }
         if (markerType === 'ending') {
           if (element.ending.type === 'start') {
-            activeEndings.set(element.ending.number, { startX: cursorX });
+            // Per Gould "Behind Bars" (Voltas): the bracket's left
+            // tick anchors at the first note's LEFT visual edge so
+            // the hook visually claims the note. cursorX at the start
+            // marker equals the next note's translate-x (center), so
+            // subtract a notehead half-width to land on the head's
+            // left edge.
+            activeEndings.set(element.ending.number, {
+              startX: cursorX - HEAD_TIP_X,
+            });
           } else if (element.ending.type === 'stop') {
             const start = activeEndings.get(element.ending.number);
             if (start) {
+              // Per Gould "Behind Bars" (Voltas): the bracket's right
+              // tick lands at the closing barline of the ending. The
+              // measure-end auto-barline sits at pendingAutoBarline.x;
+              // fall back to the last note's right edge + small pad
+              // when no barline emitted in this measure.
+              const endX = pendingAutoBarline
+                ? pendingAutoBarline.x
+                : lastNoteRightEdge + REPEAT_BARLINE_INNER_PAD;
               endingData.push({
                 number: element.ending.number,
                 startX: start.startX,
-                endX: cursorX,
+                endX,
                 isClosed: true,
               });
               activeEndings.delete(element.ending.number);
@@ -1707,6 +1770,12 @@ export class NotationRenderer {
           // eslint-disable-next-line no-continue
           continue;
         }
+
+        // We're past every marker `continue`: the element is a real
+        // music event (note/chord/rest). Any auto-barline that just
+        // emitted is now "consumed" (no longer immediately followed by
+        // a repeat-end barline), so clear the pending-replacement slot.
+        pendingAutoBarline = null;
 
         // Associate pending dynamics/hairpins with this note's x position.
         // Per Gould "Behind Bars" (Dynamics): each point dynamic sits below
@@ -1868,6 +1937,10 @@ export class NotationRenderer {
               : chordElementBeats;
             beatPosition += chordAdjBeats;
 
+            // Record the chord's rightmost notehead edge so a
+            // coincident repeat-end barline can verify dot clearance.
+            lastNoteRightEdge = cursorX + HEAD_TIP_X;
+
             // Bar line insertion for chords (shared layout: barline x =
             // beatToX(measureEndBeat) + accumulated barlineOffset + padding).
             if (measureLength && chordElementBeats > 0) {
@@ -1875,8 +1948,10 @@ export class NotationRenderer {
               while (cumulativeBeats >= measureLength - 0.001) {
                 barlineOffset += BAR_LINE_PADDING;
                 const barlineX = xForBeat(beatPosition);
-                staffGroup.appendChild(createBarLine(barlineX));
+                const autoBar = createBarLine(barlineX);
+                staffGroup.appendChild(autoBar);
                 barlineXs.push(barlineX);
+                pendingAutoBarline = { el: autoBar, x: barlineX };
                 barlineOffset += BAR_LINE_PADDING;
                 cumulativeBeats -= measureLength;
               }
@@ -2114,14 +2189,22 @@ export class NotationRenderer {
           activeBeamGroupIdx = -1;
         }
 
+        // Record the just-rendered note's rightmost edge so a coincident
+        // repeat-end barline can verify dot clearance (see pendingAutoBarline).
+        if (elementBeats > 0) {
+          lastNoteRightEdge = cursorX + HEAD_TIP_X;
+        }
+
         // Bar line insertion (shared layout)
         if (measureLength && elementBeats > 0) {
           cumulativeBeats += elementBeats;
           while (cumulativeBeats >= measureLength - 0.001) {
             barlineOffset += BAR_LINE_PADDING;
             const barlineX = xForBeat(beatPosition);
-            staffGroup.appendChild(createBarLine(barlineX));
+            const autoBar = createBarLine(barlineX);
+            staffGroup.appendChild(autoBar);
             barlineXs.push(barlineX);
+            pendingAutoBarline = { el: autoBar, x: barlineX };
             barlineOffset += BAR_LINE_PADDING;
             cumulativeBeats -= measureLength;
           }
@@ -2303,10 +2386,18 @@ export class NotationRenderer {
       // Ending (volta bracket) rendering pass
       // Close any open endings (last ending in group has no stop marker)
       for (const [number, data] of activeEndings) {
+        // Open ending (no explicit stop): close at the last note's right
+        // edge plus a small pad so the open bracket extends just past
+        // the final notehead — not all the way to a (non-existent)
+        // barline 30+ px further right.
+        const openEndX =
+          lastNoteRightEdge > -Infinity
+            ? lastNoteRightEdge + REPEAT_BARLINE_INNER_PAD
+            : cursorX;
         endingData.push({
           number,
           startX: data.startX,
-          endX: cursorX,
+          endX: openEndX,
           isClosed: false,
         });
       }

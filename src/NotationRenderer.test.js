@@ -3057,7 +3057,7 @@ describe('NotationRenderer', () => {
       return m ? parseFloat(m[1]) : NaN;
     }
 
-    it('keeps repeat-barline dots ≥0.5 staff space from notes, and volta-2 clear of the end-repeat', () => {
+    it('pins repeat-barline geometry: notehead clearance, single barline at repeat-end, and volta bracket at note left edge', () => {
       ctx.render({
         clef: 'treble',
         timeSignature: [4, 4],
@@ -3086,6 +3086,11 @@ describe('NotationRenderer', () => {
       const DOT_GAP = 5;
       const DOT_RADIUS = 2.5;
       const DOT_EDGE_OFFSET = LINE_GAP + DOT_GAP + DOT_RADIUS; // 15.5
+      const THICK_HALF = 5; // THICK_BARLINE_THICKNESS / 2 (10/2)
+      // Bravura notehead half-width — the notehead's visible left/right
+      // edge sits HEAD_TIP_X from the note's translate-x (center).
+      // Centralized in NotationRenderer.js as `HEAD_TIP_X`.
+      const HEAD_TIP_X = (283 - 295 / 2) * 0.08; // ~10.84 (notehead black tip)
       const MIN_CLEARANCE = 10; // 0.5 staff space at LINE_SPACING=20
 
       const startRepeat = ctx.container.querySelector('.barline-repeat-start');
@@ -3096,45 +3101,106 @@ describe('NotationRenderer', () => {
       const startRepeatX = transformX(startRepeat);
       const endRepeatX = transformX(endRepeat);
 
-      // Collect all note groups in DOM order, with their absolute x.
-      const noteGroups = Array.from(
-        ctx.container.querySelectorAll('g.note')
-      ).map((g) => ({ el: g, x: transformX(g) }));
-      expect(noteGroups.length).toBeGreaterThanOrEqual(8);
+      // System breaking puts the repeat-start and repeat-end in
+      // different `.staff` parents — scope note queries to each
+      // barline's own staff so out-of-system notes don't sneak in.
+      function noteGroupsIn(parentStaff) {
+        return Array.from(parentStaff.querySelectorAll('g.note')).map((g) => ({
+          el: g,
+          x: transformX(g),
+        }));
+      }
+      const startStaff = startRepeat.closest('.staff');
+      const endStaff = endRepeat.closest('.staff');
+      expect(startStaff).not.toBeNull();
+      expect(endStaff).not.toBeNull();
+      const startStaffNotes = noteGroupsIn(startStaff);
+      const endStaffNotes = noteGroupsIn(endStaff);
+      expect(startStaffNotes.length).toBeGreaterThan(0);
+      expect(endStaffNotes.length).toBeGreaterThan(0);
 
-      // (A) First note after start-repeat: the C5 — first note whose x
-      // exceeds the start-repeat's dot right edge.
-      const startDotRightX = startRepeatX + DOT_EDGE_OFFSET;
-      const firstNoteAfterStart = noteGroups.find((n) => n.x > startRepeatX);
+      // ─── (A) Repeat-barline dots / thick stroke clear noteheads ───
+      // Notehead EDGE (not center) must clear the dot/thick edge by
+      // ≥0.5 staff space (Gould "Behind Bars", Repeats).
+      const startDotRightEdge = startRepeatX + DOT_EDGE_OFFSET;
+      const firstNoteAfterStart = startStaffNotes.find((n) => n.x > startRepeatX);
       expect(firstNoteAfterStart).toBeDefined();
-      expect(firstNoteAfterStart.x - startDotRightX).toBeGreaterThanOrEqual(
+      const firstNoteAfterStartLeft = firstNoteAfterStart.x - HEAD_TIP_X;
+      expect(firstNoteAfterStartLeft - startDotRightEdge).toBeGreaterThanOrEqual(
         MIN_CLEARANCE
       );
 
-      // (B) Last note before end-repeat: the volta-1 closing note.
-      //     First note after end-repeat: the volta-2 opening note.
-      const endDotLeftX = endRepeatX - DOT_EDGE_OFFSET;
-      const endDotRightX = endRepeatX + LINE_GAP / 2; // outer edge of thick stroke
-      const noteBeforeEnd = [...noteGroups]
+      const endDotLeftEdge = endRepeatX - DOT_EDGE_OFFSET;
+      const endThickRightEdge = endRepeatX + THICK_HALF;
+      const noteBeforeEnd = [...endStaffNotes]
         .reverse()
         .find((n) => n.x < endRepeatX);
-      const noteAfterEnd = noteGroups.find((n) => n.x > endRepeatX);
+      const noteAfterEnd = endStaffNotes.find((n) => n.x > endRepeatX);
       expect(noteBeforeEnd).toBeDefined();
       expect(noteAfterEnd).toBeDefined();
-      expect(endDotLeftX - noteBeforeEnd.x).toBeGreaterThanOrEqual(
+      const noteBeforeEndRight = noteBeforeEnd.x + HEAD_TIP_X;
+      const noteAfterEndLeft = noteAfterEnd.x - HEAD_TIP_X;
+      expect(endDotLeftEdge - noteBeforeEndRight).toBeGreaterThanOrEqual(
         MIN_CLEARANCE
       );
-      expect(noteAfterEnd.x - endDotRightX).toBeGreaterThanOrEqual(
+      expect(noteAfterEndLeft - endThickRightEdge).toBeGreaterThanOrEqual(
         MIN_CLEARANCE
       );
 
-      // (B cont.) Volta-2 label must not overlap the end-repeat barline.
-      // The "2." text sits at startX + 5 (TEXT_OFFSET_X in Ending.js).
-      const volta2 = ctx.container.querySelector('.ending-2');
+      // ─── (B) Exactly one barline near the repeat-end x ───
+      // A plain `.bar-line` stranded ~60px to the left of a repeat-end
+      // is the bug: the measure-end barline and the repeat-end were
+      // both drawn. Per Gould, the repeat-end IS the measure barline
+      // at that position. Within a 90px window left of the repeat-end
+      // there must be NO plain bar-line in the same system — only the
+      // repeat-end itself.
+      function plainBarXsIn(parentStaff) {
+        // createBarLine emits a `<g class="bar-line"><line x1 x2 ...>`
+        // (no group transform), so x lives on the child line.
+        return Array.from(parentStaff.querySelectorAll('g.bar-line > line')).map(
+          (line) => parseFloat(line.getAttribute('x1'))
+        );
+      }
+      const plainBars = plainBarXsIn(endStaff);
+      const strandedNearRepeatEnd = plainBars.filter(
+        (x) => x < endRepeatX && x > endRepeatX - 90
+      );
+      expect(strandedNearRepeatEnd).toHaveLength(0);
+
+      // ─── (C) Volta brackets start at the first note's LEFT edge ───
+      // The leftmost x in each bracket path should equal the first
+      // note-in-ending's translate-x minus a notehead half-width
+      // (HEAD_TIP_X), within 1px tolerance.
+      function bracketLeftX(endingEl) {
+        const path = endingEl.querySelector('.ending-bracket');
+        const d = path.getAttribute('d');
+        const xs = [];
+        const re = /[ML]\s*(-?\d+(?:\.\d+)?)/g;
+        let m;
+        while ((m = re.exec(d)) !== null) xs.push(parseFloat(m[1]));
+        return Math.min(...xs);
+      }
+
+      // Ending brackets live inside their staff group; scope to the
+      // system containing the repeat-end (system 2 in this score),
+      // where both endings render.
+      const volta1 = endStaff.querySelector('.ending-1');
+      const volta2 = endStaff.querySelector('.ending-2');
+      expect(volta1).not.toBeNull();
       expect(volta2).not.toBeNull();
-      const volta2Text = volta2.querySelector('.ending-number');
-      const volta2LabelX = parseFloat(volta2Text.getAttribute('x'));
-      expect(volta2LabelX).toBeGreaterThan(endDotRightX);
+
+      // System 2 contains: G5 F5 (ending-1), then A5 G5 (ending-2).
+      // Ending-1's first note is the first note in this system;
+      // ending-2's first note is the first note past the repeat-end.
+      const ending1FirstNote = endStaffNotes[0];
+      const ending2FirstNote = endStaffNotes.find((n) => n.x > endRepeatX);
+      expect(ending1FirstNote).toBeDefined();
+      expect(ending2FirstNote).toBeDefined();
+
+      const volta1Left = bracketLeftX(volta1);
+      const volta2Left = bracketLeftX(volta2);
+      expect(volta1Left).toBeCloseTo(ending1FirstNote.x - HEAD_TIP_X, 0);
+      expect(volta2Left).toBeCloseTo(ending2FirstNote.x - HEAD_TIP_X, 0);
     });
   });
 
