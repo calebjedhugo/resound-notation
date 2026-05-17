@@ -58,8 +58,11 @@ export const TIE_MIDPOINT_THICKNESS = 0.22 * LINE_SPACING; // 4.4
 export const REPEAT_BARLINE_DOT_EDGE_OFFSET =
   BARLINE_SEPARATION + 5 + 2.5; // 15.5
 
-// Gould "Behind Bars" (Repeats): repeat-barline dots need ≥0.5 staff
-// space of clearance from any adjacent notehead. Adding this past the
-// dot's right edge (start-repeat) / before the dot's left edge
-// (end-repeat) prevents the dots butting against the next note.
-export const REPEAT_BARLINE_INNER_PAD = 0.5 * LINE_SPACING; // 10
+// Gould "Behind Bars" (Repeats) sets a 0.5-staff-space minimum gap
+// between repeat-barline dots and any adjacent notehead. Finale,
+// Sibelius and Lilypond defaults land closer to 1 full staff space —
+// the dots read as clearly separated from the music rather than
+// jammed against it. Pick the looser convention; still applied past
+// the dot's right edge (start-repeat) and before the dot's left edge
+// (end-repeat).
+export const REPEAT_BARLINE_INNER_PAD = 1.0 * LINE_SPACING; // 20
