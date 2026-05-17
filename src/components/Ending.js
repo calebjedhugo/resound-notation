@@ -6,10 +6,18 @@
 import { createGroup, createPath, createText } from '../lib/svgHelpers.js';
 import { VOLTA_LINE_THICKNESS } from '../lib/engravingDefaults.js';
 
-const BRACKET_Y = -15;
+// Default bracket Y when nothing in the ending's span rises above the
+// staff. Per Gould "Behind Bars" (Voltas): the bracket reads as "above
+// the staff" — so park it ≥1.25 staff space above the top staff line
+// (staff top sits at y=10 in the staff's local coords; bracket at -15
+// = 1.25 spaces above). Callers may pass a lower (more-negative) value
+// to clear high notes; renderEnding never moves the bracket DOWN.
+const BRACKET_DEFAULT_Y = -15;
 const TICK_HEIGHT = 10;
 const TEXT_OFFSET_X = 5;
-const TEXT_Y = -18;
+// "1." / "2." labels sit a constant 3px above the bracket's horizontal
+// line so they rise/fall with the bracket as a unit.
+const TEXT_GAP_ABOVE_BRACKET = 3;
 
 /**
  * Render a volta ending bracket.
@@ -18,9 +26,19 @@ const TEXT_Y = -18;
  * @param {number} params.startX - Start X position
  * @param {number} params.endX - End X position
  * @param {boolean} params.open - True for open bracket (no end tick)
+ * @param {number} [params.bracketY] - Y of the bracket's horizontal
+ *   line in the staff's local coords (negative = above staff top).
+ *   Defaults to BRACKET_DEFAULT_Y. Callers compute a lower value when
+ *   notes/stems/ledgers in the span rise above the staff (Gould
+ *   "Behind Bars", Voltas: ≥1 staff space clearance above the topmost
+ *   visual element).
  * @returns {SVGGElement}
  */
-export function renderEnding({ number, startX, endX, open }) {
+export function renderEnding({ number, startX, endX, open, bracketY }) {
+  const BRACKET_Y = bracketY !== undefined
+    ? Math.min(BRACKET_DEFAULT_Y, bracketY)
+    : BRACKET_DEFAULT_Y;
+  const TEXT_Y = BRACKET_Y - TEXT_GAP_ABOVE_BRACKET;
   const group = createGroup(`ending ending-${number}`, {
     'data-ending-number': String(number),
   });

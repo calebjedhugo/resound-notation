@@ -296,6 +296,51 @@ function lowestExtentOf(element, clef) {
 }
 
 /**
+ * Topmost y of a single music element (note/chord) — mirror of
+ * lowestExtentOf for above-staff layout work (Gould "Behind Bars",
+ * Voltas: the volta bracket clears the highest visual element in its
+ * span by ≥1 staff space).
+ *
+ * Returns the smallest (most-negative) y reached by:
+ *   - the topmost notehead's TOP edge (y − HEAD_TIP_Y),
+ *   - the stem TOP when the chord/note is stem-up
+ *     (highestY − HEAD_TIP_Y − STEM_LENGTH; stem-up uses HEAD_TIP_Y as
+ *     the attachment offset and STEM_LENGTH as the run, matching the
+ *     stem geometry emitted at lines ~1864 / ~2005).
+ * Rests / unknown shapes return +Infinity (no contribution).
+ */
+function topExtentOf(element, clef) {
+  // Notehead vertical half-height: a Bravura black notehead is ~1
+  // staff space tall, so its top edge sits ONE_SPACE/2 above the
+  // note's translate-y center. Using ONE_SPACE keeps this in lockstep
+  // with LINE_SPACING (one source of truth for "1 staff space").
+  const HEAD_HALF_Y = ONE_SPACE / 2; // 10px
+  if (element == null) return Infinity;
+  if (Array.isArray(element)) {
+    const ys = element
+      .filter((n) => n && n.pitch)
+      .map((n) => pitchToStaffY(n.pitch, clef));
+    if (ys.length === 0) return Infinity;
+    const maxY = Math.max(...ys);
+    const minY = Math.min(...ys);
+    const distMax = Math.abs(maxY - MIDDLE_LINE_Y);
+    const distMin = Math.abs(minY - MIDDLE_LINE_Y);
+    const governingY = distMax >= distMin ? maxY : minY;
+    const stemDown = governingY <= MIDDLE_LINE_Y;
+    const headTop = minY - HEAD_HALF_Y;
+    if (stemDown) return headTop;
+    // Stem-up: stem rises by STEM_LENGTH from the highest notehead.
+    return minY - STEM_LENGTH;
+  }
+  if (!element.pitch) return Infinity;
+  const y = pitchToStaffY(element.pitch, clef);
+  const stemDown = y <= MIDDLE_LINE_Y;
+  const headTop = y - HEAD_HALF_Y;
+  if (stemDown) return headTop;
+  return y - STEM_LENGTH;
+}
+
+/**
  * Walk a voice's notes, emitting (startBeat, endBeat, spacing) events for
  * every note/rest/chord/tuplet element. Used to build a shared beat→x
  * map across voices so notes at the same beat align vertically.
@@ -1717,6 +1762,13 @@ export class NotationRenderer {
             // left edge.
             activeEndings.set(element.ending.number, {
               startX: cursorX - HEAD_TIP_X,
+              // Per Gould "Behind Bars" (Voltas): the bracket's Y is
+              // determined by the topmost visual element in the span
+              // (notehead top / stem top / ledger line). Track the
+              // smallest (most-negative, highest on the staff) y here;
+              // each note rendered while this ending is active will
+              // update it (see updateActiveEndingTopY below).
+              topY: Infinity,
             });
           } else if (element.ending.type === 'stop') {
             const start = activeEndings.get(element.ending.number);
@@ -1734,6 +1786,7 @@ export class NotationRenderer {
                 startX: start.startX,
                 endX,
                 isClosed: true,
+                topY: start.topY,
               });
               activeEndings.delete(element.ending.number);
             }
@@ -1776,6 +1829,19 @@ export class NotationRenderer {
         // emitted is now "consumed" (no longer immediately followed by
         // a repeat-end barline), so clear the pending-replacement slot.
         pendingAutoBarline = null;
+
+        // Track topmost visible y across every note/chord rendered
+        // while a volta ending is active. Gould "Behind Bars" (Voltas)
+        // pegs the bracket to ≥1 staff space above the highest element
+        // in the ending's span, picking ONE y for the whole bracket.
+        if (activeEndings.size > 0) {
+          const elementTopY = topExtentOf(element, clef);
+          if (Number.isFinite(elementTopY)) {
+            for (const data of activeEndings.values()) {
+              if (elementTopY < data.topY) data.topY = elementTopY;
+            }
+          }
+        }
 
         // Associate pending dynamics/hairpins with this note's x position.
         // Per Gould "Behind Bars" (Dynamics): each point dynamic sits below
@@ -2399,17 +2465,28 @@ export class NotationRenderer {
           startX: data.startX,
           endX: openEndX,
           isClosed: false,
+          topY: data.topY,
         });
       }
       if (endingData.length > 0) {
         const endingsGroup = createGroup('endings-layer');
+        // Per Gould "Behind Bars" (Voltas): bracket clears the topmost
+        // visual element in its span by ≥1 staff space. With
+        // LINE_SPACING=20 the staff space is 20px → require that gap
+        // between the bracket's horizontal line and the highest
+        // notehead-top / stem-top within the ending.
+        const VOLTA_CLEARANCE = 20;
         for (const ed of endingData) {
+          const computedBracketY = Number.isFinite(ed.topY)
+            ? ed.topY - VOLTA_CLEARANCE
+            : undefined;
           endingsGroup.appendChild(
             renderEnding({
               number: ed.number,
               startX: ed.startX,
               endX: ed.endX,
               open: !ed.isClosed,
+              bracketY: computedBracketY,
             })
           );
         }

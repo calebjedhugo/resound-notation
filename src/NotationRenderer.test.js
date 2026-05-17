@@ -3202,6 +3202,72 @@ describe('NotationRenderer', () => {
       expect(volta1Left).toBeCloseTo(ending1FirstNote.x - HEAD_TIP_X, 0);
       expect(volta2Left).toBeCloseTo(ending2FirstNote.x - HEAD_TIP_X, 0);
     });
+
+    // Gould "Behind Bars" (Voltas): the bracket sits above the staff
+    // AND above the highest note/stem/ledger in its span, with ≥1
+    // staff space of clearance. A fixed BRACKET_Y collides with notes
+    // that ride above the staff — most visibly the 2nd ending's A5
+    // here, whose notehead top sits ~19px above the staff and clips
+    // through a bracket pinned at y=-15.
+    it('lifts each volta bracket clear of high notes within its span', () => {
+      ctx.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { barline: 'repeat-start' },
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'D5', length: '1/4' },
+          { pitch: 'E5', length: '1/4' },
+          { pitch: 'F5', length: '1/4' },
+          { ending: { number: 1, type: 'start' } },
+          { pitch: 'G5', length: '1/2' },
+          { pitch: 'F5', length: '1/2' },
+          { ending: { number: 1, type: 'stop' } },
+          { barline: 'repeat-end' },
+          { ending: { number: 2, type: 'start' } },
+          { pitch: 'A5', length: '1/2' },
+          { pitch: 'G5', length: '1/2' },
+          { barline: 'final' },
+        ],
+      });
+
+      // Find the staff containing both endings (system 2).
+      const volta2 = ctx.container.querySelector('.ending-2');
+      expect(volta2).not.toBeNull();
+      const endStaff = volta2.closest('.staff');
+      const volta1 = endStaff.querySelector('.ending-1');
+      expect(volta1).not.toBeNull();
+
+      // Bracket horizontal-line y = the smaller (more-negative) of the
+      // two y values present in the path's M/L commands. (The tick
+      // bottoms sit BELOW the line at bracketY + TICK_HEIGHT.)
+      function bracketLineY(endingEl) {
+        const d = endingEl.querySelector('.ending-bracket').getAttribute('d');
+        const ys = [];
+        const re = /[ML]\s*-?\d+(?:\.\d+)?\s*,\s*(-?\d+(?:\.\d+)?)/g;
+        let m;
+        while ((m = re.exec(d)) !== null) ys.push(parseFloat(m[1]));
+        return Math.min(...ys);
+      }
+
+      // Notehead is ~1 staff space tall; its top sits ~10px (half a
+      // staff space) above the note's pitch y.
+      const HEAD_HALF_Y = 10;
+      const VOLTA_CLEARANCE = 20; // ≥1 staff space (LINE_SPACING=20).
+
+      // Ending 2 spans A5 (pitchToStaffY = -10) and G5 (= 0). Stems
+      // down (both ≤ MIDDLE_LINE_Y), so the topmost visible element
+      // is the A5 notehead top at y = -10 - 10 = -20.
+      const a5NoteheadTop = -10 - HEAD_HALF_Y;
+      const volta2LineY = bracketLineY(volta2);
+      expect(volta2LineY).toBeLessThanOrEqual(a5NoteheadTop - VOLTA_CLEARANCE);
+
+      // Ending 1 spans G5 (0) and F5 (10). Highest notehead top is
+      // G5 at 0 - 10 = -10.
+      const g5NoteheadTop = 0 - HEAD_HALF_Y;
+      const volta1LineY = bracketLineY(volta1);
+      expect(volta1LineY).toBeLessThanOrEqual(g5NoteheadTop - VOLTA_CLEARANCE);
+    });
   });
 
   describe('tuplet number / beam clearance', () => {
