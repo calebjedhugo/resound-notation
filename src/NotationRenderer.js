@@ -1607,6 +1607,21 @@ export class NotationRenderer {
           // *and* leave REPEAT_BARLINE_INNER_PAD beyond it before the next
           // note lands.
           const type = element.barline;
+          // A user-input `{ barline: 'final' }` semantically marks the end
+          // of the piece; the system-end emit below ALWAYS draws a final
+          // barline at systemEndX on the last system (commit 5279a15).
+          // Drawing one here too would produce two `.barline-final` groups
+          // — one at the natural cursor x (which may sit past the staff
+          // right edge after the wider CLEF_ONLY_EXTRA_PAD) and one at
+          // systemEndX. Per Gould "Behind Bars", every system terminates
+          // with exactly one barline at its right edge; on the final
+          // system that closing barline IS the final. Skip the per-voice
+          // emit and let the system-end logic place the single final pair
+          // at the staff edge.
+          if (type === 'final') {
+            // eslint-disable-next-line no-continue
+            continue;
+          }
           const innerAdvance =
             REPEAT_BARLINE_DOT_EDGE_OFFSET + REPEAT_BARLINE_INNER_PAD; // 25.5
           // Pre-pad: a repeat-end (or repeat-both) needs the inner-pad on

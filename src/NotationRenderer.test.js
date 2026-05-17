@@ -3649,6 +3649,80 @@ describe('NotationRenderer', () => {
       }
     });
 
+    it('on a multi-system piece with a user-input final barline, exactly one final barline lands at the system end and no content overflows the staff', () => {
+      // Repro of the `repeats` preset defect: a piece whose last element is
+      // `{ barline: 'final' }` and that wraps onto multiple systems was
+      // producing TWO `.barline-final` groups on the last system — one at
+      // systemEndX from the always-on system-end emit (commit 5279a15), and
+      // a stranded second one at the per-voice cursor's x where the user's
+      // own `{ barline: 'final' }` marker fired. With the wider
+      // CLEF_ONLY_EXTRA_PAD (a0e0ec1) the per-voice cursor for the final
+      // marker drifted PAST the staff-line right edge on the continuation
+      // system, leaving a thick bar floating in the right margin.
+      const width = 800;
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width,
+      });
+      // 12 measures of 1/4 notes + an explicit final barline — wraps to
+      // multiple systems at width=800.
+      const notes = [];
+      for (let m = 0; m < 12; m += 1) {
+        for (let b = 0; b < 4; b += 1) {
+          notes.push({ pitch: 'C5', length: '1/4' });
+        }
+      }
+      notes.push({ barline: 'final' });
+      const svg = renderer.render({ timeSignature: [4, 4], notes });
+
+      // Must actually wrap — otherwise this isn't testing the defect.
+      const systems = svg.querySelectorAll('g[data-system-index]');
+      expect(systems.length).toBeGreaterThanOrEqual(2);
+
+      // Exactly one final barline on the last system.
+      const lastSystemIdx = systems.length - 1;
+      const lastSystem = svg.querySelector(
+        `g[data-system-index="${lastSystemIdx}"]`
+      );
+      const finals = lastSystem.querySelectorAll('.barline-final');
+      // Also count any finals attached at the SVG level for braced groups
+      // (not applicable here, but a bridged-group fix shouldn't fool us):
+      const finalsAll = Array.from(
+        svg.querySelectorAll('.barline-final')
+      ).filter((g) => {
+        const tr = g.getAttribute('transform') || '';
+        const m = /translate\(\s*([-\d.]+)/.exec(tr);
+        return m !== null;
+      });
+      // The piece ends here, so this last system holds the only finals.
+      expect(finalsAll.length).toBe(1);
+      expect(finals.length).toBe(1);
+
+      // Read the staff-line right edge on the last system.
+      const staffLine = lastSystem.querySelector('.staff-line');
+      const staffRightX = parseFloat(staffLine.getAttribute('x2'));
+
+      // The final barline must land AT (or within tolerance of) the staff
+      // right edge — never past it.
+      const finalEl = finals[0];
+      const finalX = parseFloat(
+        /translate\(\s*([-\d.]+)/.exec(finalEl.getAttribute('transform'))[1]
+      );
+      expect(finalX).toBeLessThanOrEqual(staffRightX + 0.5);
+
+      // No rendered SVG element (barline, note, etc.) on the last system
+      // is translated past the staff-line right edge.
+      const translated = lastSystem.querySelectorAll('[transform]');
+      for (const el of translated) {
+        const tr = el.getAttribute('transform') || '';
+        const m = /translate\(\s*([-\d.]+)/.exec(tr);
+        if (!m) continue;
+        const x = parseFloat(m[1]);
+        // Allow tiny float slack at the right edge itself.
+        expect(x).toBeLessThanOrEqual(staffRightX + 0.5);
+      }
+    });
+
     it('keeps voices synchronized across system boundaries — Y-bucketing (synthetic 2-voice)', () => {
       const renderer = new NotationRenderer({
         container: document.createElement('div'),
