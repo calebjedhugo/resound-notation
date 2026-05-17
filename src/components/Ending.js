@@ -15,9 +15,10 @@ import { VOLTA_LINE_THICKNESS } from '../lib/engravingDefaults.js';
 const BRACKET_DEFAULT_Y = -15;
 const TICK_HEIGHT = 10;
 const TEXT_OFFSET_X = 5;
-// "1." / "2." labels sit a constant 3px above the bracket's horizontal
-// line so they rise/fall with the bracket as a unit.
-const TEXT_GAP_ABOVE_BRACKET = 3;
+// "1." / "2." labels sit a small gap above the bracket's horizontal
+// line so they read as clearly separated from the line. The labels
+// rise/fall with the bracket as a unit.
+const TEXT_GAP_ABOVE_BRACKET = 6;
 
 /**
  * Render a volta ending bracket.
