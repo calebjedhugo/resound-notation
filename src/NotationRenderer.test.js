@@ -428,6 +428,55 @@ describe('NotationRenderer', () => {
       expect(gap).toBeGreaterThanOrEqual(30);
     });
 
+    // When the first music element after the prelude is a barline (e.g.
+    // a leading `repeat-start`), the gap between the time signature's
+    // visible right edge and that barline's thick stroke should sit at
+    // Gould "Behind Bars" clearance: ~1 staff space (≥14 / ≤30 px). The
+    // TIME_SIG_PADDING value is sized for a NOTE landing (it includes a
+    // notehead-half-width term plus visual gap); stacking the barline's
+    // own BAR_LINE_PADDING on top double-pads and pushes the entire
+    // post-prelude content far to the right.
+    it('places a leading repeat-start barline tight to the time signature (Gould clearance)', () => {
+      ctx.render({
+        voices: [{
+          timeSignature: [4, 4],
+          notes: [
+            { barline: 'repeat-start' },
+            { pitch: 'C5', length: '1/4' },
+            { pitch: 'D5', length: '1/4' },
+            { pitch: 'E5', length: '1/4' },
+            { pitch: 'F5', length: '1/4' },
+          ],
+        }],
+      });
+      const sig = ctx.container.querySelector('.time-signature');
+      expect(sig).not.toBeNull();
+      const sigTx = parseFloat(
+        sig.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]
+      );
+      // Bravura '4' visible xMax = 450 fu × 0.08 = 36 px past the
+      // time-sig group's local origin (digits are centered on a
+      // single-digit numerator, so origin == digit centerline).
+      const TS_DIGIT_4_XMAX_PX = 450 * 0.08;
+      const sigRight = sigTx + TS_DIGIT_4_XMAX_PX;
+
+      const repeatStart = ctx.container.querySelector('.barline-repeat-start');
+      expect(repeatStart).not.toBeNull();
+      const repeatTx = parseFloat(
+        repeatStart.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]
+      );
+      // Thick stroke left face = group x − THICK_BARLINE_THICKNESS/2 (10/2 = 5).
+      const THICK_BARLINE_LEFT_OFFSET = 5;
+      const thickLeft = repeatTx - THICK_BARLINE_LEFT_OFFSET;
+
+      const gap = thickLeft - sigRight;
+      // Gould "Behind Bars" (Repeats / Spacing): the start-repeat sits
+      // ~1 staff space (20 px) past the time-sig digits. Allow a
+      // tolerance of [0.7, 1.5] staff spaces.
+      expect(gap).toBeGreaterThanOrEqual(14);
+      expect(gap).toBeLessThanOrEqual(30);
+    });
+
     // Time signatures must render as Bravura SMuFL path glyphs, not as
     // <text> elements. Native text renders inconsistently across
     // browsers, has no engraved feel, and ignores the staff-space size

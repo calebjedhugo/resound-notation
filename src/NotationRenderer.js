@@ -1629,8 +1629,22 @@ export class NotationRenderer {
           // dots. BAR_LINE_PADDING (30) is wider than 25.5 so this only
           // matters when the previous element abuts unusually close, but
           // we explicitly take max() to keep the geometry honest.
-          const prePad =
-            type === 'repeat-end' || type === 'repeat-both'
+          //
+          // Special case: when this barline is the FIRST music element
+          // after the prelude (cursorX still sits at musicStartX), the
+          // prelude already opened a note-sized gap (TIME_SIG_PADDING /
+          // CLEF_ONLY_EXTRA_PAD include a notehead-half-width term plus
+          // ~1 staff space of clearance, sized for a NOTE landing at
+          // musicStartX). Stacking another BAR_LINE_PADDING on top would
+          // double-pad the prelude→barline gap to ~3.5 staff spaces.
+          // Drop the pre-pad so the barline lands at musicStartX itself —
+          // its thick stroke's left face then sits ~1 staff space past
+          // the prelude's rightmost visible element (Gould "Behind Bars",
+          // Repeats: tight-but-clear clearance).
+          const atMusicStart = cursorX === musicStartX;
+          const prePad = atMusicStart
+            ? 0
+            : type === 'repeat-end' || type === 'repeat-both'
               ? Math.max(BAR_LINE_PADDING, innerAdvance)
               : BAR_LINE_PADDING;
           cursorX += prePad;
