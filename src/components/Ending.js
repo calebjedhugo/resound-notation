@@ -68,7 +68,7 @@ export function renderEnding({ number, startX, endX, open, bracketY }) {
   group.appendChild(
     createText(`${number}.`, startX + TEXT_OFFSET_X, TEXT_Y, {
       class: 'ending-number',
-      'font-size': '12',
+      'font-size': '18',
       'font-style': 'italic',
       fill: 'currentColor',
     })
