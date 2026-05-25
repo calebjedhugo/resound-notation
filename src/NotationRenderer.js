@@ -1400,6 +1400,34 @@ export class NotationRenderer {
       // repeat-end IS the measure barline at that position; never draw
       // both). Reset to null whenever a note/rest/chord renders past it.
       let pendingAutoBarline = null;
+
+      // Emit a closing auto-barline for a measure boundary, clamping it
+      // to the system right edge so the closing barline of a wrapped
+      // system always aligns with the staff terminus (Gould "Behind
+      // Bars", system breaks: no glyph past the staff right edge). When
+      // an explicit `barline: 'final'` will be drawn at systemEndX on the
+      // last system, suppress the auto-bar entirely to avoid a duplicate
+      // pair at the same x.
+      const emitAutoBarline = (rawX) => {
+        if (
+          isLastSystem &&
+          systemEndX !== undefined &&
+          rawX >= systemEndX - 0.5
+        ) {
+          // The system-end `final` (renderRepeatBarline at systemEndX)
+          // takes over; skip the plain auto-bar.
+          return null;
+        }
+        const clampedX =
+          systemEndX !== undefined && rawX > systemEndX
+            ? systemEndX
+            : rawX;
+        const el = createBarLine(clampedX);
+        staffGroup.appendChild(el);
+        barlineXs.push(clampedX);
+        pendingAutoBarline = { el, x: clampedX };
+        return clampedX;
+      };
       // Right visual edge (x of notehead's right side) of the most
       // recently rendered note/chord — used to verify repeat-end dot
       // clearance when the barline coincides with a measure boundary.
@@ -2052,10 +2080,7 @@ export class NotationRenderer {
                 const barlineX = isShared
                   ? xForBeat(beatPosition)
                   : xForBeat(beatPosition) - BAR_LINE_PADDING;
-                const autoBar = createBarLine(barlineX);
-                staffGroup.appendChild(autoBar);
-                barlineXs.push(barlineX);
-                pendingAutoBarline = { el: autoBar, x: barlineX };
+                emitAutoBarline(barlineX);
                 if (isShared) barlineOffset += BAR_LINE_PADDING;
                 cumulativeBeats -= measureLength;
               }
@@ -2308,10 +2333,7 @@ export class NotationRenderer {
             const barlineX = isShared
               ? xForBeat(beatPosition)
               : xForBeat(beatPosition) - BAR_LINE_PADDING;
-            const autoBar = createBarLine(barlineX);
-            staffGroup.appendChild(autoBar);
-            barlineXs.push(barlineX);
-            pendingAutoBarline = { el: autoBar, x: barlineX };
+            emitAutoBarline(barlineX);
             if (isShared) barlineOffset += BAR_LINE_PADDING;
             cumulativeBeats -= measureLength;
           }

@@ -1437,6 +1437,92 @@ describe('NotationRenderer', () => {
         expect(staffRightX).toBeGreaterThanOrEqual(maxBarX - 0.5);
       }
     });
+
+    it('clamps the closing barline of a wrapped system to the staff terminus', () => {
+      // Engraving convention (Gould, Behind Bars, ch. on system breaks):
+      // every system terminates with a barline aligned with the right end
+      // of the staff lines; no glyph extends past the staff terminus and
+      // no excessive gap separates the last note from that closing
+      // barline.
+      //
+      // Regression: in the `repeats` preset at width=600, the first
+      // system's auto-emitted closing barline drifted to x≈625 while the
+      // staff lines stopped at x=600. Root cause: with `sharedBarlineBeats`
+      // including the system-end beat, the shared-path adds a +BAR_LINE_PADDING
+      // pre-pad to barlineOffset before placing the closing barline, pushing
+      // it past the natural music end. At system end there are no
+      // subsequent notes for the offset to align with, so the barline
+      // simply leaks past the staff right edge.
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 600,
+      });
+      const svg = renderer.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { barline: 'repeat-start' },
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'D5', length: '1/4' },
+          { pitch: 'E5', length: '1/4' },
+          { pitch: 'F5', length: '1/4' },
+          { ending: { number: 1, type: 'start' } },
+          { pitch: 'G5', length: '1/2' },
+          { pitch: 'F5', length: '1/2' },
+          { ending: { number: 1, type: 'stop' } },
+          { barline: 'repeat-end' },
+          { ending: { number: 2, type: 'start' } },
+          { pitch: 'A5', length: '1/2' },
+          { pitch: 'G5', length: '1/2' },
+          { barline: 'final' },
+        ],
+      });
+
+      const staves = svg.querySelectorAll('g.staff');
+      expect(staves.length).toBeGreaterThanOrEqual(2);
+      const firstStaff = staves[0];
+
+      // Staff terminus = right edge of the staff lines.
+      const staffLine = firstStaff.querySelector('line.staff-line');
+      const staffRightX = parseFloat(staffLine.getAttribute('x2'));
+
+      // Gather every barline x in this system: thin auto-barlines plus any
+      // repeat/final groups whose x is on the group's transform.
+      const xFromTranslate = (el) => {
+        const t = el.getAttribute('transform') || '';
+        const m = /translate\(([-\d.]+)/.exec(t);
+        return m ? parseFloat(m[1]) : 0;
+      };
+      const barXs = [];
+      for (const bl of firstStaff.querySelectorAll('g.bar-line line')) {
+        barXs.push(parseFloat(bl.getAttribute('x1')));
+      }
+      for (const bl of firstStaff.querySelectorAll(
+        '.barline-final, [class*="barline-repeat"]',
+      )) {
+        barXs.push(xFromTranslate(bl));
+      }
+      expect(barXs.length).toBeGreaterThan(0);
+
+      // (a) No barline glyph past the staff terminus.
+      const maxBarX = Math.max(...barXs);
+      expect(maxBarX).toBeLessThanOrEqual(staffRightX + 0.5);
+
+      // (b) The closing barline of this (mid-piece) system sits AT the
+      // staff terminus, not far inside. Allow a few px for half-thick
+      // stroke geometry; flag drifts of >10px back from the edge.
+      const closingBarX = maxBarX;
+      expect(staffRightX - closingBarX).toBeLessThanOrEqual(10);
+
+      // (c) The last sounding note clears the closing barline by at least
+      // a sensible end-of-system padding (~half a staff space) — neither
+      // crammed nor with a huge gap.
+      const notes = firstStaff.querySelectorAll('g.note');
+      expect(notes.length).toBeGreaterThan(0);
+      const lastNote = notes[notes.length - 1];
+      const lastNoteX = xFromTranslate(lastNote);
+      expect(closingBarX - lastNoteX).toBeGreaterThanOrEqual(10);
+    });
   });
 
   describe('time signature rendering', () => {
