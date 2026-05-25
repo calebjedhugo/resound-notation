@@ -5292,6 +5292,83 @@ describe('NotationRenderer', () => {
       expect(ratio).toBeLessThan(1.5);
     });
 
+    // The CLOSING system barline of every non-final, multi-measure
+    // system obeys the same `max(MIN_BARLINE_PADDING, BARLINE_GAP_RATIO
+    // * medianGap)` rule as every interior measure barline. Previously
+    // the renderer reserved a fixed `END_OF_SYSTEM_NOTE_ROOM = 2 *
+    // BAR_LINE_PADDING` for the trailing region AND let the trailing
+    // duration-spring stretch alongside the inter-note ones — so on a
+    // wide system the last-note → closing-barline daylight ended up
+    // several times the floor (180 px observed at ottava-showcase
+    // width=1200, vs the 40 px floor the rule prescribes). Per Gould
+    // "Behind Bars" (Spacing) and Lilypond's `BarLine.padding`, the
+    // closing barline is a regular spring boundary, not a stretched
+    // duration spring.
+    it('scales the trailing (last-note → closing-barline) gap by the same rule as interior barlines', () => {
+      // 16-quarter 4/4 fixture: at width=1200 the optimizer wraps into
+      // two systems of 2 measures each. System 0 is NOT the last
+      // system, so it gets full right-justification — the case that
+      // exposed the trailing-gap bug.
+      const notes = [];
+      for (let i = 0; i < 16; i += 1) {
+        notes.push({ pitch: 'C5', length: '1/4' });
+      }
+      const piece = {
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes,
+      };
+      const HEAD_TIP_X = 11.8;
+
+      const r = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 1200,
+      });
+      const svg = r.render(piece);
+
+      // Use only the first system; this single-measureless-of-piece
+      // case wraps into 1 system for an 8-quarter 4/4 piece.
+      const systems = svg.querySelectorAll('g[data-system-index]');
+      const sys0 = systems[0];
+
+      const noteGroups = sys0.querySelectorAll('g.note, g.chord');
+      const xs = Array.from(noteGroups)
+        .map((g) => parseFloat(/translate\(\s*([-\d.]+)/.exec(g.getAttribute('transform'))[1]))
+        .sort((a, b) => a - b);
+      expect(xs.length).toBe(8);
+
+      const lastNoteX = xs[xs.length - 1];
+      // Inter-note gap inside the LAST measure (notes 5..7 → gaps
+      // between xs[4..7]). Equal-duration quarters → uniform gaps
+      // within the measure (proportional-slack invariant).
+      const interGap = xs[7] - xs[6];
+
+      // The closing barline of the system: the rightmost bar-line in
+      // the system that sits past the last note.
+      const bars = Array.from(sys0.querySelectorAll('g.bar-line line'))
+        .map((l) => parseFloat(l.getAttribute('x1')));
+      const closingBarX = Math.max(...bars.filter((x) => x > lastNoteX));
+
+      const visibleTrailingGap = closingBarX - (lastNoteX + HEAD_TIP_X);
+
+      // Floor: visible trailing daylight ≥ MIN_BARLINE_PADDING (40 px),
+      // with 1.5 px float slack — same floor every interior boundary
+      // honours.
+      expect(visibleTrailingGap).toBeGreaterThanOrEqual(40 - 1.5);
+
+      // Ceiling: trailing gap ≤ max(40, 0.35 * interNote) + small
+      // tolerance. Above this the trailing region has hijacked slack
+      // that should have flowed into the inter-note springs.
+      const ceiling = Math.max(40, 0.35 * interGap) + 5;
+      expect(visibleTrailingGap).toBeLessThanOrEqual(ceiling);
+
+      // Ratio band: inter-note gap is 2-3.5× the visible trailing gap
+      // — the same band the interior-barline-padding test enforces.
+      const ratio = interGap / visibleTrailingGap;
+      expect(ratio).toBeGreaterThanOrEqual(2.0);
+      expect(ratio).toBeLessThanOrEqual(3.5);
+    });
+
     it('scales note-to-barline padding with system stretch (visible glyph-edge floor + ratio band)', () => {
       // 6 quarters in 4/4 (matches dev/presets/spacing-wrap-quarters-6).
       //

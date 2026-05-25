@@ -1079,17 +1079,14 @@ export class NotationRenderer {
         // stretchable budget so the system's rightmost glyph still lands
         // near the staff terminus.
         //
-        // END-OF-SYSTEM RESERVATION: reserve 2*BAR_LINE_PADDING for the
-        // closing barline at the staff right edge — the same room a
-        // `final` / `repeat-end` glyph needs at its inner face, and the
-        // same room an auto-thin "system continuation bar" (Gould,
-        // "Behind Bars", Systems & Spacing — every non-final system
-        // terminates with a barline at the staff right edge) needs so
-        // the last note has a clearly visible engraver's gap to its
-        // left. ~60px centre-inset → notehead right edge ~48px clear of
-        // the staff terminus, ~30px (one BAR_LINE_PADDING) clear of the
-        // closing-bar glyph itself.
-        const END_OF_SYSTEM_NOTE_ROOM = 2 * BAR_LINE_PADDING;
+        // END-OF-SYSTEM RESERVATION: the closing barline of every
+        // non-final system gets the SAME scaling pad as every interior
+        // boundary — `barlineGap + HEAD_TIP_X` on the inner side, no
+        // outer side because no note follows. Computed inside
+        // `solveWithGap` from the current `gap` so pass 1 (floor) and
+        // pass 2 (scaled) both see the right reservation. The trailing
+        // spring is zeroed (see `trailingSpringIndex` below) so the
+        // freed slack flows into the inter-note springs.
         const sortedBeats = [...naturalBeatToX.keys()].sort((a, b) => a - b);
         // Identify which beats sit on interior measure boundaries (a
         // positive integer-multiple of the shared measure length, but
@@ -1108,6 +1105,43 @@ export class NotationRenderer {
         const allSprings = [];
         let fixedBoundaryNatSum = 0;
         let originalBoundaryNatSum = 0;
+        // Pre-count interior boundaries to decide whether to apply the
+        // trailing-spring cap (see comment below).
+        let interiorBoundariesInSprings = 0;
+        for (let i = 0; i < sortedBeats.length - 1; i += 1) {
+          if (isInteriorBoundary(sortedBeats[i + 1])) interiorBoundariesInSprings += 1;
+        }
+        // The LAST spring in `sortedBeats` runs from the last sounding
+        // event's start beat to its end beat — there's no rendered glyph
+        // on the right end of that spring. Historically we let it
+        // stretch like any other, then reserved a fixed
+        // `END_OF_SYSTEM_NOTE_ROOM` on top, with the result that on a
+        // wide system with multiple measures the last-note → closing-
+        // barline daylight ballooned to several inter-note gaps. Per
+        // Gould "Behind Bars" (Spacing) and Lilypond's `BarLine.padding`,
+        // the gap between the last sounding event and the system's
+        // closing barline obeys the SAME scaling-pad rule as every
+        // interior boundary (`max(MIN_BARLINE_PADDING, BARLINE_GAP_RATIO
+        // * medianGap)`), not a stretched duration spring. So zero the
+        // trailing spring (K=0, natLength=0) and let the closing barline
+        // emit at `lastNote + barlineGap + HEAD_TIP_X` directly, freeing
+        // the would-be trailing-spring slack to redistribute into the
+        // inter-note springs.
+        //
+        // EXCEPTION — systems with fewer than two stretchable inter-note
+        // springs (e.g. a 2-note volta ending: 1 inter-note + 1 trailing):
+        // zeroing the trailing spring would dump 100% of system slack
+        // into the single remaining stretchable spring, producing a
+        // "first note + huge gap + last note" layout that looks worse
+        // than the daylight-tail it would have replaced. Keep the
+        // trailing spring stretchable in that case so slack splits
+        // between the two halves of the bar. Number of stretchable
+        // inter-note springs = (total springs) - (interior boundary
+        // springs, K=0) - (trailing spring, candidate for zeroing).
+        const stretchableInterNoteSprings =
+          (sortedBeats.length - 1) - interiorBoundariesInSprings - 1;
+        const trailingSpringIndex =
+          stretchableInterNoteSprings >= 2 ? sortedBeats.length - 2 : -1;
         for (let i = 0; i < sortedBeats.length - 1; i += 1) {
           const a = sortedBeats[i];
           const z = sortedBeats[i + 1];
@@ -1119,6 +1153,11 @@ export class NotationRenderer {
             allSprings.push({ natLength: BARLINE_SPRING_NAT_LENGTH, K: 0 });
             fixedBoundaryNatSum += BARLINE_SPRING_NAT_LENGTH;
             originalBoundaryNatSum += natLength;
+          } else if (i === trailingSpringIndex) {
+            // Trailing spring → zero. The closing-barline reservation in
+            // `solveWithGap` accounts for the room this spring used to
+            // occupy.
+            allSprings.push({ natLength: 0, K: 0 });
           } else {
             // Spring stretchability K = natLength. Each spring stretches by
             // a fraction proportional to its natural length, so the ratio
@@ -1215,10 +1254,25 @@ export class NotationRenderer {
           // boundary = 2 * (gap + HEAD_TIP_X).
           const interiorBarlineOffset =
             2 * (gap + HEAD_TIP_X) * interiorBoundaryCount;
+          // Trailing reservation: ONE side of the rule (last note →
+          // closing barline). Mirrors the pre-half of an interior
+          // boundary — no post-half because no note follows the closing
+          // barline. Replaces the old fixed `END_OF_SYSTEM_NOTE_ROOM
+          // = 2 * BAR_LINE_PADDING` that pinned the closing bar to
+          // `systemEndX - 60`, leaking the trailing spring's
+          // duration-proportional stretch into the visible daylight.
+          // Only applies when the trailing spring has been zeroed
+          // (multi-measure systems); for single-measure systems the
+          // trailing spring carries the reservation itself by absorbing
+          // a duration-weighted share of slack.
+          const trailingBarlineOffset =
+            trailingSpringIndex >= 0
+              ? gap + HEAD_TIP_X
+              : 2 * BAR_LINE_PADDING;
           const stretchableBudget =
             systemRightX - perSystemMusicStartX
             - leadingMusicOffset
-            - END_OF_SYSTEM_NOTE_ROOM
+            - trailingBarlineOffset
             - interiorBarlineOffset;
           const gaps = justifySystemSpring(
             allSprings,
