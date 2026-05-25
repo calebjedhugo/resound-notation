@@ -1017,19 +1017,40 @@ export class NotationRenderer {
         // Each gap between consecutive beats in the natural layout is a
         // spring whose K scales with log2(durationBeats / quarter) — longer
         // durations soak more of the available slack, mirroring Gould
-        // "Behind Bars" (Spacing) and Lilypond's spacing model.
+        // "Behind Bars" (Spacing), Lilypond, and Dorico.
         //
-        // RIGHT-JUSTIFICATION (Gould "Behind Bars", Systems): every system
-        // EXCEPT the last must terminate with its rightmost rendered
-        // element at the staff-line right edge. The trailing gap from the
-        // last note's beat (b_{N-1}) to its endBeat (b_N) is the last
-        // note's natural breathing space; it carries no visible glyph, so
-        // any slack absorbed there leaves a blank hole on the right of
-        // the system. We therefore stretch only the INTER-NOTE springs
-        // (b_0..b_{N-1}) and leave the trailing gap at its natural
-        // length. The auto-barline emitted at xForBeat(b_N)-BAR_LINE_PADDING
-        // then lands at the staff terminus (with emitAutoBarline clamping
-        // any small over-shoot).
+        // PROPORTIONAL JUSTIFICATION: every inter-event spring (including
+        // the trailing spring after the last sounding note) participates
+        // in stretch, weighted by its K. This is the load-bearing rule —
+        // dropping the trailing spring or pinning the last note to a
+        // hard-coded target produces "first note + huge middle gap + last
+        // note" layouts on sparse systems (two-note voltas, etc.), since
+        // the slack collapses into the one remaining spring. By keeping
+        // every spring in play, slack absorbs by stretchability across
+        // ALL gaps so the rendering reads as evenly spaced.
+        //
+        // LEADING-OFFSET CORRECTION: the renderer's voice loop advances
+        // cursorX past leading markers (repeat-start barline at music
+        // start, etc.) WITHOUT updating `barlineOffset`. The first note
+        // therefore renders at musicStartX + leadingOffset, while the
+        // SECOND note renders at xForBeat(b_1) = stretchedBeatToX[b_1]
+        // + 0. If we anchor stretchedBeatToX[b_0] = musicStartX, the
+        // visible gap between note 1 and note 2 is (g_0 − leadingOffset)
+        // — the leading-barline width gets stolen out of the first
+        // spring. We compensate by anchoring stretchedBeatToX[b_0] =
+        // musicStartX + leadingOffset and subtracting leadingOffset from
+        // the stretchable budget.
+        //
+        // INTERIOR BARLINE CORRECTION: every interior measure boundary
+        // contributes 2*BAR_LINE_PADDING of cursor advance the voice loop
+        // adds at render time (pre + post). Subtract that from the
+        // stretchable budget so the system's rightmost glyph still lands
+        // near the staff terminus.
+        //
+        // END-OF-SYSTEM RESERVATION: reserve ≈2*BAR_LINE_PADDING for the
+        // closing barline (final, repeat-end, or auto thin bar) at the
+        // staff right edge.
+        const END_OF_SYSTEM_NOTE_ROOM = 2 * BAR_LINE_PADDING;
         const sortedBeats = [...naturalBeatToX.keys()].sort((a, b) => a - b);
         const allSprings = [];
         for (let i = 0; i < sortedBeats.length - 1; i += 1) {
@@ -1042,26 +1063,36 @@ export class NotationRenderer {
           const K = Math.max(springStretchability(durationBeats), 1);
           allSprings.push({ natLength, K });
         }
-        // Trailing spring (after the last sounding note) — held at
-        // natural length so the right-justified last note doesn't get
-        // pushed past the staff terminus.
-        const trailingSpringNat = allSprings.length > 0
-          ? allSprings[allSprings.length - 1].natLength
-          : 0;
-        const stretchedSprings = allSprings.slice(0, -1);
-        // Target rendered x for the LAST sounding beat (b_{N-1}) — the
-        // staff-line right edge minus an end-of-system reservation that
-        // covers the closing barline's pre-pad and glyph width
-        // (≈2*BAR_LINE_PADDING). Right-justification (Gould "Behind
-        // Bars", Systems) calls for the rightmost rendered glyph to sit
-        // at the staff terminus, with the closing barline coincident.
-        const END_OF_SYSTEM_NOTE_ROOM = 2 * BAR_LINE_PADDING;
-        // The renderer adds barlineOffset at every measure boundary the
-        // voice loop crosses. Boundaries crossed BEFORE the last note
-        // each contribute 2*BAR_LINE_PADDING (pre + post). Count those
-        // by walking `sortedBeats`: every beat that is a non-zero
-        // measure-length multiple AND lies strictly before the last
-        // beat counts.
+
+        // Leading-offset detection: scan the first sliced voice for
+        // non-sounding markers preceding the first note/rest/chord and
+        // sum their cursorX advance. Mirrors the voice-loop's `cursorX
+        // +=` advances for those marker types. Only the markers that
+        // appear at music start before any sounding event count.
+        let leadingMusicOffset = 0;
+        const firstSliceWithNotes = slicedVoiceNotes.find((n) => n && n.length > 0);
+        if (firstSliceWithNotes) {
+          for (const el of firstSliceWithNotes) {
+            if (getMarkerType(el) === null && el && (el.length || el.position !== undefined || Array.isArray(el))) {
+              break;
+            }
+            if (el && el.barline === 'repeat-start') {
+              // Matches voice-loop: prePad=0 at music start, then
+              // cursorX += noteCenterAdvance.
+              leadingMusicOffset +=
+                REPEAT_BARLINE_DOT_EDGE_OFFSET + REPEAT_BARLINE_INNER_PAD + HEAD_TIP_X;
+            } else if (el && el.barline === 'repeat-both') {
+              leadingMusicOffset +=
+                REPEAT_BARLINE_DOT_EDGE_OFFSET + REPEAT_BARLINE_INNER_PAD + HEAD_TIP_X;
+            }
+            // Other leading markers (ending start, tempo, dynamic,
+            // rehearsal) don't advance cursorX in a way that compresses
+            // the first spring (they translate at cursorX without
+            // post-advancing the cursor, OR their pre-render cursor
+            // sits where the first note will land anyway).
+          }
+        }
+
         const measureLengthForOffset = sharedMeasureLength;
         let interiorBoundaryCount = 0;
         if (measureLengthForOffset && sortedBeats.length > 1) {
@@ -1075,23 +1106,25 @@ export class NotationRenderer {
           }
         }
         const interiorBarlineOffset = 2 * BAR_LINE_PADDING * interiorBoundaryCount;
-        const targetInterNoteWidth =
-          systemRightX - perSystemMusicStartX - END_OF_SYSTEM_NOTE_ROOM - interiorBarlineOffset;
-        const stretchedInterNoteGaps = justifySystemSpring(
-          stretchedSprings,
+        const stretchableBudget =
+          systemRightX - perSystemMusicStartX
+          - leadingMusicOffset
+          - END_OF_SYSTEM_NOTE_ROOM
+          - interiorBarlineOffset;
+        const stretchedGaps = justifySystemSpring(
+          allSprings,
           0,
-          targetInterNoteWidth,
+          stretchableBudget,
           {
             isLast: false, // last-system gating already handled by `justified` above
             measureCount: measureCountInSystem,
           }
         );
-        // Reassemble the gap list — stretched inter-note gaps followed
-        // by the natural-length trailing gap.
-        const stretchedGaps = stretchedInterNoteGaps.slice();
-        if (allSprings.length > 0) stretchedGaps.push(trailingSpringNat);
         const stretchedBeatToX = new Map();
-        let runX = perSystemMusicStartX;
+        // Anchor the first beat past the leading-barline advance so the
+        // first inter-note spring's full stretched length materialises
+        // as visible space between note 1 and note 2.
+        let runX = perSystemMusicStartX + leadingMusicOffset;
         if (sortedBeats.length > 0) {
           stretchedBeatToX.set(sortedBeats[0], runX);
           for (let i = 0; i < stretchedGaps.length; i += 1) {

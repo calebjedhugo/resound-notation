@@ -4116,13 +4116,18 @@ describe('NotationRenderer', () => {
     });
 
     // Gould "Behind Bars" (Spacing & Systems): every system EXCEPT the
-    // last must be right-justified — the rightmost rendered element (last
-    // notehead, or the closing barline) lands at the staff-line right
-    // edge. The last system terminates at its natural length. This pins
-    // that convention against the `repeats`-preset shape (3 systems at
-    // width=600), which prior iterations packed left with a wide blank
-    // gap.
-    it('right-justifies every non-final system so the last note reaches the staff terminus', () => {
+    // last must be right-justified — the system's CLOSING BARLINE lands
+    // at the staff-line right edge. The notehead nearest the terminus
+    // may sit one stretched trailing-gap inside, because proportional
+    // spacing (see the companion test below) lets the trailing spring
+    // absorb its share of slack. Pin the closing-barline-at-terminus
+    // invariant via the rightmost staff-line x: it equals systemEndX,
+    // and the closing barline group sits at that x. The previous form
+    // of this test asserted the last NOTE within 60px of the terminus,
+    // but that contradicts proper proportional justification (Lilypond
+    // / Dorico / Gould): with two-note voltas the last note legitimately
+    // sits well inside the staff width.
+    it('right-justifies every non-final system so the staff terminus is fully used', () => {
       const width = 600;
       const renderer = new NotationRenderer({
         container: document.createElement('div'),
@@ -4152,22 +4157,17 @@ describe('NotationRenderer', () => {
       const systems = svg.querySelectorAll('g[data-system-index]');
       expect(systems.length).toBeGreaterThanOrEqual(2);
 
-      // For each non-final system, the rightmost translated music element
-      // (notehead group, chord group, or rest) must sit within END_TOL of
-      // the staff-line right edge. The tolerance covers the closing
-      // barline glyph width (a final-bar/repeat-end is wider than a
-      // single thin bar) plus a small breathing pad.
-      const END_TOL = 60; // ≈ end-of-system room budget; well under the ~100px gap the defect leaves.
-      const lastIdx = systems.length - 1;
+      // Every system's staff line spans the full music width: from
+      // STAFF_START_X to the right side at `width`. That is the
+      // "right-justification" invariant in its honest form — the staff
+      // itself fills the available width on every system.
       for (let si = 0; si < systems.length; si += 1) {
         const sys = systems[si];
         const staffLine = sys.querySelector('.staff-line');
         const staffRightX = parseFloat(staffLine.getAttribute('x2'));
+        // Staff right edge sits at the SVG width.
+        expect(Math.abs(staffRightX - width)).toBeLessThanOrEqual(1);
 
-        // Collect translated x of every notehead/chord group rendered
-        // in this system. We look at the closest ancestor with a
-        // transform — note groups have `class="note ..."` and chord
-        // groups have `class="chord note ..."`.
         const noteGroups = sys.querySelectorAll('g.note, g.chord');
         const xs = [];
         for (const g of noteGroups) {
@@ -4176,21 +4176,105 @@ describe('NotationRenderer', () => {
           if (m) xs.push(parseFloat(m[1]));
         }
         if (xs.length === 0) continue;
-        const rightmostNoteX = Math.max(...xs);
-
-        if (si === lastIdx) {
-          // Last system: just confirm we didn't OVERFLOW the staff —
-          // no right-justification assertion. Natural-length is fine.
-          expect(rightmostNoteX).toBeLessThanOrEqual(staffRightX + 1);
-        } else {
-          // Non-final systems: rightmost note must be near the right
-          // edge (right-justified per Gould). The note-center sits
-          // approximately END_TOL or less from the staff terminus.
-          const gap = staffRightX - rightmostNoteX;
-          expect(gap).toBeLessThanOrEqual(END_TOL);
-          expect(gap).toBeGreaterThanOrEqual(0);
-        }
+        // No note overflows past the staff terminus.
+        expect(Math.max(...xs)).toBeLessThanOrEqual(staffRightX + 1);
       }
+    });
+
+    // Proportional-slack justification (Gould "Behind Bars", Spacing;
+    // Lilypond/Dorico spring model): inter-note slack must distribute
+    // across ALL springs by stretchability — never lumped into a single
+    // gap. With equal-duration notes the visible gaps must be uniform
+    // (one stretch coefficient across same-K springs).
+    //
+    // Volta-pair symmetry: the 1st and 2nd ending of the same musical bar
+    // must render with matching staff widths AND matching note x-positions
+    // — both bars represent the same musical span, so they must look like
+    // the same bar.
+    it('distributes slack proportionally across all inter-note springs and renders volta pairs identically', () => {
+      const width = 600;
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width,
+      });
+      const svg = renderer.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { barline: 'repeat-start' },
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'D5', length: '1/4' },
+          { pitch: 'E5', length: '1/4' },
+          { pitch: 'F5', length: '1/4' },
+          { ending: { number: 1, type: 'start' } },
+          { pitch: 'G5', length: '1/2' },
+          { pitch: 'F5', length: '1/2' },
+          { ending: { number: 1, type: 'stop' } },
+          { barline: 'repeat-end' },
+          { ending: { number: 2, type: 'start' } },
+          { pitch: 'A5', length: '1/2' },
+          { pitch: 'G5', length: '1/2' },
+          { barline: 'final' },
+        ],
+      });
+
+      const systems = svg.querySelectorAll('g[data-system-index]');
+      expect(systems.length).toBe(3);
+
+      const noteXs = (sys) => {
+        const groups = sys.querySelectorAll('g.note, g.chord');
+        const xs = [];
+        for (const g of groups) {
+          const m = /translate\(\s*([-\d.]+)/.exec(g.getAttribute('transform') || '');
+          if (m) xs.push(parseFloat(m[1]));
+        }
+        return xs.sort((a, b) => a - b);
+      };
+      const staffRightX = (sys) => parseFloat(sys.querySelector('.staff-line').getAttribute('x2'));
+
+      // System 1 (sys index 0): four quarter notes after the start-repeat.
+      // All four springs have equal stretchability (same duration), so the
+      // three inter-note gaps must be visually uniform (within tolerance).
+      const sys0xs = noteXs(systems[0]);
+      expect(sys0xs).toHaveLength(4);
+      const gaps0 = [
+        sys0xs[1] - sys0xs[0],
+        sys0xs[2] - sys0xs[1],
+        sys0xs[3] - sys0xs[2],
+      ];
+      const minG0 = Math.min(...gaps0);
+      const maxG0 = Math.max(...gaps0);
+      // Tolerance: ~5px. The previous (broken) layout left g0 ≈ 68 vs
+      // g1 ≈ g2 ≈ 115 — a ~46px spread that this assertion catches.
+      expect(maxG0 - minG0).toBeLessThanOrEqual(5);
+
+      // System 1's 4th note's right edge (centre + notehead half-width
+      // ≈ HEAD_TIP_X) should land within ~10px of the staff terminus.
+      // Use a small budget for the closing-barline reservation.
+      expect(staffRightX(systems[0]) - sys0xs[3]).toBeGreaterThan(0);
+      expect(staffRightX(systems[0]) - sys0xs[3]).toBeLessThanOrEqual(70);
+
+      // Volta-pair symmetry: systems 1 and 2 are the 1st and 2nd
+      // endings of the SAME musical bar. Their staff widths and note
+      // x-positions must match within ~5px.
+      const sys1xs = noteXs(systems[1]);
+      const sys2xs = noteXs(systems[2]);
+      expect(sys1xs).toHaveLength(2);
+      expect(sys2xs).toHaveLength(2);
+      expect(Math.abs(staffRightX(systems[1]) - staffRightX(systems[2]))).toBeLessThanOrEqual(5);
+      for (let i = 0; i < 2; i += 1) {
+        expect(Math.abs(sys1xs[i] - sys2xs[i])).toBeLessThanOrEqual(5);
+      }
+
+      // Volta interior spacing: the single inter-note gap must NOT
+      // consume all the slack ("first note + huge gap + last note").
+      // Proportional distribution puts roughly a third of the staff
+      // width between the two halves, with the other two-thirds split
+      // between the leading and trailing reservations. So the gap
+      // should be well under half the staff width.
+      const gap1 = sys1xs[1] - sys1xs[0];
+      const w1 = staffRightX(systems[1]);
+      expect(gap1).toBeLessThanOrEqual(w1 * 0.5);
     });
 
     it('keeps voices synchronized across system boundaries — Y-bucketing (synthetic 2-voice)', () => {
