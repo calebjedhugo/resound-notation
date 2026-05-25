@@ -5292,23 +5292,27 @@ describe('NotationRenderer', () => {
       expect(ratio).toBeLessThan(1.5);
     });
 
-    it('scales note-to-barline padding with system stretch (floor + ratio band)', () => {
+    it('scales note-to-barline padding with system stretch (visible glyph-edge floor + ratio band)', () => {
       // 6 quarters in 4/4 (matches dev/presets/spacing-wrap-quarters-6).
       //
-      // Per Gould "Behind Bars" (Spacing) the gap between the last note
-      // of a measure and the following barline should sit at roughly
-      // 1/2-1/2.5 of a typical inter-note gap — wide enough to read as
-      // a measure boundary, narrow enough not to look like a hole.
-      // Fixed-padding (commit 884b80d) clamped the gap at 1 staff
-      // space, which read fine at natural width but turned into a 5-9×
-      // ratio under heavy justification as inter-note gaps grew. The
-      // current rule:
+      // Per Gould "Behind Bars" (Spacing) and Lilypond's `BarLine.padding`
+      // convention, the relevant measurement is the VISIBLE gap from
+      // the rightmost extent of the last note's glyph (notehead right
+      // edge, or stem for stem-up notes) to the left edge of the
+      // barline — NOT the distance from the note's logical x (center)
+      // to the barline. Prior to this fix the renderer measured padding
+      // from note CENTER to barline, so a 30px floor produced only
+      // ~18px (30 − HEAD_TIP_X) of visible gap, looking cramped at
+      // natural width and only nominally better under stretch.
       //
-      //     barlineGap = max(MIN_BARLINE_PADDING,
+      // Rule (visible gap):
+      //
+      //     visibleGap = max(MIN_BARLINE_PADDING,
       //                      BARLINE_GAP_RATIO * medianInterNoteGap)
       //
-      // delivers a 2–3× inter-to-barline ratio across the stretch
-      // range while never dropping below a 1.5-staff-space floor.
+      // delivers a 2–3× inter-to-visible-gap ratio across the stretch
+      // range while never dropping below a 1.5-staff-space floor of
+      // ACTUAL daylight between glyphs.
       const piece = {
         timeSignature: [4, 4],
         notes: [
@@ -5320,6 +5324,11 @@ describe('NotationRenderer', () => {
           { pitch: 'C5', length: '1/4' },
         ],
       };
+
+      // Notehead half-width: 0.08 (SMUFL_SCALE) * 295 (noteheadBlack
+      // right-shoulder font-units, minus the −11.8 center origin) ≈ 11.8.
+      // Keep this in lockstep with HEAD_TIP_X in NotationRenderer.js.
+      const HEAD_TIP_X = 11.8;
 
       const measure = (width) => {
         const r = new NotationRenderer({
@@ -5336,28 +5345,34 @@ describe('NotationRenderer', () => {
         const bars = Array.from(svg.querySelectorAll('g.bar-line'))
           .map((g) => parseFloat(g.querySelector('line').getAttribute('x1')))
           .filter((x) => x > lastNoteM1X && x < firstNoteM2X);
-        // Pick the leftmost interior bar between the two notes (in
-        // case future work emits multiple barline glyphs at a
-        // boundary).
+        // Leftmost interior bar between the two notes.
         const barX = Math.min(...bars);
-        // Centre-to-centre: notehead translate-x → barline x. This is
-        // the quantity the renderer's `barlineGap` directly controls;
-        // edge-to-edge offsets are a constant ≈HEAD_TIP_X less and
-        // would just shift both floor and ratio by the same amount.
-        const noteToBar = barX - lastNoteM1X;
+        // Visible glyph-edge gap: notehead RIGHT edge of last note →
+        // barline left edge. This is what the eye actually sees as
+        // "the gap before the barline".
+        const visibleGap = barX - (lastNoteM1X + HEAD_TIP_X);
+        // Visible glyph-edge gap on the other side: barline → notehead
+        // LEFT edge of first note in next measure. Should be symmetric
+        // (same `barlineGap` reservation per Gould's "boundary centered
+        // between its notes").
+        const visibleGapAfter = (firstNoteM2X - HEAD_TIP_X) - barX;
         const interNote = xs[1] - xs[0];
-        return { noteToBar, interNote };
+        return { visibleGap, visibleGapAfter, interNote };
       };
 
       // Both widths exercise stretched systems on the same piece.
       // 800 fits all six notes on one system at modest stretch; 1200
       // pushes the system out further, growing inter-note gaps.
       for (const width of [800, 1200]) {
-        const { noteToBar, interNote } = measure(width);
-        // Floor: ≥ 1.5 staff spaces (30px) at any width.
-        expect(noteToBar).toBeGreaterThanOrEqual(30 - 0.5);
-        // Ratio band: inter-note gap is 2-3.5× the barline gap.
-        const ratio = interNote / noteToBar;
+        const { visibleGap, visibleGapAfter, interNote } = measure(width);
+        // Floor: visible glyph-edge gap ≥ 1.5 staff spaces (30px) at
+        // any width, on BOTH sides of the barline.
+        expect(visibleGap).toBeGreaterThanOrEqual(30 - 0.5);
+        expect(visibleGapAfter).toBeGreaterThanOrEqual(30 - 0.5);
+        // Symmetry: pre- and post-gaps stay locked at the same value.
+        expect(Math.abs(visibleGap - visibleGapAfter)).toBeLessThan(1.0);
+        // Ratio band: inter-note gap is 2-3.5× the visible barline gap.
+        const ratio = interNote / visibleGap;
         expect(ratio).toBeGreaterThanOrEqual(2.0);
         expect(ratio).toBeLessThanOrEqual(3.5);
       }

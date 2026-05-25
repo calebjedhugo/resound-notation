@@ -236,11 +236,18 @@ const BAR_LINE_PADDING = 30;
 // producing a symmetric pre/post gap that scales with the rest of the
 // music. K=0 keeps the spring out of the slack-distribution math.
 const BARLINE_SPRING_NAT_LENGTH = 0;
-// Minimum (and natural-width default) note→barline padding, in px. Set
-// at 1.5 staff spaces — comfortably past Lilypond's 1.0-staff-space
-// default (Dorico's too) so the gap never reads cramped even when the
-// system has no slack to grow into. LINE_SPACING (= ONE_SPACE) is 20px
-// in this codebase.
+// Minimum (and natural-width default) note→barline padding, in px,
+// measured from the VISIBLE rightmost extent of the last note's glyph
+// (notehead right edge, ≈ HEAD_TIP_X from note center; for stem-up
+// notes the stem sits at the same x, so notehead-right suffices) to
+// the LEFT edge of the barline. Per Gould "Behind Bars" (Spacing) and
+// Lilypond's `BarLine.padding` convention, the relevant gap is the
+// daylight the eye sees between glyphs — NOT the distance from the
+// note's logical x (center) to the barline. Set at 1.5 staff spaces
+// — comfortably past Lilypond's 1.0-staff-space default (Dorico's
+// too) so the gap never reads cramped even when the system has no
+// slack to grow into. LINE_SPACING (= ONE_SPACE) is 20px in this
+// codebase.
 // 30 = 1.5 * LINE_SPACING (ONE_SPACE = 20, declared below).
 const MIN_BARLINE_PADDING = 30;
 // Target ratio of note→barline gap to median inter-note gap when the
@@ -1197,7 +1204,15 @@ export class NotationRenderer {
         // BARLINE_GAP_RATIO=0.35 ≈ 1/2.86, in the middle of Gould's
         // 1.5–2.5× band.
         const solveWithGap = (gap) => {
-          const interiorBarlineOffset = 2 * gap * interiorBoundaryCount;
+          // Per boundary we reserve `gap + HEAD_TIP_X` on EACH side:
+          // the engraving rule is measured from glyph EDGE to barline,
+          // so the cursor must advance HEAD_TIP_X past the last note's
+          // center (notehead right edge) before the visible gap begins,
+          // and another HEAD_TIP_X past the barline before the next
+          // note's center (notehead left edge). Total reservation per
+          // boundary = 2 * (gap + HEAD_TIP_X).
+          const interiorBarlineOffset =
+            2 * (gap + HEAD_TIP_X) * interiorBoundaryCount;
           const stretchableBudget =
             systemRightX - perSystemMusicStartX
             - leadingMusicOffset
@@ -1956,10 +1971,16 @@ export class NotationRenderer {
             }, 0);
             cumulativeBeats += tupletBeats;
             while (cumulativeBeats >= measureLength - 0.001) {
-              cursorX += barlineGap;
+              // `barlineGap` is the visible glyph-edge → barline gap
+              // (Gould's measurement); the cursor sits at the last
+              // note's CENTER, so we add HEAD_TIP_X to step past the
+              // notehead's right edge before laying down the visible
+              // gap. Symmetric on the post side: HEAD_TIP_X carries us
+              // from the barline through to the next note's left edge.
+              cursorX += barlineGap + HEAD_TIP_X;
               staffGroup.appendChild(createBarLine(cursorX));
               barlineXs.push(cursorX);
-              cursorX += barlineGap;
+              cursorX += barlineGap + HEAD_TIP_X;
               cumulativeBeats -= measureLength;
             }
             if (Math.abs(cumulativeBeats) < 0.001) {
@@ -2330,12 +2351,16 @@ export class NotationRenderer {
               cumulativeBeats += chordAdjBeats;
               while (cumulativeBeats >= measureLength - 0.001) {
                 const isShared = sharedBarlineBeats.has(beatPosition);
-                if (isShared) barlineOffset += barlineGap;
+                // `barlineGap` is the visible glyph-edge gap; add
+                // HEAD_TIP_X on each side to step over the notehead
+                // half-widths so the gap sits between glyph EDGES (per
+                // Gould / Lilypond `BarLine.padding`), not centers.
+                if (isShared) barlineOffset += barlineGap + HEAD_TIP_X;
                 const barlineX = isShared
                   ? xForBeat(beatPosition)
                   : xForBeat(beatPosition) - BAR_LINE_PADDING;
                 emitAutoBarline(barlineX);
-                if (isShared) barlineOffset += barlineGap;
+                if (isShared) barlineOffset += barlineGap + HEAD_TIP_X;
                 cumulativeBeats -= measureLength;
               }
               if (Math.abs(cumulativeBeats) < 0.001) {
@@ -2583,12 +2608,18 @@ export class NotationRenderer {
           cumulativeBeats += elementBeats;
           while (cumulativeBeats >= measureLength - 0.001) {
             const isShared = sharedBarlineBeats.has(beatPosition);
-            if (isShared) barlineOffset += barlineGap;
+            // See chord-path comment above: `barlineGap` is the
+            // visible glyph-edge gap; HEAD_TIP_X carries the cursor
+            // from the note CENTER to the notehead's right edge (and
+            // symmetrically from the barline to the next notehead's
+            // left edge), so the daylight between glyphs matches the
+            // configured rule.
+            if (isShared) barlineOffset += barlineGap + HEAD_TIP_X;
             const barlineX = isShared
               ? xForBeat(beatPosition)
               : xForBeat(beatPosition) - BAR_LINE_PADDING;
             emitAutoBarline(barlineX);
-            if (isShared) barlineOffset += barlineGap;
+            if (isShared) barlineOffset += barlineGap + HEAD_TIP_X;
             cumulativeBeats -= measureLength;
           }
           if (Math.abs(cumulativeBeats) < 0.001) {
