@@ -5291,6 +5291,101 @@ describe('NotationRenderer', () => {
       // disproportionate slack and the half-gap balloons.
       expect(ratio).toBeLessThan(1.5);
     });
+
+    it('keeps note-to-barline gap at a fixed ~1 staff space regardless of stretch (Gould fixed barline padding)', () => {
+      // 6 quarters in 4/4 (matches dev/presets/spacing-wrap-quarters-6).
+      // At width 800 the piece fits on one system with significant
+      // justification stretch in measure 1.
+      //
+      // Per Gould "Behind Bars" (Spacing) and Lilypond's BarLine.padding
+      // convention (~0.6-1.0 staff space ≈ 12-20px), the gap between the
+      // last note of a measure and the following barline must be a FIXED
+      // padding — not a rhythmic spring that stretches with system
+      // justification. Inter-note springs absorb the slack instead.
+      const piece = {
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'E4', length: '1/4' },
+          { pitch: 'F4', length: '1/4' },
+          { pitch: 'G4', length: '1/4' },
+          { pitch: 'A4', length: '1/4' },
+          { pitch: 'B4', length: '1/4' },
+          { pitch: 'C5', length: '1/4' },
+        ],
+      };
+
+      // Width 1200 forces significant inter-note stretch in measure 1.
+      // At width 800 the natural width already exceeds the budget so no
+      // stretching happens — the test wouldn't observe the slack
+      // redistribution. The 20px barline-padding assertion holds at any
+      // width, but the "inter-note gap GREW" assertion needs slack to
+      // exist for the springs to absorb.
+      const WIDTH = 1200;
+      const wideRenderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: WIDTH,
+      });
+      const svg = wideRenderer.render(piece);
+      const notes = svg.querySelectorAll('.note');
+      expect(notes.length).toBe(6);
+      const xs = Array.from(notes).map((n) =>
+        parseFloat(/translate\(([-\d.]+),/.exec(n.getAttribute('transform'))[1])
+      );
+      // HEAD_TIP_X for the black notehead is ~12px (SMuFL Bravura).
+      const HEAD_HALF = 12;
+      // Find the interior barline (between measure 1 and measure 2).
+      // createBarLine draws a vertical line directly (no translate); read
+      // the `x1` attribute of the line child.
+      const lastNoteM1X = xs[3]; // 4th quarter = last note of measure 1
+      const firstNoteM2X = xs[4]; // 5th quarter = first note of measure 2
+      const interiorBars = Array.from(svg.querySelectorAll('g.bar-line'));
+      const interiorBar = interiorBars
+        .map((g) => ({
+          g,
+          x: parseFloat(g.querySelector('line').getAttribute('x1')),
+        }))
+        .find(({ x }) => x > lastNoteM1X && x < firstNoteM2X);
+      expect(interiorBar).toBeTruthy();
+      const barX = interiorBar.x;
+
+      // gap(last-note right edge → barline left edge) ≈ 1 staff space (20px).
+      // Barlines are thin strokes centred on their translate x; treat
+      // edge ≈ centre (sub-px error vs. our [15,30] tolerance).
+      const noteToBarGap = barX - (lastNoteM1X + HEAD_HALF);
+      expect(noteToBarGap).toBeGreaterThanOrEqual(15);
+      expect(noteToBarGap).toBeLessThanOrEqual(30);
+
+      // Inter-note gap inside measure 1 (note 1 → note 2, head-to-head)
+      // must be meaningfully larger than the note-to-barline gap — the
+      // freed slack from the fixed barline padding flows into the
+      // inter-note springs.
+      const interNoteGap = xs[1] - xs[0];
+      expect(interNoteGap).toBeGreaterThan(noteToBarGap * 1.5);
+
+      // The inter-note gap must have GROWN compared to the natural
+      // (no-stretch) width. Rendered at width 250 the same 4 quarters
+      // exhaust the canvas naturally — that gap is the unstretched
+      // baseline. Under stretch at 800 the gap must be larger.
+      const tightRenderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 250,
+      });
+      const tightSvg = tightRenderer.render({
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'E4', length: '1/4' },
+          { pitch: 'F4', length: '1/4' },
+          { pitch: 'G4', length: '1/4' },
+          { pitch: 'A4', length: '1/4' },
+        ],
+      });
+      const tightNotes = tightSvg.querySelectorAll('.note');
+      const tightXs = Array.from(tightNotes).map((n) =>
+        parseFloat(/translate\(([-\d.]+),/.exec(n.getAttribute('transform'))[1])
+      );
+      const naturalInterNoteGap = tightXs[1] - tightXs[0];
+      expect(interNoteGap).toBeGreaterThan(naturalInterNoteGap + 5);
+    });
   });
 
   describe('reactive layout (scheduleRender + rAF batching)', () => {

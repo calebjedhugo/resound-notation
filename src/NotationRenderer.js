@@ -228,6 +228,35 @@ const TIME_SIG_PADDING = 51;
 // of visible clearance between the stem and the barline — enough that a
 // stem-down first note in the next measure has clear breathing room.
 const BAR_LINE_PADDING = 30;
+// Fixed natural length (px) for the spring that crosses an interior
+// measure boundary (last-note-of-measure → first-note-of-next-measure).
+// Per Gould "Behind Bars" (Spacing) and Lilypond's `BarLine.padding`
+// convention (≈0.6–1.0 staff space ≈ 12–20px), the gap between the last
+// note of a measure and the following barline must be a FIXED engraving
+// padding — not a rhythmic spring that stretches with system
+// justification. The boundary spring is anchored at this length and
+// receives K=0 (non-stretchable); inter-note springs absorb the slack
+// that previously flowed into the boundary gap.
+//
+// Geometry: the barline draws at `stretchedBeatToX[boundary] -
+// BAR_LINE_PADDING`. With this spring length, the visible gap from the
+// last note's right edge to the barline center is
+// BARLINE_SPRING_NAT_LENGTH − BAR_LINE_PADDING − HEAD_TIP_X
+//   = 62 − 30 − ~12 = ~20px (1 staff space). The mirror gap from the
+// barline to the next note's left edge is BAR_LINE_PADDING − HEAD_TIP_X
+//   = 30 − 12 = ~18px (also ~1 staff space), consistent with Dorico's
+// default barline padding of 1.0 staff space on both sides.
+// 0: the boundary spring contributes no horizontal extent of its own.
+// The render loop (shared-bar path) adds 2*BAR_LINE_PADDING (= 60px)
+// around the barline glyph as it crosses the boundary — that 60px is the
+// COMPLETE budget for the last-note → barline → first-note transition,
+// split evenly: 30px from last-note center to barline (− HEAD_TIP_X ≈ 18px
+// visible note-edge → barline) and 30px from barline to first-note center
+// (− HEAD_TIP_X ≈ 18px visible barline → first-note edge). Both gaps land
+// at ~1 staff space, matching Lilypond `BarLine.padding` ≈ 1.0 ss and
+// Dorico's default. Setting this to a positive value would stack on top
+// of the +60 the render loop already adds and produce a wider gap.
+const BARLINE_SPRING_NAT_LENGTH = 0;
 const MIDDLE_LINE_Y = 50;
 // SMuFL Bravura black notehead stem-up tip (in local pixel coords). All
 // chord rendering paths use the black-notehead tip; quarter/8th/16th heads
@@ -1059,29 +1088,54 @@ export class NotationRenderer {
         // closing-bar glyph itself.
         const END_OF_SYSTEM_NOTE_ROOM = 2 * BAR_LINE_PADDING;
         const sortedBeats = [...naturalBeatToX.keys()].sort((a, b) => a - b);
+        // Identify which beats sit on interior measure boundaries (a
+        // positive integer-multiple of the shared measure length, but
+        // strictly before the system's last beat). The spring whose
+        // RIGHT endpoint lands on such a beat crosses a barline — its
+        // length governs the last-note→barline gap, which per Gould
+        // "Behind Bars" (Spacing) and Lilypond's `BarLine.padding` is a
+        // FIXED engraving padding, not a rhythmic spring.
+        const isInteriorBoundary = (beat) => {
+          if (!sharedMeasureLength) return false;
+          if (beat <= 0) return false;
+          if (beat >= sortedBeats[sortedBeats.length - 1] - 1e-6) return false;
+          const ratio = beat / sharedMeasureLength;
+          return Math.abs(ratio - Math.round(ratio)) < 1e-6;
+        };
         const allSprings = [];
+        let fixedBoundaryNatSum = 0;
+        let originalBoundaryNatSum = 0;
         for (let i = 0; i < sortedBeats.length - 1; i += 1) {
           const a = sortedBeats[i];
           const z = sortedBeats[i + 1];
           const natLength = naturalBeatToX.get(z) - naturalBeatToX.get(a);
-          // Spring stretchability K = natLength. Each spring stretches by
-          // a fraction proportional to its natural length, so the ratio
-          // between any two stretched gaps equals the ratio between their
-          // natural lengths — which already follows the logarithmic
-          // duration curve baked into durationSymbols.spacing (whole 200,
-          // half 140, quarter 100, 8th 70, 16th 50, 32nd 36 — each
-          // doubling ≈ ×√2, the Gould "Behind Bars" / Lilypond convention).
-          // The previous K = max(springNatLength(d) − MIN_GAP, 1) magnified
-          // long-duration K well above the natural-width ratio (half/quarter
-          // K ≈ 2.5 vs. natural-width ratio 1.4), causing long-duration
-          // springs to soak disproportionate slack under heavy stretch —
-          // half-gaps grew to nearly 2× quarter-gaps, violating the log
-          // curve standard engravers rely on.
-          // Floor at 1 so degenerate near-zero-duration boundaries still
-          // contribute something to the spring sum.
-          const K = Math.max(natLength, 1);
-          allSprings.push({ natLength, K });
+          if (isInteriorBoundary(z)) {
+            // Fixed barline padding (Gould / Lilypond). K=0 so this
+            // spring takes no slack; the freed slack flows into the
+            // inter-note springs instead.
+            allSprings.push({ natLength: BARLINE_SPRING_NAT_LENGTH, K: 0 });
+            fixedBoundaryNatSum += BARLINE_SPRING_NAT_LENGTH;
+            originalBoundaryNatSum += natLength;
+          } else {
+            // Spring stretchability K = natLength. Each spring stretches by
+            // a fraction proportional to its natural length, so the ratio
+            // between any two stretched gaps equals the ratio between their
+            // natural lengths — which already follows the logarithmic
+            // duration curve baked into durationSymbols.spacing (whole 200,
+            // half 140, quarter 100, 8th 70, 16th 50, 32nd 36 — each
+            // doubling ≈ ×√2, the Gould "Behind Bars" / Lilypond convention).
+            // Floor at 1 so degenerate near-zero-duration boundaries still
+            // contribute something to the spring sum.
+            const K = Math.max(natLength, 1);
+            allSprings.push({ natLength, K });
+          }
         }
+        // Net delta to the natural music width from the boundary-spring
+        // rewrite. The original spring lengths summed to
+        // `originalBoundaryNatSum`; the fixed-padding versions sum to
+        // `fixedBoundaryNatSum`. The difference is the slack we hand
+        // back to the inter-note springs.
+        const boundarySpringDelta = fixedBoundaryNatSum - originalBoundaryNatSum;
         const activeBeats = sortedBeats;
 
         // Leading-offset detection: scan the first sliced voice for
