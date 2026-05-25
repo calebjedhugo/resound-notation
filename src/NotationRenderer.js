@@ -67,7 +67,6 @@ import { createSharedBarLine } from './components/SharedBarLine.js';
 import { analyzeOttava } from './lib/segmentOttava.js';
 import { createOttavaBracket } from './components/OttavaBracket.js';
 import { breakIntoSystems, breakIntoSystemsOptimal, justifySystem, justifySystemSpring } from './lib/breakIntoSystems.js';
-import { springStretchability } from './lib/measureIntrinsicWidths.js';
 import { sliceVoiceByMeasure } from './lib/sliceVoiceByMeasure.js';
 
 // Chromatic offsets for converting scientific pitch (C4 = MIDI 60) to MIDI.
@@ -1065,10 +1064,22 @@ export class NotationRenderer {
           const a = sortedBeats[i];
           const z = sortedBeats[i + 1];
           const natLength = naturalBeatToX.get(z) - naturalBeatToX.get(a);
-          const durationBeats = z - a;
-          // Floor K at a small positive so degenerate near-zero-duration
-          // boundaries still contribute something to the spring sum.
-          const K = Math.max(springStretchability(durationBeats), 1);
+          // Spring stretchability K = natLength. Each spring stretches by
+          // a fraction proportional to its natural length, so the ratio
+          // between any two stretched gaps equals the ratio between their
+          // natural lengths — which already follows the logarithmic
+          // duration curve baked into durationSymbols.spacing (whole 200,
+          // half 140, quarter 100, 8th 70, 16th 50, 32nd 36 — each
+          // doubling ≈ ×√2, the Gould "Behind Bars" / Lilypond convention).
+          // The previous K = max(springNatLength(d) − MIN_GAP, 1) magnified
+          // long-duration K well above the natural-width ratio (half/quarter
+          // K ≈ 2.5 vs. natural-width ratio 1.4), causing long-duration
+          // springs to soak disproportionate slack under heavy stretch —
+          // half-gaps grew to nearly 2× quarter-gaps, violating the log
+          // curve standard engravers rely on.
+          // Floor at 1 so degenerate near-zero-duration boundaries still
+          // contribute something to the spring sum.
+          const K = Math.max(natLength, 1);
           allSprings.push({ natLength, K });
         }
         const activeBeats = sortedBeats;

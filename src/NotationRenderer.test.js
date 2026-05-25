@@ -5250,6 +5250,47 @@ describe('NotationRenderer', () => {
       expect(Math.abs(g1 - g2)).toBeLessThan(1);
       expect(Math.abs(g2 - g3)).toBeLessThan(1);
     });
+
+    it('allocates logarithmic (not linear) horizontal space to longer durations under heavy stretch', () => {
+      // Mixed half + quarter + quarter under aggressive stretch (wide
+      // canvas, sparse content). A linear / magnified-K model gives the
+      // half-spring nearly 2× the quarter-spring's stretched length — the
+      // half soaks disproportionate slack because K(half) >> K(quarter).
+      // Standard engraving (Gould "Behind Bars" / Lilypond) uses
+      // LOGARITHMIC duration weighting — each doubling adds a constant
+      // chunk, not a doubling. The visible result under stretch: a
+      // half-gap is noticeably but not extravagantly wider than a
+      // quarter-gap (Lilypond default ≈ 1.35×).
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 2000,
+      });
+      const svg = renderer.render({
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C4', length: '1/2' },
+          { pitch: 'E4', length: '1/4' },
+          { pitch: 'G4', length: '1/4' },
+          { pitch: 'C4', length: '1/2' },
+          { pitch: 'E4', length: '1/4' },
+          { pitch: 'G4', length: '1/4' },
+        ],
+      });
+      const notes = svg.querySelectorAll('.note');
+      expect(notes.length).toBe(6);
+      const xs = Array.from(notes).map(xOf);
+      // First measure: half → quarter gap vs. quarter → quarter gap.
+      const halfGap = xs[1] - xs[0];
+      const quarterGap = xs[2] - xs[1];
+      const ratio = halfGap / quarterGap;
+      // Half-gap MUST stay larger than quarter-gap (preserves the
+      // duration cue Gould requires).
+      expect(ratio).toBeGreaterThan(1.2);
+      // …but NOT approach 2× — that's the linear-K defect, where the
+      // half-spring's magnified K (≈2.5× the quarter's) soaks up
+      // disproportionate slack and the half-gap balloons.
+      expect(ratio).toBeLessThan(1.5);
+    });
   });
 
   describe('reactive layout (scheduleRender + rAF batching)', () => {
