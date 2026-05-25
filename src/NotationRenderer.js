@@ -53,6 +53,7 @@ import { renderRepeatBarline } from './components/RepeatBarline.js';
 import {
   REPEAT_BARLINE_DOT_EDGE_OFFSET,
   REPEAT_BARLINE_INNER_PAD,
+  THIN_BARLINE_THICKNESS,
 } from './lib/engravingDefaults.js';
 import { renderEnding } from './components/Ending.js';
 import { renderNavigationMarker } from './components/NavigationMarker.js';
@@ -1047,76 +1048,17 @@ export class NotationRenderer {
         // stretchable budget so the system's rightmost glyph still lands
         // near the staff terminus.
         //
-        // MID-MEASURE WRAP DETECTION: a non-final system ends with a
-        // visible closing barline glyph only if one of the sliced voices
-        // actually contains a `barline` marker AFTER its final sounding
-        // event (final / repeat-end / regular thin bar at the end of the
-        // last measure of the slice). When the system breaks WITHIN a
-        // measure (or at a measure boundary that lacks an explicit
-        // closing barline because the bar continues in the next system),
-        // no glyph terminates the staff at the right edge. Per Gould
-        // "Behind Bars" (Systems & Spacing) the last NOTE must then
-        // right-justify to the staff terminus — slack cannot pour into
-        // duration-equivalent dead space after the final notehead.
-        // Only non-final systems need this treatment. The final system is
-        // never justified (it terminates at natural music width), so
-        // dropping the trailing spring would just make naturalMusicWidth
-        // wrong for cursor-based downstream rendering — including the
-        // auto-barline emitted at the end of a complete final measure.
-        // CLOSING-GLYPH DETECTION: does this system end with a visible
-        // engraved barline that would absorb any trailing spring slack?
-        // Only EXPLICIT closing barlines (`final`, `repeat-end`, regular
-        // thin) qualify — those sit fully inside the staff width with
-        // their dedicated reservation (END_OF_SYSTEM_NOTE_ROOM).
-        //
-        // An IMPLICIT (auto-emitted) measure-end thin barline at a
-        // boundary that coincides with the system wrap point does NOT
-        // qualify: such a bar gets pinned at the staff right edge and
-        // clips against the SVG boundary into visual nothingness (Gould
-        // "Behind Bars" makes the same call — at a system break across a
-        // bar boundary the engraver typically drops the redundant
-        // terminating bar). With no real terminator behind it, the LAST
-        // NOTE must right-justify to the staff terminus instead of
-        // ceding its trailing-spring slack to phantom dead space.
-        //
-        // The final system is unjustified — its layout uses natural
-        // music width, so dropping the trailing spring there would
-        // mis-place the cursor for downstream rendering. Always keep
-        // the trailing spring on the final system.
-        let endsWithClosingBarline = isLast;
-        if (!endsWithClosingBarline) {
-          for (const sv of slicedVoiceNotes) {
-            if (!sv || sv.length === 0) continue;
-            for (let i = sv.length - 1; i >= 0; i -= 1) {
-              const el = sv[i];
-              if (!el) continue;
-              if (Array.isArray(el)) break; // chord = sounding event
-              if (el.pitch !== undefined || el.position !== undefined || el.notes !== undefined) {
-                break;
-              }
-              if (el.barline !== undefined) {
-                endsWithClosingBarline = true;
-                break;
-              }
-            }
-            if (endsWithClosingBarline) break;
-          }
-        }
-
-        // END-OF-SYSTEM RESERVATION: reserve ≈2*BAR_LINE_PADDING for the
-        // closing barline (final, repeat-end) at the staff right edge.
-        // For wraps with no real closing glyph, reserve one BAR_LINE_PADDING
-        // PLUS the notehead half-extent (HEAD_TIP_X), so the last note's
-        // centre lands at `systemRightX - (BAR_LINE_PADDING + HEAD_TIP_X)`,
-        // putting its right edge one full BAR_LINE_PADDING (~30px, ~1.5
-        // staff spaces) clear of the staff terminus. Per Gould "Behind
-        // Bars" a notehead must never touch a barline or staff edge —
-        // there must be a clearly visible engraver's gap. Reserving only
-        // HEAD_TIP_X (d1c453d's over-correction) flushed the notehead
-        // against the boundary.
-        const END_OF_SYSTEM_NOTE_ROOM = endsWithClosingBarline
-          ? 2 * BAR_LINE_PADDING
-          : BAR_LINE_PADDING + HEAD_TIP_X;
+        // END-OF-SYSTEM RESERVATION: reserve 2*BAR_LINE_PADDING for the
+        // closing barline at the staff right edge — the same room a
+        // `final` / `repeat-end` glyph needs at its inner face, and the
+        // same room an auto-thin "system continuation bar" (Gould,
+        // "Behind Bars", Systems & Spacing — every non-final system
+        // terminates with a barline at the staff right edge) needs so
+        // the last note has a clearly visible engraver's gap to its
+        // left. ~60px centre-inset → notehead right edge ~48px clear of
+        // the staff terminus, ~30px (one BAR_LINE_PADDING) clear of the
+        // closing-bar glyph itself.
+        const END_OF_SYSTEM_NOTE_ROOM = 2 * BAR_LINE_PADDING;
         const sortedBeats = [...naturalBeatToX.keys()].sort((a, b) => a - b);
         const allSprings = [];
         for (let i = 0; i < sortedBeats.length - 1; i += 1) {
@@ -1126,21 +1068,8 @@ export class NotationRenderer {
           const durationBeats = z - a;
           // Floor K at a small positive so degenerate near-zero-duration
           // boundaries still contribute something to the spring sum.
-          let K = Math.max(springStretchability(durationBeats), 1);
-          let effectiveNat = natLength;
-          // Mid-measure wrap (no real closing glyph): zero the trailing
-          // spring's K AND its natural length. The visible inter-note
-          // springs absorb every drop of slack; the last note's centre
-          // lands at systemRightX - END_OF_SYSTEM_NOTE_ROOM, so its
-          // right edge brushes the staff terminus (since the reservation
-          // matches the notehead half-extent). Without zeroing the
-          // natural length too, the last note would sit one natural-
-          // duration-gap inside the terminus.
-          if (!endsWithClosingBarline && i === sortedBeats.length - 2) {
-            K = 0;
-            effectiveNat = 0;
-          }
-          allSprings.push({ natLength: effectiveNat, K });
+          const K = Math.max(springStretchability(durationBeats), 1);
+          allSprings.push({ natLength, K });
         }
         const activeBeats = sortedBeats;
 
@@ -1571,10 +1500,23 @@ export class NotationRenderer {
       // Emit a closing auto-barline for a measure boundary, clamping it
       // to the system right edge so the closing barline of a wrapped
       // system always aligns with the staff terminus (Gould "Behind
-      // Bars", system breaks: no glyph past the staff right edge). When
-      // an explicit `barline: 'final'` will be drawn at systemEndX on the
-      // last system, suppress the auto-bar entirely to avoid a duplicate
-      // pair at the same x.
+      // Bars", system breaks: every non-final system terminates with a
+      // visible barline at the staff right edge — the "system
+      // continuation bar"). When an explicit `barline: 'final'` will be
+      // drawn at systemEndX on the last system, suppress the auto-bar
+      // entirely to avoid a duplicate pair at the same x.
+      //
+      // SNAP-TO-TERMINUS: on a non-final system, the spring layout
+      // targets the last sounding beat at `systemRightX -
+      // END_OF_SYSTEM_NOTE_ROOM (= 2*BAR_LINE_PADDING)`. The auto-bar
+      // emitted at the end of that measure naturally lands at
+      // `xForBeat(endBeat) - BAR_LINE_PADDING`, which (after trailing-
+      // spring stretch) sits roughly one BAR_LINE_PADDING short of
+      // systemEndX. Snap any auto-bar landing within ~1.5*
+      // BAR_LINE_PADDING of systemEndX UP to the terminus — that's the
+      // engraving "this bar wraps; here's the visible terminator"
+      // glyph. Notes keep their stretched positions; only this final
+      // barline glyph moves to the edge.
       const emitAutoBarline = (rawX) => {
         if (
           isLastSystem &&
@@ -1585,10 +1527,22 @@ export class NotationRenderer {
           // takes over; skip the plain auto-bar.
           return null;
         }
-        const clampedX =
-          systemEndX !== undefined && rawX > systemEndX
-            ? systemEndX
-            : rawX;
+        let clampedX = rawX;
+        if (systemEndX !== undefined) {
+          // Pull the bar IN by half its stroke width so the glyph's
+          // RIGHT EDGE — not its centre — sits flush with the staff
+          // terminus. Drawing the line centred on systemEndX clips the
+          // outer half against the SVG viewBox boundary, reducing the
+          // closing bar to a ~1.6px sliver that reads as absent.
+          const halfStroke = THIN_BARLINE_THICKNESS / 2;
+          const edgeFlushX = systemEndX - halfStroke;
+          if (rawX > systemEndX) {
+            clampedX = edgeFlushX;
+          } else if (!isLastSystem && systemEndX - rawX <= 1.5 * BAR_LINE_PADDING) {
+            // System-final auto-bar — snap to the staff right edge.
+            clampedX = edgeFlushX;
+          }
+        }
         const el = createBarLine(clampedX);
         staffGroup.appendChild(el);
         barlineXs.push(clampedX);

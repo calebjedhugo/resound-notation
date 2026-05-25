@@ -4339,18 +4339,19 @@ describe('NotationRenderer', () => {
       xs.sort((a, b) => a - b);
       expect(xs).toHaveLength(4);
 
-      // The system has no closing barline (the bar continues in system 2's
-      // volta-1). The rightmost note's centre should right-justify to
-      // `systemRightX - END_OF_SYSTEM_NOTE_ROOM` — i.e. `BAR_LINE_PADDING
-      // + HEAD_TIP_X` (~42px) inside the terminus, putting its notehead
-      // right edge one BAR_LINE_PADDING clear of the staff edge. Without
+      // The system terminates with an auto-thin "system continuation
+      // bar" at the staff right edge (Gould "Behind Bars", Systems &
+      // Spacing). The rightmost note's centre right-justifies to roughly
+      // `systemRightX - END_OF_SYSTEM_NOTE_ROOM` (= 2*BAR_LINE_PADDING
+      // ≈ 60px) — one BAR_LINE_PADDING clear of the closing-bar glyph,
+      // plus a small trailing-spring stretch contribution. Without
       // right-justification the centre would land near ~60% of the staff
-      // width (~200px short of the terminus); pin it within 10px of the
-      // reservation target.
+      // width (~200px short of the terminus); pin it within ~15px of the
+      // 60px reservation target.
       const lastNoteX = xs[3];
-      const EXPECTED_INSET = 30 + 12; // BAR_LINE_PADDING + HEAD_TIP_X
-      expect(staffRightX - lastNoteX).toBeGreaterThanOrEqual(EXPECTED_INSET - 10);
-      expect(staffRightX - lastNoteX).toBeLessThanOrEqual(EXPECTED_INSET + 10);
+      const EXPECTED_INSET = 2 * 30; // 2 * BAR_LINE_PADDING
+      expect(staffRightX - lastNoteX).toBeGreaterThanOrEqual(EXPECTED_INSET - 15);
+      expect(staffRightX - lastNoteX).toBeLessThanOrEqual(EXPECTED_INSET + 15);
 
       // Equal-duration springs → uniform gaps still preserved.
       const gaps = [xs[1] - xs[0], xs[2] - xs[1], xs[3] - xs[2]];
@@ -4412,6 +4413,73 @@ describe('NotationRenderer', () => {
       const noteheadRightEdge = lastNoteCenterX + 12;
       const padding = staffRightX - noteheadRightEdge;
       expect(padding).toBeGreaterThanOrEqual(15);
+    });
+
+    // Per Gould "Behind Bars" (Systems & Spacing): every non-final system
+    // terminates with a visible barline at the staff right edge — even
+    // when the bar continues into the next system. The terminating bar
+    // gives the eye a clean anchor and signals "the music wraps here,
+    // not ends here." d1c453d suppressed that auto-thin barline at
+    // mid-measure wraps under a misreading of Gould; this test pins the
+    // corrected behaviour.
+    it('renders a visible closing barline at the staff terminus of a mid-measure wrapped system', () => {
+      const width = 600;
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width,
+      });
+      const svg = renderer.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { barline: 'repeat-start' },
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'D5', length: '1/4' },
+          { pitch: 'E5', length: '1/4' },
+          { pitch: 'F5', length: '1/4' },
+          { ending: { number: 1, type: 'start' } },
+          { pitch: 'G5', length: '1/2' },
+          { pitch: 'F5', length: '1/2' },
+          { ending: { number: 1, type: 'stop' } },
+          { barline: 'repeat-end' },
+          { ending: { number: 2, type: 'start' } },
+          { pitch: 'A5', length: '1/2' },
+          { pitch: 'G5', length: '1/2' },
+          { barline: 'final' },
+        ],
+      });
+
+      const systems = svg.querySelectorAll('g[data-system-index]');
+      expect(systems.length).toBe(3);
+      const sys0 = systems[0];
+
+      const staffLine = sys0.querySelector('.staff-line');
+      const staffRightX = parseFloat(staffLine.getAttribute('x2'));
+
+      // (a) An auto-thin barline (the `g.bar-line` element) exists in
+      // system 1 within ~3px of the staff right edge — the engraver's
+      // "system continuation bar" Gould calls for at every non-final
+      // system terminus.
+      const barLines = sys0.querySelectorAll('g.bar-line line');
+      const barXs = Array.from(barLines).map((bl) =>
+        parseFloat(bl.getAttribute('x1'))
+      );
+      expect(barXs.length).toBeGreaterThan(0);
+      const closingBarX = Math.max(...barXs);
+      expect(Math.abs(staffRightX - closingBarX)).toBeLessThanOrEqual(3);
+
+      // (b) The last note's notehead right edge sits at least ~10px to
+      // the LEFT of that closing barline — a clearly visible engraver's
+      // gap. (Notehead right edge ≈ centre + HEAD_TIP_X (~12px).)
+      const noteGroups = sys0.querySelectorAll('g.note, g.chord');
+      const noteXs = [];
+      for (const g of noteGroups) {
+        const m = /translate\(\s*([-\d.]+)/.exec(g.getAttribute('transform') || '');
+        if (m) noteXs.push(parseFloat(m[1]));
+      }
+      noteXs.sort((a, b) => a - b);
+      const lastNoteRightEdge = noteXs[noteXs.length - 1] + 12;
+      expect(closingBarX - lastNoteRightEdge).toBeGreaterThanOrEqual(10);
     });
 
     it('keeps voices synchronized across system boundaries — Y-bucketing (synthetic 2-voice)', () => {
