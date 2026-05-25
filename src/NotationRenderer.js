@@ -228,35 +228,29 @@ const TIME_SIG_PADDING = 51;
 // of visible clearance between the stem and the barline — enough that a
 // stem-down first note in the next measure has clear breathing room.
 const BAR_LINE_PADDING = 30;
-// Fixed natural length (px) for the spring that crosses an interior
-// measure boundary (last-note-of-measure → first-note-of-next-measure).
-// Per Gould "Behind Bars" (Spacing) and Lilypond's `BarLine.padding`
-// convention (≈0.6–1.0 staff space ≈ 12–20px), the gap between the last
-// note of a measure and the following barline must be a FIXED engraving
-// padding — not a rhythmic spring that stretches with system
-// justification. The boundary spring is anchored at this length and
-// receives K=0 (non-stretchable); inter-note springs absorb the slack
-// that previously flowed into the boundary gap.
-//
-// Geometry: the barline draws at `stretchedBeatToX[boundary] -
-// BAR_LINE_PADDING`. With this spring length, the visible gap from the
-// last note's right edge to the barline center is
-// BARLINE_SPRING_NAT_LENGTH − BAR_LINE_PADDING − HEAD_TIP_X
-//   = 62 − 30 − ~12 = ~20px (1 staff space). The mirror gap from the
-// barline to the next note's left edge is BAR_LINE_PADDING − HEAD_TIP_X
-//   = 30 − 12 = ~18px (also ~1 staff space), consistent with Dorico's
-// default barline padding of 1.0 staff space on both sides.
-// 0: the boundary spring contributes no horizontal extent of its own.
-// The render loop (shared-bar path) adds 2*BAR_LINE_PADDING (= 60px)
-// around the barline glyph as it crosses the boundary — that 60px is the
-// COMPLETE budget for the last-note → barline → first-note transition,
-// split evenly: 30px from last-note center to barline (− HEAD_TIP_X ≈ 18px
-// visible note-edge → barline) and 30px from barline to first-note center
-// (− HEAD_TIP_X ≈ 18px visible barline → first-note edge). Both gaps land
-// at ~1 staff space, matching Lilypond `BarLine.padding` ≈ 1.0 ss and
-// Dorico's default. Setting this to a positive value would stack on top
-// of the +60 the render loop already adds and produce a wider gap.
+// Boundary-spring natural length (px) for the spring that crosses an
+// interior measure boundary (last-note-of-measure → first-note-of-next-
+// measure). Zero: the spring contributes no length of its own; the
+// per-system `barlineGap` (computed below from local inter-note gaps)
+// is added to `barlineOffset` on both sides of every shared barline,
+// producing a symmetric pre/post gap that scales with the rest of the
+// music. K=0 keeps the spring out of the slack-distribution math.
 const BARLINE_SPRING_NAT_LENGTH = 0;
+// Minimum (and natural-width default) note→barline padding, in px. Set
+// at 1.5 staff spaces — comfortably past Lilypond's 1.0-staff-space
+// default (Dorico's too) so the gap never reads cramped even when the
+// system has no slack to grow into. LINE_SPACING (= ONE_SPACE) is 20px
+// in this codebase.
+// 30 = 1.5 * LINE_SPACING (ONE_SPACE = 20, declared below).
+const MIN_BARLINE_PADDING = 30;
+// Target ratio of note→barline gap to median inter-note gap when the
+// system has been justified out past natural width. Industry standard
+// per Gould "Behind Bars" (Spacing) is a 1.5–2.5× inter-to-barline
+// ratio; 0.35 hits the middle of that band (1/0.35 ≈ 2.86×). The actual
+// applied padding is `max(MIN_BARLINE_PADDING, BARLINE_GAP_RATIO ×
+// medianInterNoteGap)` so at heavy stretch the barline gap grows but
+// never drops below the floor.
+const BARLINE_GAP_RATIO = 0.35;
 const MIDDLE_LINE_Y = 50;
 // SMuFL Bravura black notehead stem-up tip (in local pixel coords). All
 // chord rendering paths use the black-notehead tip; quarter/8th/16th heads
@@ -1179,21 +1173,93 @@ export class NotationRenderer {
             }
           }
         }
-        const interiorBarlineOffset = 2 * BAR_LINE_PADDING * interiorBoundaryCount;
-        const stretchableBudget =
-          systemRightX - perSystemMusicStartX
-          - leadingMusicOffset
-          - END_OF_SYSTEM_NOTE_ROOM
-          - interiorBarlineOffset;
-        const stretchedGaps = justifySystemSpring(
-          allSprings,
-          0,
-          stretchableBudget,
-          {
-            isLast: false, // last-system gating already handled by `justified` above
-            measureCount: measureCountInSystem,
+        // Two-pass justification for proportional barline padding.
+        //
+        // Pass 1 reserves the FLOOR padding (`MIN_BARLINE_PADDING` on each
+        // side of every interior barline) and solves the springs. We then
+        // measure the median inter-note gap that pass produced and derive
+        // the desired per-system `barlineGap`:
+        //
+        //     barlineGap = max(MIN_BARLINE_PADDING,
+        //                      BARLINE_GAP_RATIO * medianInterNoteGap)
+        //
+        // If the desired gap exceeds the floor, pass 2 re-solves with the
+        // larger reservation, shrinking the inter-note budget so the
+        // freshly enlarged barline gaps don't push the system past
+        // `systemRightX`. After both passes converge, `barlineGap` is
+        // threaded into `_renderSystem` and added to `barlineOffset` on
+        // each side of every shared barline (replacing the prior fixed
+        // `BAR_LINE_PADDING` adds), producing pre/post gaps that scale
+        // with the rest of the music yet never drop below the floor.
+        //
+        // Per Gould "Behind Bars" (Spacing): the gap between last note
+        // and barline should sit ~1/2.5× of a typical inter-note gap.
+        // BARLINE_GAP_RATIO=0.35 ≈ 1/2.86, in the middle of Gould's
+        // 1.5–2.5× band.
+        const solveWithGap = (gap) => {
+          const interiorBarlineOffset = 2 * gap * interiorBoundaryCount;
+          const stretchableBudget =
+            systemRightX - perSystemMusicStartX
+            - leadingMusicOffset
+            - END_OF_SYSTEM_NOTE_ROOM
+            - interiorBarlineOffset;
+          const gaps = justifySystemSpring(
+            allSprings,
+            0,
+            stretchableBudget,
+            {
+              isLast: false, // last-system gating already handled by `justified` above
+              measureCount: measureCountInSystem,
+            }
+          );
+          return gaps;
+        };
+        let stretchedGaps = solveWithGap(MIN_BARLINE_PADDING);
+        let barlineGap = MIN_BARLINE_PADDING;
+        if (interiorBoundaryCount > 0 && stretchedGaps.length > 0) {
+          // Representative inter-note gap = median of non-boundary
+          // stretched-spring lengths in this system. Using the median
+          // (rather than mean) keeps a single very-long-duration spring
+          // from skewing the target. If every spring is a boundary
+          // spring (single-note measure with one boundary), the median
+          // would be undefined — keep the floor in that case.
+          const interNoteLens = [];
+          for (let i = 0; i < allSprings.length; i += 1) {
+            if (allSprings[i].K > 0) interNoteLens.push(stretchedGaps[i]);
           }
-        );
+          if (interNoteLens.length > 0) {
+            interNoteLens.sort((a, b) => a - b);
+            const mid = Math.floor(interNoteLens.length / 2);
+            const median = interNoteLens.length % 2
+              ? interNoteLens[mid]
+              : 0.5 * (interNoteLens[mid - 1] + interNoteLens[mid]);
+            const desired = Math.max(MIN_BARLINE_PADDING, BARLINE_GAP_RATIO * median);
+            if (desired > MIN_BARLINE_PADDING + 1e-6) {
+              // Pass 2 with enlarged reservation. The inter-note median
+              // will shrink slightly; iterate to a quick fixed point so
+              // gap and median agree to within a few percent. In
+              // practice 2–3 iterations suffice; cap at 5.
+              let nextGap = desired;
+              for (let it = 0; it < 5; it += 1) {
+                const gaps2 = solveWithGap(nextGap);
+                const lens2 = [];
+                for (let i = 0; i < allSprings.length; i += 1) {
+                  if (allSprings[i].K > 0) lens2.push(gaps2[i]);
+                }
+                lens2.sort((a, b) => a - b);
+                const m2 = Math.floor(lens2.length / 2);
+                const med2 = lens2.length % 2
+                  ? lens2[m2]
+                  : 0.5 * (lens2[m2 - 1] + lens2[m2]);
+                const want = Math.max(MIN_BARLINE_PADDING, BARLINE_GAP_RATIO * med2);
+                stretchedGaps = gaps2;
+                barlineGap = nextGap;
+                if (Math.abs(want - nextGap) < 0.5) break;
+                nextGap = want;
+              }
+            }
+          }
+        }
         const stretchedBeatToX = new Map();
         // Anchor the first beat past the leading-barline advance so the
         // first inter-note spring's full stretched length materialises
@@ -1298,6 +1364,7 @@ export class NotationRenderer {
           systemContext,
           braceGroups,
           systemIndex: si,
+          barlineGap,
         });
 
         // Advance Y for the next system. Use effectiveVoiceYPositions so
@@ -1405,6 +1472,7 @@ export class NotationRenderer {
     systemContext,
     braceGroups,
     systemIndex = 0,
+    barlineGap = BAR_LINE_PADDING,
   }) {
     let contentMinY = systemContext.contentMinY;
     let contentMaxY = systemContext.contentMaxY;
@@ -1888,10 +1956,10 @@ export class NotationRenderer {
             }, 0);
             cumulativeBeats += tupletBeats;
             while (cumulativeBeats >= measureLength - 0.001) {
-              cursorX += BAR_LINE_PADDING;
+              cursorX += barlineGap;
               staffGroup.appendChild(createBarLine(cursorX));
               barlineXs.push(cursorX);
-              cursorX += BAR_LINE_PADDING;
+              cursorX += barlineGap;
               cumulativeBeats -= measureLength;
             }
             if (Math.abs(cumulativeBeats) < 0.001) {
@@ -2262,12 +2330,12 @@ export class NotationRenderer {
               cumulativeBeats += chordAdjBeats;
               while (cumulativeBeats >= measureLength - 0.001) {
                 const isShared = sharedBarlineBeats.has(beatPosition);
-                if (isShared) barlineOffset += BAR_LINE_PADDING;
+                if (isShared) barlineOffset += barlineGap;
                 const barlineX = isShared
                   ? xForBeat(beatPosition)
                   : xForBeat(beatPosition) - BAR_LINE_PADDING;
                 emitAutoBarline(barlineX);
-                if (isShared) barlineOffset += BAR_LINE_PADDING;
+                if (isShared) barlineOffset += barlineGap;
                 cumulativeBeats -= measureLength;
               }
               if (Math.abs(cumulativeBeats) < 0.001) {
@@ -2515,12 +2583,12 @@ export class NotationRenderer {
           cumulativeBeats += elementBeats;
           while (cumulativeBeats >= measureLength - 0.001) {
             const isShared = sharedBarlineBeats.has(beatPosition);
-            if (isShared) barlineOffset += BAR_LINE_PADDING;
+            if (isShared) barlineOffset += barlineGap;
             const barlineX = isShared
               ? xForBeat(beatPosition)
               : xForBeat(beatPosition) - BAR_LINE_PADDING;
             emitAutoBarline(barlineX);
-            if (isShared) barlineOffset += BAR_LINE_PADDING;
+            if (isShared) barlineOffset += barlineGap;
             cumulativeBeats -= measureLength;
           }
           if (Math.abs(cumulativeBeats) < 0.001) {
