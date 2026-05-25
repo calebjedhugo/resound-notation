@@ -2549,9 +2549,27 @@ export class NotationRenderer {
       // ~1 staff space clear, falling back to the previous fixed minimum
       // (~3 spaces from the staff) when the shifted content stays inside
       // the staff.
-      const BRACKET_CLEARANCE = 20; // one staff space
-      const DEFAULT_VA_Y = STAFF_TOP_OFFSET - 50;
-      const DEFAULT_VB_Y = STAFF_TOP_OFFSET + STAFF_HEIGHT + 60;
+      // The caller of createOttavaBracket passes `y` as the LINE
+      // position, and the component anchors the glyph by direction:
+      // 8va puts the line at the top of the "8" (glyph hangs DOWN
+      // from the line ~37 px); 8vb puts the line at the bottom of
+      // the "8" (glyph rises UP from the line ~37 px). The
+      // notehead-clearance math therefore has to add the glyph's
+      // overhang on the staff-facing side to the desired visual gap.
+      // OTTAVA_GLYPH_OVERHANG ≈ (yMax - yMin) * SMUFL_SCALE for the
+      // shared "8va"/"8vb" bbox (473 fu * 0.08 ≈ 37.84 px) — the
+      // distance from the line position to the far edge of the digit.
+      const VISUAL_GAP = 20; // one staff space between digit edge and notehead
+      const OTTAVA_GLYPH_OVERHANG = 38;
+      const VA_CLEARANCE = VISUAL_GAP + OTTAVA_GLYPH_OVERHANG; // line above notehead
+      const VB_CLEARANCE = VISUAL_GAP + OTTAVA_GLYPH_OVERHANG; // line below notehead
+      // Defaults position the LINE (caller's y) so the glyph hangs
+      // clear of the staff. With the glyph extending ~38 px toward
+      // the staff from the line, the line needs to sit ~38 px
+      // farther from the staff than the previous baseline-anchored
+      // defaults (which were -50 / +60).
+      const DEFAULT_VA_Y = STAFF_TOP_OFFSET - 50 - OTTAVA_GLYPH_OVERHANG;
+      const DEFAULT_VB_Y = STAFF_TOP_OFFSET + STAFF_HEIGHT + 60 + OTTAVA_GLYPH_OVERHANG;
       const ottavaSegs = ottavaSegmentsPerVoice[index] || [];
       if (ottavaSegs.length > 0) {
         for (const seg of ottavaSegs) {
@@ -2575,16 +2593,23 @@ export class NotationRenderer {
             }
           }
           const bracketY = seg.kind === '8va'
-            ? Math.min(segMinY - BRACKET_CLEARANCE, DEFAULT_VA_Y)
-            : Math.max(segMaxY + BRACKET_CLEARANCE, DEFAULT_VB_Y);
+            ? Math.min(segMinY - VA_CLEARANCE, DEFAULT_VA_Y)
+            : Math.max(segMaxY + VB_CLEARANCE, DEFAULT_VB_Y);
           staffGroup.appendChild(
             createOttavaBracket({ kind: seg.kind, startX, endX, y: bracketY })
           );
-          // Fold bracket footprint into the content bbox (glyph extends
-          // ~24px past the bracketY anchor in either direction).
+          // Fold bracket footprint into the content bbox. The line sits
+          // at bracketAbs; the glyph hangs ~38px toward the staff (down
+          // for 8va, up for 8vb), and the hook on the far end of the
+          // line extends ~6px away from the staff.
           const bracketAbs = voiceYPositions[index] + bracketY;
-          if (bracketAbs - 24 < contentMinY) contentMinY = bracketAbs - 24;
-          if (bracketAbs + 24 > contentMaxY) contentMaxY = bracketAbs + 24;
+          if (seg.kind === '8va') {
+            if (bracketAbs - 6 < contentMinY) contentMinY = bracketAbs - 6;
+            if (bracketAbs + 38 > contentMaxY) contentMaxY = bracketAbs + 38;
+          } else {
+            if (bracketAbs - 38 < contentMinY) contentMinY = bracketAbs - 38;
+            if (bracketAbs + 6 > contentMaxY) contentMaxY = bracketAbs + 6;
+          }
         }
       }
 

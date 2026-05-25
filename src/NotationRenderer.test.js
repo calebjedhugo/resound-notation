@@ -3473,6 +3473,66 @@ describe('NotationRenderer', () => {
       expect(subpathCount).toBeGreaterThanOrEqual(6);
     });
 
+    // Gould "Behind Bars" (Octave displacement, p. 75): the dashed
+    // continuation line reads as a horizontal extension of the "8va" /
+    // "8vb" marking and is direction-aware — for 8va (sopra, label above
+    // the staff) the line runs along the TOP edge of the "8" digit so
+    // it visually continues from the "va" superscript; for 8vb (bassa,
+    // label below the staff) the line runs along the BOTTOM edge of the
+    // "8" so it continues from the "vb" subscript baseline. The "va" /
+    // "vb" modifier letters do NOT drive the line position — the digit's
+    // bbox does. Tolerance ~1 px.
+    it('anchors the dashed line to top of "8" for 8va and bottom of "8" for 8vb', () => {
+      // ottavaAlta / ottavaBassaVb share bbox yMin=-10, yMax=463 (font
+      // units); the "8" digit subpath spans the full bbox vertically in
+      // both glyphs. createSmuflGlyph applies scale(_, -SMUFL_SCALE)
+      // inside the wrapper, so screen-Y of font-Y y is translateY - y*S.
+      const SMUFL_SCALE = 0.08;
+      const Y_MIN = -10;
+      const Y_MAX = 463;
+
+      // 8va (sopra) — high run on a treble voice.
+      ctx.render([
+        { pitch: 'G6', length: '1/4' },
+        { pitch: 'A6', length: '1/4' },
+        { pitch: 'B6', length: '1/4' },
+        { pitch: 'C7', length: '1/4' },
+      ]);
+      const va = ctx.container.querySelector('.ottava-bracket.ottava-8va');
+      expect(va).not.toBeNull();
+      const vaGlyph = va.querySelector('.ottava-glyph');
+      const vaLine = va.querySelector('.ottava-line');
+      const vaTr = vaGlyph.getAttribute('transform') || '';
+      const vaTrY = parseFloat(/translate\([^,]+,\s*([-\d.]+)\)/.exec(vaTr)[1]);
+      const vaTopOf8 = vaTrY - Y_MAX * SMUFL_SCALE; // screen Y of digit top
+      const vaLineY = parseFloat(vaLine.getAttribute('y1'));
+      expect(parseFloat(vaLine.getAttribute('y2'))).toBeCloseTo(vaLineY, 5);
+      expect(Math.abs(vaLineY - vaTopOf8)).toBeLessThanOrEqual(1);
+
+      // 8vb (bassa) — low run on a treble voice.
+      ctx.renderer.clear();
+      ctx.render({
+        voices: [{
+          id: 'lo', clef: 'treble', notes: [
+            { pitch: 'D3', length: '1/4' },
+            { pitch: 'C3', length: '1/4' },
+            { pitch: 'B2', length: '1/4' },
+            { pitch: 'A2', length: '1/4' },
+          ],
+        }],
+      });
+      const vb = ctx.container.querySelector('.ottava-bracket.ottava-8vb');
+      expect(vb).not.toBeNull();
+      const vbGlyph = vb.querySelector('.ottava-glyph');
+      const vbLine = vb.querySelector('.ottava-line');
+      const vbTr = vbGlyph.getAttribute('transform') || '';
+      const vbTrY = parseFloat(/translate\([^,]+,\s*([-\d.]+)\)/.exec(vbTr)[1]);
+      const vbBottomOf8 = vbTrY - Y_MIN * SMUFL_SCALE; // screen Y of digit bottom
+      const vbLineY = parseFloat(vbLine.getAttribute('y1'));
+      expect(parseFloat(vbLine.getAttribute('y2'))).toBeCloseTo(vbLineY, 5);
+      expect(Math.abs(vbLineY - vbBottomOf8)).toBeLessThanOrEqual(1);
+    });
+
     it('shifts a G6+ run\'s noteheads down by one octave (matching G5/A5/B5/C6 Y)', () => {
       ctx.render([
         { pitch: 'G6', length: '1/4' },

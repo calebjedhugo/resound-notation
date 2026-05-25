@@ -21,8 +21,28 @@ export function createOttavaBracket({ kind, startX, endX, y }) {
   const group = createGroup(`ottava-bracket ottava-${kind}`);
 
   const glyph = kind === '8va' ? OTTAVA_GLYPHS.ottavaAlta : OTTAVA_GLYPHS.ottavaBassaVb;
+
+  // Gould "Behind Bars" (Octave displacement, p. 75): the dashed
+  // continuation line is direction-aware. For 8va (sopra) the line
+  // runs along the TOP edge of the "8" digit so it visually
+  // continues from the "va" superscript; for 8vb (bassa) it runs
+  // along the BOTTOM edge of the "8" so it continues from the "vb"
+  // subscript baseline. The caller's `y` is the LINE position; we
+  // shift the glyph's translate so the appropriate edge of the
+  // digit's bbox lands at `y`.
+  //
+  // createSmuflGlyph applies scale(_, -SMUFL_SCALE) inside the
+  // wrapper, flipping the SMuFL y-up axis to SVG's y-down. Screen-Y
+  // of a font-unit y is translateY - y * SMUFL_SCALE. So:
+  //   top edge    (font yMax) → screen translateY - yMax*S
+  //   bottom edge (font yMin) → screen translateY - yMin*S
+  // Solving for translateY given a desired line position:
+  //   8va: translateY = y + yMax * S  (puts top of "8" at y)
+  //   8vb: translateY = y + yMin * S  (puts bottom of "8" at y)
+  const edgeFu = kind === '8va' ? glyph.bbox.yMax : glyph.bbox.yMin;
+  const glyphTranslateY = y + edgeFu * SMUFL_SCALE;
   const glyphGroup = createSmuflGlyph(glyph, 'ottava-glyph');
-  glyphGroup.setAttribute('transform', `translate(${startX}, ${y})`);
+  glyphGroup.setAttribute('transform', `translate(${startX}, ${glyphTranslateY})`);
   group.appendChild(glyphGroup);
 
   // Dashed continuation starts just past the composed "8va"/"8vb" glyph's
