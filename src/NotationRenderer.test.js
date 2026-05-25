@@ -4277,6 +4277,77 @@ describe('NotationRenderer', () => {
       expect(gap1).toBeLessThanOrEqual(w1 * 0.5);
     });
 
+    // Mid-measure (or measure-boundary-without-closing-barline) system
+    // wraps: per Gould "Behind Bars" (Systems & Spacing) every non-final
+    // system should be right-justified so the LAST rendered glyph reaches
+    // the staff terminus. When the wrap point has no closing barline glyph
+    // (e.g. the `repeats` system 1 ends after 4 quarter notes with the
+    // bar continuing in the volta below), the last NOTE must reach the
+    // staff edge — there is no barline behind it to absorb the trailing
+    // spring's slack.
+    //
+    // Previously the spring solver kept the trailing spring (last note's
+    // start → last note's endBeat) in the stretch budget, distributing
+    // duration-proportional slack into the post-last-note empty span.
+    // For the `repeats` width=600 system 1 the last notehead landed at
+    // ~60% of staff width — ~200px short of the terminus. This test
+    // pins the right-justification invariant for that case.
+    it('right-justifies mid-measure wrapped systems so the last note reaches the staff terminus', () => {
+      const width = 600;
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width,
+      });
+      const svg = renderer.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { barline: 'repeat-start' },
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'D5', length: '1/4' },
+          { pitch: 'E5', length: '1/4' },
+          { pitch: 'F5', length: '1/4' },
+          { ending: { number: 1, type: 'start' } },
+          { pitch: 'G5', length: '1/2' },
+          { pitch: 'F5', length: '1/2' },
+          { ending: { number: 1, type: 'stop' } },
+          { barline: 'repeat-end' },
+          { ending: { number: 2, type: 'start' } },
+          { pitch: 'A5', length: '1/2' },
+          { pitch: 'G5', length: '1/2' },
+          { barline: 'final' },
+        ],
+      });
+
+      const systems = svg.querySelectorAll('g[data-system-index]');
+      expect(systems.length).toBe(3);
+
+      const sys0 = systems[0];
+      const staffLine = sys0.querySelector('.staff-line');
+      const staffRightX = parseFloat(staffLine.getAttribute('x2'));
+
+      const noteGroups = sys0.querySelectorAll('g.note, g.chord');
+      const xs = [];
+      for (const g of noteGroups) {
+        const m = /translate\(\s*([-\d.]+)/.exec(g.getAttribute('transform') || '');
+        if (m) xs.push(parseFloat(m[1]));
+      }
+      xs.sort((a, b) => a - b);
+      expect(xs).toHaveLength(4);
+
+      // The system has no closing barline (the bar continues in system 2's
+      // volta-1). The rightmost note's centre + notehead extent should
+      // therefore sit within ~10px of the staff terminus. Use a small
+      // pad (~12px) to cover the notehead half-width + end padding.
+      const lastNoteX = xs[3];
+      expect(staffRightX - lastNoteX).toBeGreaterThan(0);
+      expect(staffRightX - lastNoteX).toBeLessThanOrEqual(12);
+
+      // Equal-duration springs → uniform gaps still preserved.
+      const gaps = [xs[1] - xs[0], xs[2] - xs[1], xs[3] - xs[2]];
+      expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThanOrEqual(5);
+    });
+
     it('keeps voices synchronized across system boundaries — Y-bucketing (synthetic 2-voice)', () => {
       const renderer = new NotationRenderer({
         container: document.createElement('div'),

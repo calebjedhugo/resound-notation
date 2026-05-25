@@ -1047,10 +1047,70 @@ export class NotationRenderer {
         // stretchable budget so the system's rightmost glyph still lands
         // near the staff terminus.
         //
+        // MID-MEASURE WRAP DETECTION: a non-final system ends with a
+        // visible closing barline glyph only if one of the sliced voices
+        // actually contains a `barline` marker AFTER its final sounding
+        // event (final / repeat-end / regular thin bar at the end of the
+        // last measure of the slice). When the system breaks WITHIN a
+        // measure (or at a measure boundary that lacks an explicit
+        // closing barline because the bar continues in the next system),
+        // no glyph terminates the staff at the right edge. Per Gould
+        // "Behind Bars" (Systems & Spacing) the last NOTE must then
+        // right-justify to the staff terminus — slack cannot pour into
+        // duration-equivalent dead space after the final notehead.
+        // Only non-final systems need this treatment. The final system is
+        // never justified (it terminates at natural music width), so
+        // dropping the trailing spring would just make naturalMusicWidth
+        // wrong for cursor-based downstream rendering — including the
+        // auto-barline emitted at the end of a complete final measure.
+        // CLOSING-GLYPH DETECTION: does this system end with a visible
+        // engraved barline that would absorb any trailing spring slack?
+        // Only EXPLICIT closing barlines (`final`, `repeat-end`, regular
+        // thin) qualify — those sit fully inside the staff width with
+        // their dedicated reservation (END_OF_SYSTEM_NOTE_ROOM).
+        //
+        // An IMPLICIT (auto-emitted) measure-end thin barline at a
+        // boundary that coincides with the system wrap point does NOT
+        // qualify: such a bar gets pinned at the staff right edge and
+        // clips against the SVG boundary into visual nothingness (Gould
+        // "Behind Bars" makes the same call — at a system break across a
+        // bar boundary the engraver typically drops the redundant
+        // terminating bar). With no real terminator behind it, the LAST
+        // NOTE must right-justify to the staff terminus instead of
+        // ceding its trailing-spring slack to phantom dead space.
+        //
+        // The final system is unjustified — its layout uses natural
+        // music width, so dropping the trailing spring there would
+        // mis-place the cursor for downstream rendering. Always keep
+        // the trailing spring on the final system.
+        let endsWithClosingBarline = isLast;
+        if (!endsWithClosingBarline) {
+          for (const sv of slicedVoiceNotes) {
+            if (!sv || sv.length === 0) continue;
+            for (let i = sv.length - 1; i >= 0; i -= 1) {
+              const el = sv[i];
+              if (!el) continue;
+              if (Array.isArray(el)) break; // chord = sounding event
+              if (el.pitch !== undefined || el.position !== undefined || el.notes !== undefined) {
+                break;
+              }
+              if (el.barline !== undefined) {
+                endsWithClosingBarline = true;
+                break;
+              }
+            }
+            if (endsWithClosingBarline) break;
+          }
+        }
+
         // END-OF-SYSTEM RESERVATION: reserve ≈2*BAR_LINE_PADDING for the
-        // closing barline (final, repeat-end, or auto thin bar) at the
-        // staff right edge.
-        const END_OF_SYSTEM_NOTE_ROOM = 2 * BAR_LINE_PADDING;
+        // closing barline (final, repeat-end) at the staff right edge.
+        // For wraps with no real closing glyph, reserve only the notehead
+        // half-extent so the last note's right edge sits at the staff
+        // terminus.
+        const END_OF_SYSTEM_NOTE_ROOM = endsWithClosingBarline
+          ? 2 * BAR_LINE_PADDING
+          : HEAD_TIP_X;
         const sortedBeats = [...naturalBeatToX.keys()].sort((a, b) => a - b);
         const allSprings = [];
         for (let i = 0; i < sortedBeats.length - 1; i += 1) {
@@ -1060,9 +1120,23 @@ export class NotationRenderer {
           const durationBeats = z - a;
           // Floor K at a small positive so degenerate near-zero-duration
           // boundaries still contribute something to the spring sum.
-          const K = Math.max(springStretchability(durationBeats), 1);
-          allSprings.push({ natLength, K });
+          let K = Math.max(springStretchability(durationBeats), 1);
+          let effectiveNat = natLength;
+          // Mid-measure wrap (no real closing glyph): zero the trailing
+          // spring's K AND its natural length. The visible inter-note
+          // springs absorb every drop of slack; the last note's centre
+          // lands at systemRightX - END_OF_SYSTEM_NOTE_ROOM, so its
+          // right edge brushes the staff terminus (since the reservation
+          // matches the notehead half-extent). Without zeroing the
+          // natural length too, the last note would sit one natural-
+          // duration-gap inside the terminus.
+          if (!endsWithClosingBarline && i === sortedBeats.length - 2) {
+            K = 0;
+            effectiveNat = 0;
+          }
+          allSprings.push({ natLength: effectiveNat, K });
         }
+        const activeBeats = sortedBeats;
 
         // Leading-offset detection: scan the first sliced voice for
         // non-sounding markers preceding the first note/rest/chord and
@@ -1095,10 +1169,10 @@ export class NotationRenderer {
 
         const measureLengthForOffset = sharedMeasureLength;
         let interiorBoundaryCount = 0;
-        if (measureLengthForOffset && sortedBeats.length > 1) {
-          const lastBeat = sortedBeats[sortedBeats.length - 1];
-          for (let i = 1; i < sortedBeats.length - 1; i += 1) {
-            const b = sortedBeats[i];
+        if (measureLengthForOffset && activeBeats.length > 1) {
+          const lastBeat = activeBeats[activeBeats.length - 1];
+          for (let i = 1; i < activeBeats.length - 1; i += 1) {
+            const b = activeBeats[i];
             if (b > 0 && b < lastBeat &&
                 Math.abs((b / measureLengthForOffset) - Math.round(b / measureLengthForOffset)) < 1e-6) {
               interiorBoundaryCount += 1;
@@ -1125,14 +1199,13 @@ export class NotationRenderer {
         // first inter-note spring's full stretched length materialises
         // as visible space between note 1 and note 2.
         let runX = perSystemMusicStartX + leadingMusicOffset;
-        if (sortedBeats.length > 0) {
-          stretchedBeatToX.set(sortedBeats[0], runX);
+        if (activeBeats.length > 0) {
+          stretchedBeatToX.set(activeBeats[0], runX);
           for (let i = 0; i < stretchedGaps.length; i += 1) {
             runX += stretchedGaps[i];
-            stretchedBeatToX.set(sortedBeats[i + 1], runX);
+            stretchedBeatToX.set(activeBeats[i + 1], runX);
           }
         }
-
         // Re-slice ottava segments to be relative to the slice'd voice
         // notes array. Build a mapping from original-index → slice-index
         // using sliceVoiceByMeasure's logic — easiest: re-walk and match
