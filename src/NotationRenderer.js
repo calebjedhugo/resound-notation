@@ -248,8 +248,10 @@ const BARLINE_SPRING_NAT_LENGTH = 0;
 // too) so the gap never reads cramped even when the system has no
 // slack to grow into. LINE_SPACING (= ONE_SPACE) is 20px in this
 // codebase.
-// 30 = 1.5 * LINE_SPACING (ONE_SPACE = 20, declared below).
-const MIN_BARLINE_PADDING = 30;
+// 40 = 2 * LINE_SPACING (ONE_SPACE = 20, declared below) — Henle/
+// Bärenreiter published-score territory; chosen over the tighter 1.5
+// staff-space minimum for visibly more comfortable breathing room.
+const MIN_BARLINE_PADDING = 40;
 // Target ratio of note→barline gap to median inter-note gap when the
 // system has been justified out past natural width. Industry standard
 // per Gould "Behind Bars" (Spacing) is a 1.5–2.5× inter-to-barline

@@ -5365,10 +5365,10 @@ describe('NotationRenderer', () => {
       // pushes the system out further, growing inter-note gaps.
       for (const width of [800, 1200]) {
         const { visibleGap, visibleGapAfter, interNote } = measure(width);
-        // Floor: visible glyph-edge gap ≥ 1.5 staff spaces (30px) at
+        // Floor: visible glyph-edge gap ≥ 2 staff spaces (40px) at
         // any width, on BOTH sides of the barline.
-        expect(visibleGap).toBeGreaterThanOrEqual(30 - 0.5);
-        expect(visibleGapAfter).toBeGreaterThanOrEqual(30 - 0.5);
+        expect(visibleGap).toBeGreaterThanOrEqual(40 - 1.5);
+        expect(visibleGapAfter).toBeGreaterThanOrEqual(40 - 1.5);
         // Symmetry: pre- and post-gaps stay locked at the same value.
         expect(Math.abs(visibleGap - visibleGapAfter)).toBeLessThan(1.0);
         // Ratio band: inter-note gap is 2-3.5× the visible barline gap.
