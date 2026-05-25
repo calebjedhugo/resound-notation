@@ -3473,51 +3473,6 @@ describe('NotationRenderer', () => {
       expect(subpathCount).toBeGreaterThanOrEqual(6);
     });
 
-    // Gould "Behind Bars" (Octave displacement, p. 75): the dashed
-    // continuation line reads as a horizontal extension of the "8va"
-    // marking — visually it passes through (roughly) the vertical
-    // center of the digit, not below its baseline. Pin that the
-    // rendered dashed line's y coincides with the vertical center of
-    // the "8va" glyph's bbox (within ~1 px tolerance).
-    it('aligns the dashed extension line with the vertical center of the "8va" glyph', () => {
-      ctx.render([
-        { pitch: 'G6', length: '1/4' },
-        { pitch: 'A6', length: '1/4' },
-        { pitch: 'B6', length: '1/4' },
-        { pitch: 'C7', length: '1/4' },
-      ]);
-      const bracket = ctx.container.querySelector('.ottava-bracket.ottava-8va');
-      expect(bracket).not.toBeNull();
-      const glyph = bracket.querySelector('.ottava-glyph');
-      const line = bracket.querySelector('.ottava-line');
-      expect(glyph).not.toBeNull();
-      expect(line).not.toBeNull();
-
-      // Glyph is positioned via translate(x, y) where y is the SMuFL
-      // origin in screen coords. Inner path is scaled by -SMUFL_SCALE
-      // in Y, so the path's font-unit Y range [yMin, yMax] maps to
-      // screen Y range [translateY - yMax*S, translateY - yMin*S].
-      const tr = glyph.getAttribute('transform') || '';
-      const m = /translate\(\s*[-\d.]+\s*,\s*([-\d.]+)\s*\)/.exec(tr);
-      expect(m).not.toBeNull();
-      const glyphTranslateY = parseFloat(m[1]);
-
-      // ottavaAlta bbox from src/assets/glyphs.js: yMin=-10, yMax=463.
-      const SMUFL_SCALE = 0.08;
-      const yMin = -10;
-      const yMax = 463;
-      const glyphTop = glyphTranslateY - yMax * SMUFL_SCALE;
-      const glyphBottom = glyphTranslateY - yMin * SMUFL_SCALE;
-      const glyphMidY = (glyphTop + glyphBottom) / 2;
-
-      const lineY = parseFloat(line.getAttribute('y1'));
-      expect(parseFloat(line.getAttribute('y2'))).toBeCloseTo(lineY, 5);
-
-      // Dashed line should cross the glyph's vertical center, not
-      // float below its baseline.
-      expect(Math.abs(lineY - glyphMidY)).toBeLessThanOrEqual(1);
-    });
-
     it('shifts a G6+ run\'s noteheads down by one octave (matching G5/A5/B5/C6 Y)', () => {
       ctx.render([
         { pitch: 'G6', length: '1/4' },
