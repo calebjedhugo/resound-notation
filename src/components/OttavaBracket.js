@@ -21,8 +21,21 @@ export function createOttavaBracket({ kind, startX, endX, y }) {
   const group = createGroup(`ottava-bracket ottava-${kind}`);
 
   const glyph = kind === '8va' ? OTTAVA_GLYPHS.ottavaAlta : OTTAVA_GLYPHS.ottavaBassaVb;
+
+  // Gould "Behind Bars" (Octave displacement, p. 75): the dashed
+  // continuation line is a horizontal extension of the "8va" / "8vb"
+  // marking — line and digit share a vertical center, the line does
+  // not float below the glyph's baseline. The caller's `y` is the
+  // bracket's working anchor (chosen for staff/notehead clearance);
+  // we use it as the line's y, then shift the glyph so its bbox
+  // vertical midpoint also lands at `y`. The SMuFL Y axis is flipped
+  // by createSmuflGlyph, so screen-Y of the bbox-center is
+  // glyphTranslateY - (yMin+yMax)/2 * SMUFL_SCALE; solving for
+  // translate gives the offset below.
+  const glyphMidYOffset = ((glyph.bbox.yMin + glyph.bbox.yMax) / 2) * SMUFL_SCALE;
+  const glyphTranslateY = y + glyphMidYOffset;
   const glyphGroup = createSmuflGlyph(glyph, 'ottava-glyph');
-  glyphGroup.setAttribute('transform', `translate(${startX}, ${y})`);
+  glyphGroup.setAttribute('transform', `translate(${startX}, ${glyphTranslateY})`);
   group.appendChild(glyphGroup);
 
   // Dashed continuation starts just past the composed "8va"/"8vb" glyph's

@@ -2549,9 +2549,17 @@ export class NotationRenderer {
       // ~1 staff space clear, falling back to the previous fixed minimum
       // (~3 spaces from the staff) when the shifted content stays inside
       // the staff.
-      const BRACKET_CLEARANCE = 20; // one staff space
-      const DEFAULT_VA_Y = STAFF_TOP_OFFSET - 50;
-      const DEFAULT_VB_Y = STAFF_TOP_OFFSET + STAFF_HEIGHT + 60;
+      // BRACKET_CLEARANCE is the gap between the nearest notehead edge
+      // and the nearest edge of the "8va" glyph. The component anchors
+      // `y` at the line (== glyph vertical center) per Gould; the glyph
+      // half-height is ~18 px (ottavaAlta bbox ≈ 36 px tall), so we add
+      // that to the desired visual gap (one staff space) when computing
+      // a clearance-relative bracketY.
+      const OTTAVA_GLYPH_HALF_HEIGHT = 19; // bbox 473 fu * 0.08 / 2 ≈ 19 px
+      const VISUAL_GAP = 20; // one staff space
+      const BRACKET_CLEARANCE = OTTAVA_GLYPH_HALF_HEIGHT + VISUAL_GAP;
+      const DEFAULT_VA_Y = STAFF_TOP_OFFSET - 50 - OTTAVA_GLYPH_HALF_HEIGHT;
+      const DEFAULT_VB_Y = STAFF_TOP_OFFSET + STAFF_HEIGHT + 60 + OTTAVA_GLYPH_HALF_HEIGHT;
       const ottavaSegs = ottavaSegmentsPerVoice[index] || [];
       if (ottavaSegs.length > 0) {
         for (const seg of ottavaSegs) {
