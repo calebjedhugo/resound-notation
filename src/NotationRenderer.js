@@ -1583,7 +1583,14 @@ export class NotationRenderer {
             ? Math.max(...tupletNoteData.map((n) => n.beams))
             : 1;
           const beamStackExtra = Math.max(0, maxBeams - 1) * (BEAM_THICKNESS + BEAM_GAP);
-          const bracketY = stemsDown ? 110 + beamStackExtra : -10 - beamStackExtra;
+          // The bracket/number sits opposite the noteheads from the beam.
+          // Stems start at the head's SMuFL anchor (HEAD_TIP_Y above/below
+          // the head center), so the beam shifts by that same amount; the
+          // bracket must follow or the number collides with the beam stack.
+          const tipShift = stemsDown ? -HEAD_TIP_Y : HEAD_TIP_Y;
+          const bracketY = stemsDown
+            ? 110 + beamStackExtra + tipShift
+            : -10 - beamStackExtra + tipShift;
           const above = !stemsDown;
 
           // The tuplet number is centered on the bracket/beam span.
