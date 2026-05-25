@@ -4115,6 +4115,84 @@ describe('NotationRenderer', () => {
       }
     });
 
+    // Gould "Behind Bars" (Spacing & Systems): every system EXCEPT the
+    // last must be right-justified — the rightmost rendered element (last
+    // notehead, or the closing barline) lands at the staff-line right
+    // edge. The last system terminates at its natural length. This pins
+    // that convention against the `repeats`-preset shape (3 systems at
+    // width=600), which prior iterations packed left with a wide blank
+    // gap.
+    it('right-justifies every non-final system so the last note reaches the staff terminus', () => {
+      const width = 600;
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width,
+      });
+      const svg = renderer.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { barline: 'repeat-start' },
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'D5', length: '1/4' },
+          { pitch: 'E5', length: '1/4' },
+          { pitch: 'F5', length: '1/4' },
+          { ending: { number: 1, type: 'start' } },
+          { pitch: 'G5', length: '1/2' },
+          { pitch: 'F5', length: '1/2' },
+          { ending: { number: 1, type: 'stop' } },
+          { barline: 'repeat-end' },
+          { ending: { number: 2, type: 'start' } },
+          { pitch: 'A5', length: '1/2' },
+          { pitch: 'G5', length: '1/2' },
+          { barline: 'final' },
+        ],
+      });
+
+      const systems = svg.querySelectorAll('g[data-system-index]');
+      expect(systems.length).toBeGreaterThanOrEqual(2);
+
+      // For each non-final system, the rightmost translated music element
+      // (notehead group, chord group, or rest) must sit within END_TOL of
+      // the staff-line right edge. The tolerance covers the closing
+      // barline glyph width (a final-bar/repeat-end is wider than a
+      // single thin bar) plus a small breathing pad.
+      const END_TOL = 60; // ≈ end-of-system room budget; well under the ~100px gap the defect leaves.
+      const lastIdx = systems.length - 1;
+      for (let si = 0; si < systems.length; si += 1) {
+        const sys = systems[si];
+        const staffLine = sys.querySelector('.staff-line');
+        const staffRightX = parseFloat(staffLine.getAttribute('x2'));
+
+        // Collect translated x of every notehead/chord group rendered
+        // in this system. We look at the closest ancestor with a
+        // transform — note groups have `class="note ..."` and chord
+        // groups have `class="chord note ..."`.
+        const noteGroups = sys.querySelectorAll('g.note, g.chord');
+        const xs = [];
+        for (const g of noteGroups) {
+          const tr = g.getAttribute('transform') || '';
+          const m = /translate\(\s*([-\d.]+)/.exec(tr);
+          if (m) xs.push(parseFloat(m[1]));
+        }
+        if (xs.length === 0) continue;
+        const rightmostNoteX = Math.max(...xs);
+
+        if (si === lastIdx) {
+          // Last system: just confirm we didn't OVERFLOW the staff —
+          // no right-justification assertion. Natural-length is fine.
+          expect(rightmostNoteX).toBeLessThanOrEqual(staffRightX + 1);
+        } else {
+          // Non-final systems: rightmost note must be near the right
+          // edge (right-justified per Gould). The note-center sits
+          // approximately END_TOL or less from the staff terminus.
+          const gap = staffRightX - rightmostNoteX;
+          expect(gap).toBeLessThanOrEqual(END_TOL);
+          expect(gap).toBeGreaterThanOrEqual(0);
+        }
+      }
+    });
+
     it('keeps voices synchronized across system boundaries — Y-bucketing (synthetic 2-voice)', () => {
       const renderer = new NotationRenderer({
         container: document.createElement('div'),

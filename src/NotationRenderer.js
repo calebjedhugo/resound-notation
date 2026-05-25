@@ -1018,9 +1018,20 @@ export class NotationRenderer {
         // spring whose K scales with log2(durationBeats / quarter) — longer
         // durations soak more of the available slack, mirroring Gould
         // "Behind Bars" (Spacing) and Lilypond's spacing model.
+        //
+        // RIGHT-JUSTIFICATION (Gould "Behind Bars", Systems): every system
+        // EXCEPT the last must terminate with its rightmost rendered
+        // element at the staff-line right edge. The trailing gap from the
+        // last note's beat (b_{N-1}) to its endBeat (b_N) is the last
+        // note's natural breathing space; it carries no visible glyph, so
+        // any slack absorbed there leaves a blank hole on the right of
+        // the system. We therefore stretch only the INTER-NOTE springs
+        // (b_0..b_{N-1}) and leave the trailing gap at its natural
+        // length. The auto-barline emitted at xForBeat(b_N)-BAR_LINE_PADDING
+        // then lands at the staff terminus (with emitAutoBarline clamping
+        // any small over-shoot).
         const sortedBeats = [...naturalBeatToX.keys()].sort((a, b) => a - b);
-        const targetMusicWidth = systemRightX - perSystemMusicStartX - barlinePadAtSystemEnd;
-        const springs = [];
+        const allSprings = [];
         for (let i = 0; i < sortedBeats.length - 1; i += 1) {
           const a = sortedBeats[i];
           const z = sortedBeats[i + 1];
@@ -1029,12 +1040,56 @@ export class NotationRenderer {
           // Floor K at a small positive so degenerate near-zero-duration
           // boundaries still contribute something to the spring sum.
           const K = Math.max(springStretchability(durationBeats), 1);
-          springs.push({ natLength, K });
+          allSprings.push({ natLength, K });
         }
-        const stretchedGaps = justifySystemSpring(springs, 0, targetMusicWidth, {
-          isLast: false, // last-system gating already handled by `justified` above
-          measureCount: measureCountInSystem,
-        });
+        // Trailing spring (after the last sounding note) — held at
+        // natural length so the right-justified last note doesn't get
+        // pushed past the staff terminus.
+        const trailingSpringNat = allSprings.length > 0
+          ? allSprings[allSprings.length - 1].natLength
+          : 0;
+        const stretchedSprings = allSprings.slice(0, -1);
+        // Target rendered x for the LAST sounding beat (b_{N-1}) — the
+        // staff-line right edge minus an end-of-system reservation that
+        // covers the closing barline's pre-pad and glyph width
+        // (≈2*BAR_LINE_PADDING). Right-justification (Gould "Behind
+        // Bars", Systems) calls for the rightmost rendered glyph to sit
+        // at the staff terminus, with the closing barline coincident.
+        const END_OF_SYSTEM_NOTE_ROOM = 2 * BAR_LINE_PADDING;
+        // The renderer adds barlineOffset at every measure boundary the
+        // voice loop crosses. Boundaries crossed BEFORE the last note
+        // each contribute 2*BAR_LINE_PADDING (pre + post). Count those
+        // by walking `sortedBeats`: every beat that is a non-zero
+        // measure-length multiple AND lies strictly before the last
+        // beat counts.
+        const measureLengthForOffset = sharedMeasureLength;
+        let interiorBoundaryCount = 0;
+        if (measureLengthForOffset && sortedBeats.length > 1) {
+          const lastBeat = sortedBeats[sortedBeats.length - 1];
+          for (let i = 1; i < sortedBeats.length - 1; i += 1) {
+            const b = sortedBeats[i];
+            if (b > 0 && b < lastBeat &&
+                Math.abs((b / measureLengthForOffset) - Math.round(b / measureLengthForOffset)) < 1e-6) {
+              interiorBoundaryCount += 1;
+            }
+          }
+        }
+        const interiorBarlineOffset = 2 * BAR_LINE_PADDING * interiorBoundaryCount;
+        const targetInterNoteWidth =
+          systemRightX - perSystemMusicStartX - END_OF_SYSTEM_NOTE_ROOM - interiorBarlineOffset;
+        const stretchedInterNoteGaps = justifySystemSpring(
+          stretchedSprings,
+          0,
+          targetInterNoteWidth,
+          {
+            isLast: false, // last-system gating already handled by `justified` above
+            measureCount: measureCountInSystem,
+          }
+        );
+        // Reassemble the gap list — stretched inter-note gaps followed
+        // by the natural-length trailing gap.
+        const stretchedGaps = stretchedInterNoteGaps.slice();
+        if (allSprings.length > 0) stretchedGaps.push(trailingSpringNat);
         const stretchedBeatToX = new Map();
         let runX = perSystemMusicStartX;
         if (sortedBeats.length > 0) {
