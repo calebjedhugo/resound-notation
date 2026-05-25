@@ -24,31 +24,26 @@ export const SMUFL_SCALE = 0.08;
 // `bbox` is the SMuFL spec bounding box in font units; `tipFu` is the
 // stem-up tip vertex (max-x outline point). Half and Black share the
 // same tip; Whole has no stem.
-// Stem anchor (tipFu) is the raw SMuFL `stemUpSE` for noteheadBlack/Half:
-// font-unit (295, 42) — the head's upper-right shoulder, where the
-// right outline starts curving inward toward the top-right tip. Anchoring
-// the stem here is the standard SMuFL/Bravura convention and matches
-// Gould "Behind Bars" (Stems): the stem visibly emerges from the head's
-// shoulder, with the curved outline meeting the stem flush at the
-// anchor. Stem-down uses the reflected `stemDownNW` at (-x, -y), which
-// lands at the head's lower-left shoulder.
-//
-// Earlier iterations pulled the anchor to (283, 0) to "center" the stem
-// in the head body — but that left the stem's lower-right edge just
-// outside the head's vertical-center tangent, while the head's outline
-// curved AWAY from the stem above center. The eye read daylight between
-// stem and head even though the line technically touched the outline.
-// Returning to the SMuFL anchor closes that perceptual gap.
+// Stem anchor (tipFu) sits at the head's right edge, near vertical center.
+// The path's max-x outline vertex is at font-unit (295, 42) — top-right of
+// the oval. Anchoring the stem there (per raw SMuFL stemUpSE) makes the
+// stem appear to PERCH on top of the notehead with a visible gap rather
+// than join it: the head body sits below the stem's bottom endpoint, so
+// the eye reads them as separate marks. Per Gould "Behind Bars" (Stems),
+// stems should attach near the head's vertical center so the head body
+// visibly wraps the stem's lower end. We pull x inward by ~12 fu (~1px) for
+// engraver overlap, and pull y to 0 (long-axis center) so the stem's
+// bottom lands inside the head body, not on its outline.
 export const NOTEHEAD_BLACK_GLYPH = {
   d: 'M97 -125C186 -125 295 -43 295 42C295 93 255 125 198 125C88 125 0 44 0 -42C0 -94 43 -125 97 -125Z',
   bbox: { xMin: 0, yMin: -125, xMax: 295, yMax: 125 },
-  tipFu: { x: 295, y: 42 },
+  tipFu: { x: 283, y: 0 },
 };
 
 export const NOTEHEAD_HALF_GLYPH = {
   d: 'M97 -125C262 -125 295 9 295 42C295 93 254 125 196 125C47 125 0 10 0 -42C0 -95 42 -125 97 -125ZM75 -87C54 -87 42 -76 35 -64C32 -58 29 -51 29 -44C29 5 174 84 221 84C240 84 251 75 258 63C261 57 264 51 264 44C264 1 123 -87 75 -87Z',
   bbox: { xMin: 0, yMin: -125, xMax: 295, yMax: 125 },
-  tipFu: { x: 295, y: 42 },
+  tipFu: { x: 283, y: 0 },
   fillRule: 'evenodd',
 };
 

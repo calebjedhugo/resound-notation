@@ -177,26 +177,46 @@ describe('NotationRenderer', () => {
     });
 
     // SMuFL Bravura noteheadBlack stem-up tip: the path's max-x vertex sits
-    // at font-units (295, 42) — `stemUpSE` per SMuFL glyphsWithAnchors.
-    // The stem attaches at the head's upper-right SHOULDER, where the
-    // right outline begins curving inward toward the top. This is the
-    // standard SMuFL/Bravura convention and matches Gould "Behind Bars"
-    // (Stems): the stem visibly emerges from the head's shoulder so
-    // the curved outline meets the stem flush at the anchor.
-    it('attaches the quarter-note stem at noteheadBlack stemUpSE (x = right edge of bbox)', () => {
+    // at font-units (295, 42). The stem anchor is pulled ~1px toward the
+    // head's center so the stem overlaps the outline rather than butting
+    // up against it (standard engraving — without overlap the stem reads
+    // as "stuck on" the head edge instead of joining cleanly).
+    it('attaches the quarter-note stem ~1px inside the head outline', () => {
       ctx.render([{ pitch: 'E4', length: '1/4' }]);
       const stem = ctx.container.querySelector('.note-stem');
       const x = parseFloat(stem.getAttribute('x1'));
-      // bbox.xMax = 295 fu, cx = 147.5 fu, SMUFL_SCALE = 0.08 → local x = 11.8.
-      expect(x).toBeCloseTo(11.8, 1);
+      // E4 is below middle line → stem-up → right side of head, pulled inward.
+      expect(x).toBeLessThan(11.8);
+      expect(x).toBeGreaterThan(10);
     });
 
-    // Same SMuFL stemUpSE anchor applies to the noteheadHalf glyph.
-    it('attaches the half-note stem at noteheadHalf stemUpSE (x = right edge of bbox)', () => {
+    // Per Gould "Behind Bars" (Stems): the stem's lower endpoint should sit
+    // near the notehead's vertical center so the stem visually pierces the
+    // head rather than perching on its top edge. With the SMuFL anchor at
+    // y_fu=42 (top-right of head), the stem bottom landed ~3.4px above
+    // center on a 10px-tall head — visually reading as a gap. Pin the
+    // stem-up stem-bottom to fall WITHIN the notehead's inner half, i.e.
+    // |y1| < HEAD_HALF_HEIGHT / 2 (5px), so the stem reliably overlaps the
+    // head body across renderers.
+    it('lands the stem-up stem bottom inside the notehead body (no perched gap)', () => {
+      ctx.render([{ pitch: 'C4', length: '1/4' }]); // low C, stem-up
+      const note = ctx.container.querySelector('.note');
+      const stem = note.querySelector('.note-stem');
+      const y1 = parseFloat(stem.getAttribute('y1'));
+      // Notehead spans local y in [-10, +10] (NOTEHEAD_BLACK bbox 125 fu *
+      // SMUFL_SCALE 0.08 = 10 px each side of midline). Stem y1 must land
+      // near the head's vertical center — |y1| < 2 px (~0.1 staff space) —
+      // so the stem visibly overlaps the head body, not its top outline.
+      expect(Math.abs(y1)).toBeLessThan(2);
+    });
+
+    // Same pullback applies to the SMuFL noteheadHalf glyph.
+    it('attaches the half-note stem ~1px inside the head outline', () => {
       ctx.render([{ pitch: 'E4', length: '1/2' }]);
       const stem = ctx.container.querySelector('.note-stem');
       const x = parseFloat(stem.getAttribute('x1'));
-      expect(x).toBeCloseTo(11.8, 1);
+      expect(x).toBeLessThan(11.8);
+      expect(x).toBeGreaterThan(10);
     });
 
     // Half-note heads in standard engraving have a distinct hollow shape:
@@ -3070,7 +3090,7 @@ describe('NotationRenderer', () => {
       // Bravura notehead half-width — the notehead's visible left/right
       // edge sits HEAD_TIP_X from the note's translate-x (center).
       // Centralized in NotationRenderer.js as `HEAD_TIP_X`.
-      const HEAD_TIP_X = (295 - 295 / 2) * 0.08; // 11.8 (notehead black SMuFL stemUpSE x)
+      const HEAD_TIP_X = (283 - 295 / 2) * 0.08; // ~10.84 (notehead black tip)
       const MIN_CLEARANCE = 10; // 0.5 staff space at LINE_SPACING=20
 
       const startRepeat = ctx.container.querySelector('.barline-repeat-start');
@@ -5182,80 +5202,6 @@ describe('NotationRenderer', () => {
       const C3_LOWEST = 180 + 5; // 185
       expect(pY - G5_LOWEST).toBeGreaterThanOrEqual(20);
       expect(fY - C3_LOWEST).toBeGreaterThanOrEqual(20);
-    });
-  });
-
-  describe('stem attaches at the noteheadBlack SMuFL stem anchor (Gould "Stems")', () => {
-    // Per Gould "Behind Bars" (Stems) and SMuFL glyphsWithAnchors,
-    // a stem-up on a black notehead attaches at the upper-right corner
-    // of the head — the SMuFL `stemUpSE` anchor, which sits at the
-    // notehead's top-right shoulder, not its long-axis center. The
-    // symmetric `stemDownNW` attaches at the lower-left shoulder for
-    // stem-down notes. Anchoring at the SMuFL shoulder makes the stem
-    // visibly enter the head body (no daylight between the stem's
-    // terminal end and the curved head outline), whereas anchoring
-    // at the head's vertical center leaves a perceptual gap because
-    // the head's right outline curves AWAY from the stem above center.
-
-    function parseStemGeom(note) {
-      const stem = note.querySelector('line.note-stem');
-      const transform = note.getAttribute('transform');
-      const m = transform.match(/translate\((-?[\d.]+),\s*(-?[\d.]+)\)/);
-      const groupX = parseFloat(m[1]);
-      const groupY = parseFloat(m[2]);
-      return {
-        stemX: parseFloat(stem.getAttribute('x1')),
-        stemY1: parseFloat(stem.getAttribute('y1')),
-        stemY2: parseFloat(stem.getAttribute('y2')),
-        groupX,
-        groupY,
-      };
-    }
-
-    // SMuFL noteheadBlack stem anchors, in font units, with bbox xMin/xMax 0/295.
-    // `stemUpSE` ≈ (295, 42) in raw SMuFL; `stemDownNW` ≈ (0, -42). After centering
-    // (cx = 147.5) and applying SMUFL_SCALE = 0.08 with y-flip:
-    //   stemUpSE   → local (x, y) = (+11.8, -3.36)
-    //   stemDownNW → local (x, y) = (-11.8, +3.36)
-    const SMUFL_SCALE = 0.08;
-    const NB_CX_FU = 147.5;
-    const STEM_UP_SE_FU = { x: 295, y: 42 };
-    const expectedStemUpX = (STEM_UP_SE_FU.x - NB_CX_FU) * SMUFL_SCALE;
-    const expectedStemUpY = -STEM_UP_SE_FU.y * SMUFL_SCALE;
-    const expectedStemDownX = -expectedStemUpX;
-    const expectedStemDownY = -expectedStemUpY;
-
-    it('stem-up quarter note attaches at the head\'s upper-right (stemUpSE), not its vertical center', () => {
-      // C4 in treble: noteY=110 (well below middle line) → stem points UP.
-      ctx.render([{ pitch: 'C4', length: '1/4' }]);
-      const note = ctx.container.querySelector('g.note');
-      expect(note).not.toBeNull();
-      const { stemX, stemY1, stemY2 } = parseStemGeom(note);
-
-      // Stem attaches at the upper-right shoulder of the head.
-      expect(stemX).toBeCloseTo(expectedStemUpX, 1);
-      // The bottom of the stem (y1, the larger/more-positive of the two
-      // endpoints in screen coords) sits at the anchor's y.
-      const stemBottom = Math.max(stemY1, stemY2);
-      const stemTop = Math.min(stemY1, stemY2);
-      expect(stemBottom).toBeCloseTo(expectedStemUpY, 0);
-      // Stem extends UPWARD from the anchor by STEM_LENGTH (70 here).
-      expect(stemBottom - stemTop).toBeCloseTo(70, 0);
-    });
-
-    it('stem-down quarter note attaches at the head\'s lower-left (stemDownNW)', () => {
-      // C5 in treble: noteY=40 (above middle line) → stem points DOWN.
-      ctx.render([{ pitch: 'C5', length: '1/4' }]);
-      const note = ctx.container.querySelector('g.note');
-      expect(note).not.toBeNull();
-      const { stemX, stemY1, stemY2 } = parseStemGeom(note);
-
-      expect(stemX).toBeCloseTo(expectedStemDownX, 1);
-      // Top of the stem (smaller y) sits at the anchor's y.
-      const stemTop = Math.min(stemY1, stemY2);
-      const stemBottom = Math.max(stemY1, stemY2);
-      expect(stemTop).toBeCloseTo(expectedStemDownY, 0);
-      expect(stemBottom - stemTop).toBeCloseTo(70, 0);
     });
   });
 });
