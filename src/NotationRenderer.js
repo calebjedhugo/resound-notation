@@ -1248,6 +1248,41 @@ export class NotationRenderer {
     let contentMinY = systemContext.contentMinY;
     let contentMaxY = systemContext.contentMaxY;
 
+    // Shared barline beats — the set of beat positions where EVERY voice
+    // in this system has a measure boundary. Used to gate barlineOffset:
+    // a barline at a shared beat may safely push subsequent notes to the
+    // right (all voices push together → still aligned). A barline at a
+    // voice-specific beat (polymetric: 3/4 voice's bar 1 ending inside a
+    // 4/4 voice's bar 1) MUST be drawn in the existing inter-note slack
+    // WITHOUT advancing barlineOffset — otherwise that voice's downstream
+    // notes drift right of their shared-grid x. See Gould "Behind Bars"
+    // on polymetric: coincident beats across voices must coincide in x.
+    const voiceBarlineBeatSets = voices.map((v) => {
+      const set = new Set();
+      const tsig = v.timeSignature;
+      if (!tsig) return set;
+      const mLen = tsig[0] * (4 / tsig[1]);
+      const evs = collectVoiceEvents(shiftedVoiceNotes[voices.indexOf(v)]);
+      let cum = 0;
+      let lastEnd = 0;
+      for (const ev of evs) {
+        lastEnd = ev.endBeat;
+        cum += ev.endBeat - ev.startBeat;
+        while (cum >= mLen - 0.001) {
+          set.add(ev.endBeat - (cum - mLen));
+          cum -= mLen;
+        }
+      }
+      void lastEnd;
+      return set;
+    });
+    const sharedBarlineBeats = voiceBarlineBeatSets.length === 0
+      ? new Set()
+      : [...voiceBarlineBeatSets[0]].reduce((acc, b) => {
+          if (voiceBarlineBeatSets.every((s) => s.has(b))) acc.add(b);
+          return acc;
+        }, new Set());
+
     voices.forEach((voice, index) => {
       // Render against the octave-shifted notes so the heads sit near the
       // staff under the bracket. The original voice.notes is preserved on
@@ -2012,13 +2047,16 @@ export class NotationRenderer {
             if (measureLength && chordElementBeats > 0) {
               cumulativeBeats += chordAdjBeats;
               while (cumulativeBeats >= measureLength - 0.001) {
-                barlineOffset += BAR_LINE_PADDING;
-                const barlineX = xForBeat(beatPosition);
+                const isShared = sharedBarlineBeats.has(beatPosition);
+                if (isShared) barlineOffset += BAR_LINE_PADDING;
+                const barlineX = isShared
+                  ? xForBeat(beatPosition)
+                  : xForBeat(beatPosition) - BAR_LINE_PADDING;
                 const autoBar = createBarLine(barlineX);
                 staffGroup.appendChild(autoBar);
                 barlineXs.push(barlineX);
                 pendingAutoBarline = { el: autoBar, x: barlineX };
-                barlineOffset += BAR_LINE_PADDING;
+                if (isShared) barlineOffset += BAR_LINE_PADDING;
                 cumulativeBeats -= measureLength;
               }
               if (Math.abs(cumulativeBeats) < 0.001) {
@@ -2265,13 +2303,16 @@ export class NotationRenderer {
         if (measureLength && elementBeats > 0) {
           cumulativeBeats += elementBeats;
           while (cumulativeBeats >= measureLength - 0.001) {
-            barlineOffset += BAR_LINE_PADDING;
-            const barlineX = xForBeat(beatPosition);
+            const isShared = sharedBarlineBeats.has(beatPosition);
+            if (isShared) barlineOffset += BAR_LINE_PADDING;
+            const barlineX = isShared
+              ? xForBeat(beatPosition)
+              : xForBeat(beatPosition) - BAR_LINE_PADDING;
             const autoBar = createBarLine(barlineX);
             staffGroup.appendChild(autoBar);
             barlineXs.push(barlineX);
             pendingAutoBarline = { el: autoBar, x: barlineX };
-            barlineOffset += BAR_LINE_PADDING;
+            if (isShared) barlineOffset += BAR_LINE_PADDING;
             cumulativeBeats -= measureLength;
           }
           if (Math.abs(cumulativeBeats) < 0.001) {

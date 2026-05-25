@@ -2438,6 +2438,71 @@ describe('NotationRenderer', () => {
       expect(Math.abs(c - a)).toBeLessThanOrEqual(1);
     });
 
+    // Polymetric: a voice with internal barlines (e.g. 3/4 inside a system
+    // shared with a 4/4 voice) used to cascade BAR_LINE_PADDING into every
+    // subsequent beat — pushing the first note of its second bar (and the
+    // barline itself) ~60 px right of where the SHARED beat-grid placed
+    // them in the 4/4 voice. Gould "Behind Bars" (Polyrhythmic notation):
+    // when voices share a system, beats that coincide in time must
+    // coincide in x; a per-voice barline width must be absorbed in the
+    // existing gap, not stacked on top of the shared grid.
+    it('absorbs internal-barline padding into the shared beat grid (polymetric alignment)', () => {
+      ctx.render({
+        voices: [
+          {
+            id: 'v1',
+            clef: 'treble',
+            timeSignature: [4, 4],
+            notes: [
+              { pitch: 'G4', length: '1/4' },
+              { pitch: 'A4', length: '1/4' },
+              { pitch: 'B4', length: '1/4' },
+              { pitch: 'C5', length: '1/4' },
+            ],
+          },
+          {
+            id: 'v2',
+            clef: 'treble',
+            timeSignature: [3, 4],
+            notes: [
+              { pitch: 'E4', length: '1/4' },
+              { pitch: 'F4', length: '1/4' },
+              { pitch: 'G4', length: '1/4' },
+              // v2 barline lands here, at the same beat as v1's beat-4 note
+              { pitch: 'A4', length: '1/4' },
+            ],
+          },
+        ],
+      });
+
+      const staves = ctx.container.querySelectorAll('.staff');
+      expect(staves.length).toBeGreaterThanOrEqual(2);
+
+      const noteXs = (staff) =>
+        Array.from(staff.querySelectorAll('.note')).map((n) => {
+          const m = /translate\(([-0-9.]+),/.exec(n.getAttribute('transform'));
+          return parseFloat(m[1]);
+        });
+
+      const v1Notes = noteXs(staves[0]);
+      const v2Notes = noteXs(staves[1]);
+      expect(v1Notes).toHaveLength(4);
+      expect(v2Notes).toHaveLength(4);
+
+      const v2Bar = staves[1].querySelector('.bar-line line');
+      expect(v2Bar).not.toBeNull();
+      const v2BarX = parseFloat(v2Bar.getAttribute('x1'));
+
+      // Beat-4 alignment: v2's 4th note (first note of its bar 2) shares
+      // the beat-4 time position with v1's 4th note. They must sit within
+      // a couple of pixels of each other.
+      expect(Math.abs(v2Notes[3] - v1Notes[3])).toBeLessThanOrEqual(2);
+
+      // The internal barline must not protrude past the next downbeat:
+      // it sits in the gap to the LEFT of the beat-4 note.
+      expect(v2BarX).toBeLessThanOrEqual(v1Notes[3]);
+    });
+
     it('renders chords in a multi-voice context', () => {
       ctx.render({
         voices: [
