@@ -1508,11 +1508,15 @@ describe('NotationRenderer', () => {
       const maxBarX = Math.max(...barXs);
       expect(maxBarX).toBeLessThanOrEqual(staffRightX + 0.5);
 
-      // (b) The closing barline of this (mid-piece) system sits AT the
-      // staff terminus, not far inside. Allow a few px for half-thick
-      // stroke geometry; flag drifts of >10px back from the edge.
+      // (b) The closing barline of this (mid-piece) system sits near the
+      // staff terminus, not far inside. For wraps WITHOUT an explicit
+      // closing barline (this fixture — bar continues in system 2's
+      // volta-1) the auto-thin bar lands one notehead-half inside the
+      // terminus (END_OF_SYSTEM_NOTE_ROOM = BAR_LINE_PADDING + HEAD_TIP_X
+      // less BAR_LINE_PADDING barlineOffset ≈ HEAD_TIP_X ≈ 12px). Allow
+      // up to ~15px back; the original regression had it at ~25px past.
       const closingBarX = maxBarX;
-      expect(staffRightX - closingBarX).toBeLessThanOrEqual(10);
+      expect(staffRightX - closingBarX).toBeLessThanOrEqual(15);
 
       // (c) The last sounding note clears the closing barline by at least
       // a sensible end-of-system padding (~half a staff space) — neither
@@ -4336,16 +4340,78 @@ describe('NotationRenderer', () => {
       expect(xs).toHaveLength(4);
 
       // The system has no closing barline (the bar continues in system 2's
-      // volta-1). The rightmost note's centre + notehead extent should
-      // therefore sit within ~10px of the staff terminus. Use a small
-      // pad (~12px) to cover the notehead half-width + end padding.
+      // volta-1). The rightmost note's centre should right-justify to
+      // `systemRightX - END_OF_SYSTEM_NOTE_ROOM` — i.e. `BAR_LINE_PADDING
+      // + HEAD_TIP_X` (~42px) inside the terminus, putting its notehead
+      // right edge one BAR_LINE_PADDING clear of the staff edge. Without
+      // right-justification the centre would land near ~60% of the staff
+      // width (~200px short of the terminus); pin it within 10px of the
+      // reservation target.
       const lastNoteX = xs[3];
-      expect(staffRightX - lastNoteX).toBeGreaterThan(0);
-      expect(staffRightX - lastNoteX).toBeLessThanOrEqual(12);
+      const EXPECTED_INSET = 30 + 12; // BAR_LINE_PADDING + HEAD_TIP_X
+      expect(staffRightX - lastNoteX).toBeGreaterThanOrEqual(EXPECTED_INSET - 10);
+      expect(staffRightX - lastNoteX).toBeLessThanOrEqual(EXPECTED_INSET + 10);
 
       // Equal-duration springs → uniform gaps still preserved.
       const gaps = [xs[1] - xs[0], xs[2] - xs[1], xs[3] - xs[2]];
       expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThanOrEqual(5);
+    });
+
+    // Companion to the previous test: per Gould "Behind Bars" the last
+    // notehead in a mid-measure-wrapped system must right-justify to the
+    // staff terminus WITH A VISIBLE GAP — the notehead must never touch
+    // the staff right edge (or the implicit closing edge). The d1c453d
+    // implementation over-corrected by setting END_OF_SYSTEM_NOTE_ROOM
+    // to HEAD_TIP_X (≈12px), which put the notehead's right edge flush
+    // against the SVG boundary. Reserve a real padding instead.
+    it('leaves visible padding between the last note and the staff terminus in mid-measure wraps', () => {
+      const width = 600;
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width,
+      });
+      const svg = renderer.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { barline: 'repeat-start' },
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'D5', length: '1/4' },
+          { pitch: 'E5', length: '1/4' },
+          { pitch: 'F5', length: '1/4' },
+          { ending: { number: 1, type: 'start' } },
+          { pitch: 'G5', length: '1/2' },
+          { pitch: 'F5', length: '1/2' },
+          { ending: { number: 1, type: 'stop' } },
+          { barline: 'repeat-end' },
+          { ending: { number: 2, type: 'start' } },
+          { pitch: 'A5', length: '1/2' },
+          { pitch: 'G5', length: '1/2' },
+          { barline: 'final' },
+        ],
+      });
+
+      const systems = svg.querySelectorAll('g[data-system-index]');
+      const sys0 = systems[0];
+      const staffLine = sys0.querySelector('.staff-line');
+      const staffRightX = parseFloat(staffLine.getAttribute('x2'));
+
+      const noteGroups = sys0.querySelectorAll('g.note, g.chord');
+      const xs = [];
+      for (const g of noteGroups) {
+        const m = /translate\(\s*([-\d.]+)/.exec(g.getAttribute('transform') || '');
+        if (m) xs.push(parseFloat(m[1]));
+      }
+      xs.sort((a, b) => a - b);
+      const lastNoteCenterX = xs[xs.length - 1];
+
+      // Notehead right edge = centre + HEAD_TIP_X (~12px). Require the
+      // notehead to sit at least ~one BAR_LINE_PADDING half (~15px) clear
+      // of the staff terminus — a clearly visible engraver's gap, as a
+      // notehead touching a barline is a Gould-explicit defect.
+      const noteheadRightEdge = lastNoteCenterX + 12;
+      const padding = staffRightX - noteheadRightEdge;
+      expect(padding).toBeGreaterThanOrEqual(15);
     });
 
     it('keeps voices synchronized across system boundaries — Y-bucketing (synthetic 2-voice)', () => {

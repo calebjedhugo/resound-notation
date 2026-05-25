@@ -1105,12 +1105,18 @@ export class NotationRenderer {
 
         // END-OF-SYSTEM RESERVATION: reserve ≈2*BAR_LINE_PADDING for the
         // closing barline (final, repeat-end) at the staff right edge.
-        // For wraps with no real closing glyph, reserve only the notehead
-        // half-extent so the last note's right edge sits at the staff
-        // terminus.
+        // For wraps with no real closing glyph, reserve one BAR_LINE_PADDING
+        // PLUS the notehead half-extent (HEAD_TIP_X), so the last note's
+        // centre lands at `systemRightX - (BAR_LINE_PADDING + HEAD_TIP_X)`,
+        // putting its right edge one full BAR_LINE_PADDING (~30px, ~1.5
+        // staff spaces) clear of the staff terminus. Per Gould "Behind
+        // Bars" a notehead must never touch a barline or staff edge —
+        // there must be a clearly visible engraver's gap. Reserving only
+        // HEAD_TIP_X (d1c453d's over-correction) flushed the notehead
+        // against the boundary.
         const END_OF_SYSTEM_NOTE_ROOM = endsWithClosingBarline
           ? 2 * BAR_LINE_PADDING
-          : HEAD_TIP_X;
+          : BAR_LINE_PADDING + HEAD_TIP_X;
         const sortedBeats = [...naturalBeatToX.keys()].sort((a, b) => a - b);
         const allSprings = [];
         for (let i = 0; i < sortedBeats.length - 1; i += 1) {
