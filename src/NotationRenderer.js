@@ -1103,81 +1103,29 @@ export class NotationRenderer {
           return Math.abs(ratio - Math.round(ratio)) < 1e-6;
         };
         const allSprings = [];
-        let fixedBoundaryNatSum = 0;
-        let originalBoundaryNatSum = 0;
-        // Pre-count interior boundaries to decide whether to apply the
-        // trailing-spring cap (see comment below).
-        let interiorBoundariesInSprings = 0;
-        for (let i = 0; i < sortedBeats.length - 1; i += 1) {
-          if (isInteriorBoundary(sortedBeats[i + 1])) interiorBoundariesInSprings += 1;
-        }
-        // The LAST spring in `sortedBeats` runs from the last sounding
-        // event's start beat to its end beat — there's no rendered glyph
-        // on the right end of that spring. Historically we let it
-        // stretch like any other, then reserved a fixed
-        // `END_OF_SYSTEM_NOTE_ROOM` on top, with the result that on a
-        // wide system with multiple measures the last-note → closing-
-        // barline daylight ballooned to several inter-note gaps. Per
-        // Gould "Behind Bars" (Spacing) and Lilypond's `BarLine.padding`,
-        // the gap between the last sounding event and the system's
-        // closing barline obeys the SAME scaling-pad rule as every
-        // interior boundary (`max(MIN_BARLINE_PADDING, BARLINE_GAP_RATIO
-        // * medianGap)`), not a stretched duration spring. So zero the
-        // trailing spring (K=0, natLength=0) and let the closing barline
-        // emit at `lastNote + barlineGap + HEAD_TIP_X` directly, freeing
-        // the would-be trailing-spring slack to redistribute into the
-        // inter-note springs.
-        //
-        // EXCEPTION — systems with fewer than two stretchable inter-note
-        // springs (e.g. a 2-note volta ending: 1 inter-note + 1 trailing):
-        // zeroing the trailing spring would dump 100% of system slack
-        // into the single remaining stretchable spring, producing a
-        // "first note + huge gap + last note" layout that looks worse
-        // than the daylight-tail it would have replaced. Keep the
-        // trailing spring stretchable in that case so slack splits
-        // between the two halves of the bar. Number of stretchable
-        // inter-note springs = (total springs) - (interior boundary
-        // springs, K=0) - (trailing spring, candidate for zeroing).
-        const stretchableInterNoteSprings =
-          (sortedBeats.length - 1) - interiorBoundariesInSprings - 1;
-        const trailingSpringIndex =
-          stretchableInterNoteSprings >= 2 ? sortedBeats.length - 2 : -1;
         for (let i = 0; i < sortedBeats.length - 1; i += 1) {
           const a = sortedBeats[i];
           const z = sortedBeats[i + 1];
           const natLength = naturalBeatToX.get(z) - naturalBeatToX.get(a);
-          if (isInteriorBoundary(z)) {
-            // Fixed barline padding (Gould / Lilypond). K=0 so this
-            // spring takes no slack; the freed slack flows into the
-            // inter-note springs instead.
-            allSprings.push({ natLength: BARLINE_SPRING_NAT_LENGTH, K: 0 });
-            fixedBoundaryNatSum += BARLINE_SPRING_NAT_LENGTH;
-            originalBoundaryNatSum += natLength;
-          } else if (i === trailingSpringIndex) {
-            // Trailing spring → zero. The closing-barline reservation in
-            // `solveWithGap` accounts for the room this spring used to
-            // occupy.
-            allSprings.push({ natLength: 0, K: 0 });
-          } else {
-            // Spring stretchability K = natLength. Each spring stretches by
-            // a fraction proportional to its natural length, so the ratio
-            // between any two stretched gaps equals the ratio between their
-            // natural lengths — which already follows the logarithmic
-            // duration curve baked into durationSymbols.spacing (whole 200,
-            // half 140, quarter 100, 8th 70, 16th 50, 32nd 36 — each
-            // doubling ≈ ×√2, the Gould "Behind Bars" / Lilypond convention).
-            // Floor at 1 so degenerate near-zero-duration boundaries still
-            // contribute something to the spring sum.
-            const K = Math.max(natLength, 1);
-            allSprings.push({ natLength, K });
-          }
+          // EVERY spring (interior boundary, trailing, inter-note)
+          // participates in stretch with K = natLength, so each
+          // stretches by the same proportional factor (1+F). Per Gould
+          // "Behind Bars" (Spacing), Lilypond `Spacing_spanner`, and
+          // Dorico rhythmic-spacing, the horizontal space following
+          // any note — whether the next event is another note or a
+          // barline — is proportional to that note's duration on the
+          // rhythmic grid. The MIN_BARLINE_PADDING floor is applied
+          // post-solve at the render emit sites (preGap / postGap /
+          // trailingBarlineGap), not in the spring graph, so the
+          // floor never absorbs slack that should go to inter-note
+          // springs.
+          //
+          // Floor at 1 so degenerate near-zero-duration boundaries
+          // still contribute something to the spring sum.
+          const K = Math.max(natLength, 1);
+          allSprings.push({ natLength, K });
         }
-        // Net delta to the natural music width from the boundary-spring
-        // rewrite. The original spring lengths summed to
-        // `originalBoundaryNatSum`; the fixed-padding versions sum to
-        // `fixedBoundaryNatSum`. The difference is the slack we hand
-        // back to the inter-note springs.
-        const boundarySpringDelta = fixedBoundaryNatSum - originalBoundaryNatSum;
+        const boundarySpringDelta = 0;
         const activeBeats = sortedBeats;
 
         // Leading-offset detection: scan the first sliced voice for
@@ -1211,6 +1159,15 @@ export class NotationRenderer {
 
         const measureLengthForOffset = sharedMeasureLength;
         let interiorBoundaryCount = 0;
+        // Per-boundary natural lengths (last-note duration before the
+        // bar, first-note duration after). Used to compute
+        // duration-proportional pre/post gaps per Gould "Behind Bars"
+        // (Spacing) / Lilypond / Dorico: each note's trailing space is
+        // proportional to ITS OWN duration, whether the next event is
+        // a note or a barline. Keyed by interior-boundary beat
+        // (`beatPosition` at which the render loop emits the bar).
+        const preBarlineNatural = new Map();
+        const postBarlineNatural = new Map();
         if (measureLengthForOffset && activeBeats.length > 1) {
           const lastBeat = activeBeats[activeBeats.length - 1];
           for (let i = 1; i < activeBeats.length - 1; i += 1) {
@@ -1218,117 +1175,94 @@ export class NotationRenderer {
             if (b > 0 && b < lastBeat &&
                 Math.abs((b / measureLengthForOffset) - Math.round(b / measureLengthForOffset)) < 1e-6) {
               interiorBoundaryCount += 1;
+              const preNat = naturalBeatToX.get(b) - naturalBeatToX.get(activeBeats[i - 1]);
+              const postNat = naturalBeatToX.get(activeBeats[i + 1]) - naturalBeatToX.get(b);
+              preBarlineNatural.set(b, preNat);
+              postBarlineNatural.set(b, postNat);
             }
           }
         }
-        // Two-pass justification for proportional barline padding.
+        // Per Gould "Behind Bars" (Spacing), Lilypond `Spacing_spanner`,
+        // and Dorico rhythmic-spacing: every spring (including the
+        // ones that straddle a barline) stretches by the same factor
+        // (1+F), so each note's trailing horizontal space is
+        // proportional to ITS OWN duration regardless of whether the
+        // next event is another note or a barline.
         //
-        // Pass 1 reserves the FLOOR padding (`MIN_BARLINE_PADDING` on each
-        // side of every interior barline) and solves the springs. We then
-        // measure the median inter-note gap that pass produced and derive
-        // the desired per-system `barlineGap`:
-        //
-        //     barlineGap = max(MIN_BARLINE_PADDING,
-        //                      BARLINE_GAP_RATIO * medianInterNoteGap)
-        //
-        // If the desired gap exceeds the floor, pass 2 re-solves with the
-        // larger reservation, shrinking the inter-note budget so the
-        // freshly enlarged barline gaps don't push the system past
-        // `systemRightX`. After both passes converge, `barlineGap` is
-        // threaded into `_renderSystem` and added to `barlineOffset` on
-        // each side of every shared barline (replacing the prior fixed
-        // `BAR_LINE_PADDING` adds), producing pre/post gaps that scale
-        // with the rest of the music yet never drop below the floor.
-        //
-        // Per Gould "Behind Bars" (Spacing): the gap between last note
-        // and barline should sit ~1/2.5× of a typical inter-note gap.
-        // BARLINE_GAP_RATIO=0.35 ≈ 1/2.86, in the middle of Gould's
-        // 1.5–2.5× band.
-        const solveWithGap = (gap) => {
-          // Per boundary we reserve `gap + HEAD_TIP_X` on EACH side:
-          // the engraving rule is measured from glyph EDGE to barline,
-          // so the cursor must advance HEAD_TIP_X past the last note's
-          // center (notehead right edge) before the visible gap begins,
-          // and another HEAD_TIP_X past the barline before the next
-          // note's center (notehead left edge). Total reservation per
-          // boundary = 2 * (gap + HEAD_TIP_X).
-          const interiorBarlineOffset =
-            2 * (gap + HEAD_TIP_X) * interiorBoundaryCount;
-          // Trailing reservation: ONE side of the rule (last note →
-          // closing barline). Mirrors the pre-half of an interior
-          // boundary — no post-half because no note follows the closing
-          // barline. Replaces the old fixed `END_OF_SYSTEM_NOTE_ROOM
-          // = 2 * BAR_LINE_PADDING` that pinned the closing bar to
-          // `systemEndX - 60`, leaking the trailing spring's
-          // duration-proportional stretch into the visible daylight.
-          // Only applies when the trailing spring has been zeroed
-          // (multi-measure systems); for single-measure systems the
-          // trailing spring carries the reservation itself by absorbing
-          // a duration-weighted share of slack.
-          const trailingBarlineOffset =
-            trailingSpringIndex >= 0
-              ? gap + HEAD_TIP_X
-              : 2 * BAR_LINE_PADDING;
-          const stretchableBudget =
-            systemRightX - perSystemMusicStartX
-            - leadingMusicOffset
-            - trailingBarlineOffset
-            - interiorBarlineOffset;
-          const gaps = justifySystemSpring(
-            allSprings,
-            0,
-            stretchableBudget,
-            {
-              isLast: false, // last-system gating already handled by `justified` above
-              measureCount: measureCountInSystem,
-            }
-          );
-          return gaps;
-        };
-        let stretchedGaps = solveWithGap(MIN_BARLINE_PADDING);
-        let barlineGap = MIN_BARLINE_PADDING;
-        if (interiorBoundaryCount > 0 && stretchedGaps.length > 0) {
-          // Representative inter-note gap = median of non-boundary
-          // stretched-spring lengths in this system. Using the median
-          // (rather than mean) keeps a single very-long-duration spring
-          // from skewing the target. If every spring is a boundary
-          // spring (single-note measure with one boundary), the median
-          // would be undefined — keep the floor in that case.
-          const interNoteLens = [];
-          for (let i = 0; i < allSprings.length; i += 1) {
-            if (allSprings[i].K > 0) interNoteLens.push(stretchedGaps[i]);
+        // Each interior boundary needs HEAD_TIP_X on each side to step
+        // over the surrounding notehead half-widths (the engraving
+        // rule is measured glyph-edge to glyph-edge, not
+        // center-to-center). The trailing barline needs one
+        // HEAD_TIP_X on its pre-side. Springs carry the rest.
+        const interiorBarlineOffset = 2 * HEAD_TIP_X * interiorBoundaryCount;
+        const trailingBarlineOffset = HEAD_TIP_X;
+        const stretchableBudget =
+          systemRightX - perSystemMusicStartX
+          - leadingMusicOffset
+          - trailingBarlineOffset
+          - interiorBarlineOffset;
+        const stretchedGaps = justifySystemSpring(
+          allSprings,
+          0,
+          stretchableBudget,
+          {
+            isLast: false, // last-system gating already handled by `justified` above
+            measureCount: measureCountInSystem,
           }
-          if (interNoteLens.length > 0) {
-            interNoteLens.sort((a, b) => a - b);
-            const mid = Math.floor(interNoteLens.length / 2);
-            const median = interNoteLens.length % 2
-              ? interNoteLens[mid]
-              : 0.5 * (interNoteLens[mid - 1] + interNoteLens[mid]);
-            const desired = Math.max(MIN_BARLINE_PADDING, BARLINE_GAP_RATIO * median);
-            if (desired > MIN_BARLINE_PADDING + 1e-6) {
-              // Pass 2 with enlarged reservation. The inter-note median
-              // will shrink slightly; iterate to a quick fixed point so
-              // gap and median agree to within a few percent. In
-              // practice 2–3 iterations suffice; cap at 5.
-              let nextGap = desired;
-              for (let it = 0; it < 5; it += 1) {
-                const gaps2 = solveWithGap(nextGap);
-                const lens2 = [];
-                for (let i = 0; i < allSprings.length; i += 1) {
-                  if (allSprings[i].K > 0) lens2.push(gaps2[i]);
-                }
-                lens2.sort((a, b) => a - b);
-                const m2 = Math.floor(lens2.length / 2);
-                const med2 = lens2.length % 2
-                  ? lens2[m2]
-                  : 0.5 * (lens2[m2 - 1] + lens2[m2]);
-                const want = Math.max(MIN_BARLINE_PADDING, BARLINE_GAP_RATIO * med2);
-                stretchedGaps = gaps2;
-                barlineGap = nextGap;
-                if (Math.abs(want - nextGap) < 0.5) break;
-                nextGap = want;
-              }
-            }
+        );
+        // After stretching, build per-boundary pads with a floor of
+        // MIN_BARLINE_PADDING. The post-floor delta is small relative
+        // to a stretched system and doesn't merit a re-solve.
+        const prePadMap = new Map();
+        const postPadMap = new Map();
+        let preBarlineSlack = 0; // total padding added by floor clamps
+        const padFor = (springIdx) => {
+          if (springIdx < 0 || springIdx >= stretchedGaps.length) return MIN_BARLINE_PADDING;
+          const stretched = stretchedGaps[springIdx];
+          if (stretched >= MIN_BARLINE_PADDING) return stretched;
+          preBarlineSlack += (MIN_BARLINE_PADDING - stretched);
+          return MIN_BARLINE_PADDING;
+        };
+        // For each interior boundary beat b, the spring whose right
+        // endpoint is b carries the pre-bar gap; the spring whose
+        // left endpoint is b carries the post-bar gap.
+        for (let i = 0; i < sortedBeats.length - 1; i += 1) {
+          const z = sortedBeats[i + 1];
+          const a = sortedBeats[i];
+          if (preBarlineNatural.has(z)) {
+            prePadMap.set(z, padFor(i));
+          }
+          if (postBarlineNatural.has(a)) {
+            postPadMap.set(a, padFor(i));
+          }
+        }
+        // Trailing (last) spring → closing barline pre-gap.
+        const trailingSpringIdx = sortedBeats.length - 2;
+        const trailingBarlineGap = trailingSpringIdx >= 0
+          ? Math.max(MIN_BARLINE_PADDING, stretchedGaps[trailingSpringIdx])
+          : MIN_BARLINE_PADDING;
+        // Median of pre-pads for the legacy uniform-`barlineGap` API.
+        let barlineGap = MIN_BARLINE_PADDING;
+        if (prePadMap.size > 0) {
+          const vals = [...prePadMap.values()].sort((a, b) => a - b);
+          const m = Math.floor(vals.length / 2);
+          barlineGap = vals.length % 2
+            ? vals[m]
+            : 0.5 * (vals[m - 1] + vals[m]);
+        }
+        // Zero the boundary springs in stretchedGaps so xForBeat
+        // doesn't add the spring contribution AGAIN on top of the
+        // explicit prePadMap/postPadMap/trailingBarlineGap reservations
+        // in the render loop. The springs were used to COMPUTE the
+        // pads via proportional stretching; the render emits them
+        // explicitly via barlineOffset accumulation. Inter-note
+        // springs keep their stretched length so notes inside a
+        // measure follow the log-duration spacing.
+        for (let i = 0; i < sortedBeats.length - 1; i += 1) {
+          const z = sortedBeats[i + 1];
+          const a = sortedBeats[i];
+          if (preBarlineNatural.has(z) || postBarlineNatural.has(a) || i === trailingSpringIdx) {
+            stretchedGaps[i] = 0;
           }
         }
         const stretchedBeatToX = new Map();
@@ -1436,6 +1370,10 @@ export class NotationRenderer {
           braceGroups,
           systemIndex: si,
           barlineGap,
+          trailingBarlineGap,
+          systemEndBeat,
+          prePadMap,
+          postPadMap,
         });
 
         // Advance Y for the next system. Use effectiveVoiceYPositions so
@@ -1544,6 +1482,10 @@ export class NotationRenderer {
     braceGroups,
     systemIndex = 0,
     barlineGap = BAR_LINE_PADDING,
+    trailingBarlineGap = barlineGap,
+    systemEndBeat = null,
+    prePadMap = null,
+    postPadMap = null,
   }) {
     let contentMinY = systemContext.contentMinY;
     let contentMaxY = systemContext.contentMaxY;
@@ -2407,16 +2349,35 @@ export class NotationRenderer {
               cumulativeBeats += chordAdjBeats;
               while (cumulativeBeats >= measureLength - 0.001) {
                 const isShared = sharedBarlineBeats.has(beatPosition);
-                // `barlineGap` is the visible glyph-edge gap; add
-                // HEAD_TIP_X on each side to step over the notehead
+                // Per Gould "Behind Bars" (Spacing), Lilypond
+                // `Spacing_spanner`, and Dorico, each note's trailing
+                // horizontal space is proportional to ITS OWN duration
+                // on the rhythmic grid. preGap is keyed by boundary
+                // beat to the preceding note's stretched duration;
+                // postGap to the following note's. The system-closing
+                // barline uses `trailingBarlineGap` (the trailing
+                // spring's duration-proportional pre-gap) and has no
+                // post-side.
+                const isSystemClosing =
+                  systemEndBeat !== null &&
+                  Math.abs(beatPosition - systemEndBeat) < 1e-6;
+                const preGap = isSystemClosing
+                  ? trailingBarlineGap
+                  : (prePadMap && prePadMap.has(beatPosition)
+                      ? prePadMap.get(beatPosition)
+                      : barlineGap);
+                const postGap = (postPadMap && postPadMap.has(beatPosition))
+                  ? postPadMap.get(beatPosition)
+                  : barlineGap;
+                // HEAD_TIP_X on each side steps over the notehead
                 // half-widths so the gap sits between glyph EDGES (per
                 // Gould / Lilypond `BarLine.padding`), not centers.
-                if (isShared) barlineOffset += barlineGap + HEAD_TIP_X;
+                if (isShared) barlineOffset += preGap + HEAD_TIP_X;
                 const barlineX = isShared
                   ? xForBeat(beatPosition)
                   : xForBeat(beatPosition) - BAR_LINE_PADDING;
                 emitAutoBarline(barlineX);
-                if (isShared) barlineOffset += barlineGap + HEAD_TIP_X;
+                if (isShared && !isSystemClosing) barlineOffset += postGap + HEAD_TIP_X;
                 cumulativeBeats -= measureLength;
               }
               if (Math.abs(cumulativeBeats) < 0.001) {
@@ -2659,23 +2620,29 @@ export class NotationRenderer {
           lastNoteRightEdge = cursorX + HEAD_TIP_X;
         }
 
-        // Bar line insertion (shared layout)
+        // Bar line insertion (shared layout). See chord-path branch
+        // above for the duration-proportional preGap / postGap rule.
         if (measureLength && elementBeats > 0) {
           cumulativeBeats += elementBeats;
           while (cumulativeBeats >= measureLength - 0.001) {
             const isShared = sharedBarlineBeats.has(beatPosition);
-            // See chord-path comment above: `barlineGap` is the
-            // visible glyph-edge gap; HEAD_TIP_X carries the cursor
-            // from the note CENTER to the notehead's right edge (and
-            // symmetrically from the barline to the next notehead's
-            // left edge), so the daylight between glyphs matches the
-            // configured rule.
-            if (isShared) barlineOffset += barlineGap + HEAD_TIP_X;
+            const isSystemClosing =
+              systemEndBeat !== null &&
+              Math.abs(beatPosition - systemEndBeat) < 1e-6;
+            const preGap = isSystemClosing
+              ? trailingBarlineGap
+              : (prePadMap && prePadMap.has(beatPosition)
+                  ? prePadMap.get(beatPosition)
+                  : barlineGap);
+            const postGap = (postPadMap && postPadMap.has(beatPosition))
+              ? postPadMap.get(beatPosition)
+              : barlineGap;
+            if (isShared) barlineOffset += preGap + HEAD_TIP_X;
             const barlineX = isShared
               ? xForBeat(beatPosition)
               : xForBeat(beatPosition) - BAR_LINE_PADDING;
             emitAutoBarline(barlineX);
-            if (isShared) barlineOffset += barlineGap + HEAD_TIP_X;
+            if (isShared && !isSystemClosing) barlineOffset += postGap + HEAD_TIP_X;
             cumulativeBeats -= measureLength;
           }
           if (Math.abs(cumulativeBeats) < 0.001) {

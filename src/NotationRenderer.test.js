@@ -5293,18 +5293,17 @@ describe('NotationRenderer', () => {
     });
 
     // The CLOSING system barline of every non-final, multi-measure
-    // system obeys the same `max(MIN_BARLINE_PADDING, BARLINE_GAP_RATIO
-    // * medianGap)` rule as every interior measure barline. Previously
-    // the renderer reserved a fixed `END_OF_SYSTEM_NOTE_ROOM = 2 *
-    // BAR_LINE_PADDING` for the trailing region AND let the trailing
-    // duration-spring stretch alongside the inter-note ones — so on a
-    // wide system the last-note → closing-barline daylight ended up
-    // several times the floor (180 px observed at ottava-showcase
-    // width=1200, vs the 40 px floor the rule prescribes). Per Gould
-    // "Behind Bars" (Spacing) and Lilypond's `BarLine.padding`, the
-    // closing barline is a regular spring boundary, not a stretched
-    // duration spring.
-    it('scales the trailing (last-note → closing-barline) gap by the same rule as interior barlines', () => {
+    // system obeys the SAME duration-proportional rule as every
+    // inter-note spring — per Gould "Behind Bars" (Spacing), Lilypond
+    // `Spacing_spanner`, and Dorico rhythmic-spacing, each note's
+    // trailing horizontal space is proportional to ITS OWN duration on
+    // the rhythmic grid regardless of whether the next event is a
+    // note or a barline. For a system ending on a quarter note, the
+    // trailing gap should therefore TRACK the inter-quarter gap (both
+    // are sized by the quarter's natural spacing × the system stretch
+    // factor), with the 40 px MIN_BARLINE_PADDING serving only as a
+    // floor.
+    it('sizes the trailing (last-note → closing-barline) gap by the last note duration (quarter-to-quarter)', () => {
       // 16-quarter 4/4 fixture: at width=1200 the optimizer wraps into
       // two systems of 2 measures each. System 0 is NOT the last
       // system, so it gets full right-justification — the case that
@@ -5352,21 +5351,115 @@ describe('NotationRenderer', () => {
       const visibleTrailingGap = closingBarX - (lastNoteX + HEAD_TIP_X);
 
       // Floor: visible trailing daylight ≥ MIN_BARLINE_PADDING (40 px),
-      // with 1.5 px float slack — same floor every interior boundary
-      // honours.
+      // with 1.5 px float slack.
       expect(visibleTrailingGap).toBeGreaterThanOrEqual(40 - 1.5);
 
-      // Ceiling: trailing gap ≤ max(40, 0.35 * interNote) + small
-      // tolerance. Above this the trailing region has hijacked slack
-      // that should have flowed into the inter-note springs.
-      const ceiling = Math.max(40, 0.35 * interGap) + 5;
-      expect(visibleTrailingGap).toBeLessThanOrEqual(ceiling);
+      // Duration-proportional rule: trailing-after-quarter ≈ inter-
+      // quarter gap. Allow [0.85, 1.15] for float / snap-to-terminus
+      // jitter on the closing bar.
+      const ratio = visibleTrailingGap / interGap;
+      expect(ratio).toBeGreaterThanOrEqual(0.85);
+      expect(ratio).toBeLessThanOrEqual(1.15);
+    });
 
-      // Ratio band: inter-note gap is 2-3.5× the visible trailing gap
-      // — the same band the interior-barline-padding test enforces.
-      const ratio = interGap / visibleTrailingGap;
-      expect(ratio).toBeGreaterThanOrEqual(2.0);
-      expect(ratio).toBeLessThanOrEqual(3.5);
+    // Trailing (last-note → closing-barline) gap is duration-proportional.
+    //
+    // Per Gould "Behind Bars" (Spacing), Lilypond `Spacing_spanner`, and
+    // Dorico rhythmic-spacing, each note's trailing horizontal space is
+    // proportional to ITS OWN duration on the rhythmic grid — regardless
+    // of whether the next event is another note OR a barline. A measure
+    // ending on a half note must therefore show a visibly larger trailing
+    // gap than a measure ending on a quarter note (~1.4×, the
+    // log-duration coefficient ratio half:quarter at the
+    // durationSymbols.spacing scale of 140 vs 100).
+    //
+    // The MIN_BARLINE_PADDING (40px) remains a FLOOR only — a very short
+    // trailing note still gets ≥40px of clearance. Above the floor the
+    // gap scales with the system stretch factor.
+    it('scales the trailing gap proportionally to the last note duration (half ≈ 1.4× quarter)', () => {
+      // Two consecutive 4/4 measures forcing stretch at 800px:
+      //   Measure 1: Q Q Q Q (closes on a quarter)
+      //   Measure 2: Q Q H   (closes on a half)
+      // Both bars end at the SAME beat (every 4 beats), so the trailing
+      // spring's natural length is the ONLY difference between the two
+      // bars' trailing regions. The system-end barline of M2 (the closing
+      // barline) must show a visibly larger gap than the interior barline
+      // after M1.
+      // Three 4/4 measures laid out so M2 (the "Q Q H" bar) ends the
+      // first system (non-final → fully justified). M3 wraps to the last
+      // system and isn't tested. At 1000px the first two measures fit
+      // together on a justified system; the third wraps below.
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 1000,
+      });
+      const svg = renderer.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          // M1: Q Q Q Q (closes on a quarter)
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'C5', length: '1/4' },
+          // M2: Q Q H (closes on a half)
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'C5', length: '1/2' },
+          // M3: filler so M2 is NOT the final system (forces
+          // justification on system 0).
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'C5', length: '1/4' },
+          { pitch: 'C5', length: '1/4' },
+        ],
+      });
+
+      const HEAD_TIP_X = 11.8;
+
+      // Use the FIRST system (M1 + M2). data-system-index lives on each
+      // voice's staff group, so filter on the first system index.
+      const sys0Staves = Array.from(svg.querySelectorAll('g[data-system-index="0"]'));
+      expect(sys0Staves.length).toBeGreaterThan(0);
+      const sys0Staff = sys0Staves[0];
+      const noteGroups = sys0Staff.querySelectorAll('g.note, g.chord');
+      const xs = Array.from(noteGroups)
+        .map((g) => parseFloat(/translate\(\s*([-\d.]+)/.exec(g.getAttribute('transform'))[1]))
+        .sort((a, b) => a - b);
+      expect(xs.length).toBe(7);
+
+      // Bar lines on system 0 (left→right). Three bars expected: the
+      // M1/M2 interior bar (between xs[3] and xs[4]), the M2-closing bar
+      // (after xs[6]), and any leading bars are excluded since we read
+      // x positions only.
+      const bars = Array.from(sys0Staff.querySelectorAll('g.bar-line line'))
+        .map((l) => parseFloat(l.getAttribute('x1')))
+        .sort((a, b) => a - b);
+      const interiorBarX = bars.find((x) => x > xs[3] && x < xs[4]);
+      const closingBarX = Math.max(...bars.filter((x) => x > xs[6]));
+
+      // Inter-note gap inside M1 (Q→Q within a measure).
+      const interNoteGap = xs[1] - xs[0];
+
+      // Trailing gap from last Q of M1 (xs[3]) to the M1/M2 barline.
+      const trailingGapM1 = interiorBarX - (xs[3] + HEAD_TIP_X);
+      // Trailing gap from the half note (xs[6]) to the closing barline.
+      const trailingGapM2 = closingBarX - (xs[6] + HEAD_TIP_X);
+
+      // Both gaps clear the 40px floor (with 1.5px float slack).
+      expect(trailingGapM1).toBeGreaterThanOrEqual(40 - 1.5);
+      expect(trailingGapM2).toBeGreaterThanOrEqual(40 - 1.5);
+
+      // The trailing-quarter gap cannot exceed an inter-quarter gap by
+      // much — once stretch pushes both above the floor they're spawned
+      // by the same log-duration spring weighting and should track.
+      expect(trailingGapM1).toBeLessThanOrEqual(interNoteGap + 5);
+
+      // Log-duration ratio: half:quarter natural-spacing is 140:100 =
+      // 1.40. Allow [1.3, 1.5] to absorb floor-clamp and stretch jitter.
+      const trailingRatio = trailingGapM2 / trailingGapM1;
+      expect(trailingRatio).toBeGreaterThanOrEqual(1.3);
+      expect(trailingRatio).toBeLessThanOrEqual(1.5);
     });
 
     it('scales note-to-barline padding with system stretch (visible glyph-edge floor + ratio band)', () => {
@@ -5382,14 +5475,17 @@ describe('NotationRenderer', () => {
       // ~18px (30 − HEAD_TIP_X) of visible gap, looking cramped at
       // natural width and only nominally better under stretch.
       //
-      // Rule (visible gap):
+      // Rule (visible gap, per Gould "Behind Bars" / Lilypond /
+      // Dorico):
       //
       //     visibleGap = max(MIN_BARLINE_PADDING,
-      //                      BARLINE_GAP_RATIO * medianInterNoteGap)
+      //                      adjacentNoteNaturalDuration * (1 + F))
       //
-      // delivers a 2–3× inter-to-visible-gap ratio across the stretch
-      // range while never dropping below a 1.5-staff-space floor of
-      // ACTUAL daylight between glyphs.
+      // i.e. the pre-barline gap scales with the preceding note's
+      // duration and the post-barline gap with the following note's
+      // duration. With equal durations on both sides (this fixture's
+      // 6 quarters) the gaps end up equal AND match the inter-note
+      // gap, while the 40 px MIN_BARLINE_PADDING serves as a floor.
       const piece = {
         timeSignature: [4, 4],
         notes: [
@@ -5446,12 +5542,17 @@ describe('NotationRenderer', () => {
         // any width, on BOTH sides of the barline.
         expect(visibleGap).toBeGreaterThanOrEqual(40 - 1.5);
         expect(visibleGapAfter).toBeGreaterThanOrEqual(40 - 1.5);
-        // Symmetry: pre- and post-gaps stay locked at the same value.
+        // Symmetry: pre- and post-gaps stay locked at the same value
+        // when both adjacent notes have the same duration (here
+        // quarters on both sides).
         expect(Math.abs(visibleGap - visibleGapAfter)).toBeLessThan(1.0);
-        // Ratio band: inter-note gap is 2-3.5× the visible barline gap.
-        const ratio = interNote / visibleGap;
-        expect(ratio).toBeGreaterThanOrEqual(2.0);
-        expect(ratio).toBeLessThanOrEqual(3.5);
+        // Duration-proportional rule: with equal-duration notes
+        // around the barline, the visible gap matches the inter-note
+        // gap (both scale by `quarter_natural * (1+F)`). Allow [0.85,
+        // 1.15] for float jitter.
+        const ratio = visibleGap / interNote;
+        expect(ratio).toBeGreaterThanOrEqual(0.85);
+        expect(ratio).toBeLessThanOrEqual(1.15);
       }
     });
   });
