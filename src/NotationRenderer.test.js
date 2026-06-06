@@ -1611,6 +1611,85 @@ describe('NotationRenderer', () => {
       // Guard against a vacuous pass (e.g. selector drift).
       expect(checkedNotes).toBe(28);
     });
+
+    it('never lets the rightmost note overflow the viewBox across a sweep of boundary widths (trailing-edge clipping)', () => {
+      // Engraving invariant (Gould, Behind Bars, ch. on spacing): every
+      // rendered note must stay within its system's staff / the SVG
+      // viewBox right edge. If the breaker keeps N measures on a system
+      // whose true natural extent exceeds the music budget, the spring
+      // justifier cannot compress below natural length, so the tail spills
+      // past the viewBox and is clipped.
+      //
+      // Regression (sibling test above covers width 3300): the f6d8426
+      // daylight-aware breaker still UNDERCOUNTED the system's natural
+      // extent by the trailing notehead half-width — the renderer reserves
+      // `trailingBarlineOffset = HEAD_TIP_X` for the last note's right edge
+      // → closing barline, but the breaker's per-measure intrinsics
+      // (rhythm + leading daylight only) reserved nothing past the last
+      // note's CENTER. At boundary widths the breaker therefore packed all
+      // 8 Twinkle bars onto one system believing they fit by a few units,
+      // and the final note rendered ~HEAD_TIP_X past the viewBox right edge
+      // and was clipped. The exact playground repro was width 1000 /
+      // scale 0.78 → this._width ≈ 3860u, last note (beat 30) at x ≈ 3867
+      // vs viewBox width ≈ 3860 (~7.5u over). This sweep brackets that
+      // boundary so the test is not pinned to one magic width.
+      const twinkle = {
+        clef: 'treble',
+        keySignature: 'C',
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C4', length: '1/4' }, { pitch: 'C4', length: '1/4' },
+          { pitch: 'G4', length: '1/4' }, { pitch: 'G4', length: '1/4' },
+          { pitch: 'A4', length: '1/4' }, { pitch: 'A4', length: '1/4' },
+          { pitch: 'G4', length: '1/2' },
+          { pitch: 'F4', length: '1/4' }, { pitch: 'F4', length: '1/4' },
+          { pitch: 'E4', length: '1/4' }, { pitch: 'E4', length: '1/4' },
+          { pitch: 'D4', length: '1/4' }, { pitch: 'D4', length: '1/4' },
+          { pitch: 'C4', length: '1/2' },
+          { pitch: 'G4', length: '1/4' }, { pitch: 'G4', length: '1/4' },
+          { pitch: 'F4', length: '1/4' }, { pitch: 'F4', length: '1/4' },
+          { pitch: 'E4', length: '1/4' }, { pitch: 'E4', length: '1/4' },
+          { pitch: 'D4', length: '1/2' },
+          { pitch: 'G4', length: '1/4' }, { pitch: 'G4', length: '1/4' },
+          { pitch: 'F4', length: '1/4' }, { pitch: 'F4', length: '1/4' },
+          { pitch: 'E4', length: '1/4' }, { pitch: 'E4', length: '1/4' },
+          { pitch: 'D4', length: '1/2' },
+        ],
+      };
+
+      const xFromTranslate = (el) => {
+        const m = /translate\(([-\d.]+)/.exec(el.getAttribute('transform') || '');
+        return m ? parseFloat(m[1]) : 0;
+      };
+
+      // Internal-unit widths bracketing the ~3860u boundary (incl. the
+      // exact playground repro) plus a couple just inside it. The
+      // invariant must hold at EVERY width: either the piece wraps to
+      // >1 system, OR it stays on one system with no note past the
+      // viewBox right edge.
+      for (const width of [3700, 3800, 3859.604118710683, 3900, 4000]) {
+        const renderer = new NotationRenderer({
+          container: document.createElement('div'),
+          width,
+        });
+        const svg = renderer.render(twinkle);
+        const viewBox = svg.getAttribute('viewBox');
+        const vbWidth = parseFloat(viewBox.split(/\s+/)[2]);
+        const notes = [...svg.querySelectorAll('g.note')];
+        expect(notes.length).toBe(28);
+        const maxNoteX = Math.max(...notes.map(xFromTranslate));
+        // Note CENTER must stay within the viewBox right edge (allow ~1px
+        // for float drift). The notehead extends HEAD_TIP_X further right,
+        // but pinning the center already catches the regression and stays
+        // robust to glyph-metric tweaks. Include `width` in the message so
+        // a failure localizes to the offending sweep entry.
+        expect(
+          maxNoteX <= vbWidth + 1
+            ? true
+            : `width ${width}: maxNoteX ${maxNoteX.toFixed(2)} > viewBox ${vbWidth.toFixed(2)}`
+        ).toBe(true);
+      }
+    });
   });
 
   describe('time signature rendering', () => {
@@ -4812,19 +4891,18 @@ describe('NotationRenderer', () => {
     });
 
     it('respects the breakingStrategy: "greedy" escape hatch (greedy differs from optimal)', () => {
-      // 17 uniform whole-note measures at width 1200: a known-pathological
-      // greedy-vs-optimal input. Greedy packs [3,2,2,2,2,2,2,2] (last = 2);
-      // optimal rebalances to [2,2,2,2,2,2,2,3] (last = 3). If breakingStrategy
-      // is silently ignored, both render the same.
+      // 17 uniform whole-note measures at width 1600: a known-pathological
+      // greedy-vs-optimal input. Greedy leaves a 2-measure straggler on the
+      // last system; optimal rebalances to a fuller final (4). If
+      // breakingStrategy is silently ignored, both render the same.
       //
-      // (Was width 800. Now that the breaker accounts for the across-barline
-      // daylight the spring justifier reserves, three whole notes no longer
-      // fit in an 800px system — at 800 the old layout packed 3-per-system
-      // but each system overflowed the staff by ~180-240px (the clipping bug
-      // this change fixes), and post-fix both strategies converge on ~2/system
-      // so the divergence the test exercises vanishes. Width 1200 fits three
-      // whole notes per system cleanly, restoring the same greedy-straggler-
-      // vs-optimal-rebalance contrast with no overflow.)
+      // (Was width 1200. After the trailing-edge reserve added on top of
+      // f6d8426's daylight accounting, the per-system budget shrank by the
+      // trailing notehead half-width, which at 1200 flips packing so both
+      // strategies converge on a 3-measure final and the divergence the
+      // test exercises vanishes. Width 1600 fits 3-4 whole notes per system
+      // with no overflow and restores a clean greedy-straggler-vs-optimal-
+      // rebalance contrast — greedy final 2, optimal final 4.)
       const makeWholePiece = (mc) => {
         const notes = [];
         for (let m = 0; m < mc; m += 1) notes.push({ pitch: 'C4', length: '1/1' });
@@ -4833,12 +4911,12 @@ describe('NotationRenderer', () => {
       const piece = makeWholePiece(17);
       const greedyR = new NotationRenderer({
         container: document.createElement('div'),
-        width: 1200,
+        width: 1600,
         breakingStrategy: 'greedy',
       });
       const optimalR = new NotationRenderer({
         container: document.createElement('div'),
-        width: 1200,
+        width: 1600,
         breakingStrategy: 'optimal',
       });
       const g = greedyR.render(piece);
@@ -5681,18 +5759,18 @@ describe('NotationRenderer', () => {
       };
 
       // Both widths exercise stretched systems on the same piece.
-      // 900 fits all six notes on one system at modest stretch; 1200
+      // 950 fits all six notes on one system at modest stretch; 1200
       // pushes the system out further, growing inter-note gaps.
       //
-      // (Was [800, 1200]. Width 800 no longer keeps all six on one
-      // system: the breaker now accounts for the across-barline daylight
-      // the spring justifier reserves at the interior boundary, so the
-      // true minimum for 6 quarters exceeds 800's music budget and the
-      // piece correctly wraps to two systems. At width 800 the old layout
-      // actually overflowed the staff by ~17px — the very last-measure
-      // clipping this change fixes. 900 is the smallest width that keeps
-      // the single-system stretch case this test means to exercise.)
-      for (const width of [900, 1200]) {
+      // (Was [800, 1200], then [900, 1200]. The trailing-edge reserve
+      // added on top of f6d8426's daylight accounting shrinks the music
+      // budget by the trailing notehead half-width, so 900 now wraps these
+      // six quarters to two systems (the barline this test inspects is no
+      // longer interior to a single system → empty `bars` → -Infinity).
+      // 920 is the smallest single-system width post-fix; 950 keeps the
+      // single-system stretch case this test means to exercise with a
+      // little headroom above that boundary.)
+      for (const width of [950, 1200]) {
         const { visibleGap, visibleGapAfter, interNote } = measure(width);
         // Floor: visible glyph-edge gap ≥ 2 staff spaces (40px) at
         // any width, on BOTH sides of the barline.

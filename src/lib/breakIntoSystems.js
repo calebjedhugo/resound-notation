@@ -35,6 +35,15 @@
  *   so it reserves no across-bar daylight — we subtract its daylight from
  *   that system's accumulator. Without this, every system's first measure
  *   over-counts by its daylight and short pieces wrap one system too early.
+ * @param {number} [trailingReserve]  fixed space the renderer reserves PAST
+ *   the system's last note CENTER before the staff/viewBox right edge — the
+ *   trailing notehead half-width that steps from the last note's center to
+ *   its right edge / the closing barline (`trailingBarlineOffset =
+ *   HEAD_TIP_X` in NotationRenderer). The breaker's per-measure intrinsics
+ *   stop at the last note's center, so without reserving this the breaker
+ *   thinks a system fits when its rightmost glyph actually lands
+ *   ~HEAD_TIP_X past the budget; the spring justifier can't compress below
+ *   natural length, so that note clips. Charge it once per system.
  * @returns {Array<SystemPlan>}
  */
 export function breakIntoSystems(
@@ -42,6 +51,7 @@ export function breakIntoSystems(
   availableWidth,
   preludeWidthFn,
   leadingDaylights = [],
+  trailingReserve = 0,
 ) {
   const plans = [];
   const n = combinedIntrinsics.length;
@@ -67,7 +77,12 @@ export function breakIntoSystems(
   let systemIndex = 0;
   while (cursor < n) {
     const prelude = preludeWidthFn(systemIndex);
-    const musicBudget = availableWidth - prelude;
+    // Reserve the trailing notehead half-width once per system: the
+    // rendered extent runs from the staff left to the last note's center
+    // (what the intrinsics measure) PLUS this half-width to the glyph's
+    // right edge / closing barline. Shrinking the budget by it makes the
+    // breaker wrap before the rightmost glyph would overflow.
+    const musicBudget = availableWidth - prelude - trailingReserve;
 
     let end = cursor;
     // The system's first sounding measure starts the system — drop its
@@ -249,6 +264,7 @@ export function breakIntoSystemsOptimal(
   availableWidth,
   preludeWidthFn,
   leadingDaylights = [],
+  trailingReserve = 0,
 ) {
   const n = combinedIntrinsics.length;
   if (n === 0) return [];
@@ -296,7 +312,11 @@ export function breakIntoSystemsOptimal(
       // System index that [mp..m-1] would occupy is sysIdx[mp] (0-based).
       const systemIndex = sysIdx[mp];
       const prelude = preludeWidthFn(systemIndex);
-      const musicBudget = availableWidth - prelude;
+      // Reserve the trailing notehead half-width once per system (see the
+      // greedy breaker): intrinsics stop at the last note's center, but the
+      // glyph's right edge / closing barline lands ~HEAD_TIP_X further out,
+      // so the breaker must shrink the budget to wrap before that overflows.
+      const musicBudget = availableWidth - prelude - trailingReserve;
       const badness = systemBadness(natural, musicBudget, isLast);
       // If this is a non-last severely-overflowed range AND we have at
       // least one alternative in mp, no need to extend further leftward.

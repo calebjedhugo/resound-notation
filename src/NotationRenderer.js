@@ -1000,6 +1000,17 @@ export class NotationRenderer {
       this._width,
       preludePerSystem,
       measureLeadingDaylights,
+      // Trailing reserve: the renderer reserves `trailingBarlineOffset =
+      // HEAD_TIP_X` past each system's last note CENTER (the notehead
+      // half-width to its right edge / closing barline). The per-measure
+      // intrinsics measure only up to the last note's center, so the
+      // breaker must reserve the same half-width or it packs a system whose
+      // rightmost glyph lands ~HEAD_TIP_X past this._width — the spring
+      // justifier can't compress below natural length, so that note clips
+      // (e.g. Twinkle at width 1000 / scale 0.78, beat 30 ~7.5u past the
+      // viewBox). This refines f6d8426's breaker-vs-layout reconciliation
+      // for the trailing edge.
+      HEAD_TIP_X,
     );
 
     // Multi-system tightening: when the piece wraps onto >1 system AND
