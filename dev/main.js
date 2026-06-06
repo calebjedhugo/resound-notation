@@ -263,7 +263,11 @@ function applyWidth(px, { fromObserver = false } = {}) {
   if (!(fromObserver && document.activeElement === widthInput)) {
     widthInput.value = String(w);
   }
-  if (renderer) renderer.setWidth(w);
+  // `w` is the VISUAL width (px the line occupies on screen). The renderer
+  // lays out in pre-scale units, so the layout width must be divided by scale:
+  // a smaller scale yields a larger layout width => more bars per line, all
+  // filling the same visual width.
+  if (renderer) renderer.setWidth(w / config.scale);
   syncUrl();
 }
 
@@ -299,7 +303,12 @@ function applyScale(scale) {
   config.scale = clampScale(scale);
   scaleValue.textContent = `${config.scale.toFixed(2)}×`;
   updateDialIndicator();
-  if (renderer) renderer.setScale(config.scale);
+  if (renderer) {
+    renderer.setScale(config.scale);
+    // Re-derive layout width from the (unchanged) visual width so changing the
+    // scale reflows the number of bars per line instead of just resizing.
+    renderer.setWidth(config.width / config.scale);
+  }
   syncUrl();
 }
 
@@ -483,7 +492,7 @@ if (startPreset) {
 // Create the renderer ONCE with the configured width + scale.
 renderer = new NotationRenderer({
   container,
-  width: config.width,
+  width: config.width / config.scale,
   scale: config.scale,
 });
 updateDialIndicator();
