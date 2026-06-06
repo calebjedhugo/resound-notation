@@ -1530,6 +1530,87 @@ describe('NotationRenderer', () => {
       const lastNoteX = xFromTranslate(lastNote);
       expect(closingBarX - lastNoteX).toBeGreaterThanOrEqual(10);
     });
+
+    it('keeps every note within its system staff on a single-system piece packed near the width limit (no last-measure clipping)', () => {
+      // Engraving invariant (Gould, Behind Bars, ch. on spacing): no note
+      // may render past the right edge of its staff. A note off the staff
+      // is also off the SVG viewBox and is visually clipped.
+      //
+      // Regression (Twinkle Twinkle, single system at the playground
+      // auto-fit width ~1124px / internal ~3211u): the LAST measure's
+      // notes rendered at x ≈ 3667/3767/3867 while the staff/viewBox right
+      // edge was ~3211 — ~650u PAST the staff, so bar 8 was clipped.
+      //
+      // Root cause: the system breaker measured per-measure intrinsic
+      // widths from pure rhythm (`fullBeatToX`) with NO across-barline
+      // daylight, but the spring justifier reserves one extra post-barline
+      // note-gap (`postNat`) at every interior boundary. The breaker
+      // therefore packed all 8 bars onto one system believing they fit;
+      // justification could not compress below the true minimum, so the
+      // tail overflowed the staff and was clipped. Seven interior
+      // boundaries × ~95u daylight ≈ the ~650u overflow observed.
+      //
+      // Pin: at a width that packs all 8 bars onto a single system, every
+      // note must stay within its system's staff right edge. (If the
+      // breaker now correctly wraps to >1 system that is also fine — the
+      // per-system invariant still holds and nothing is clipped.)
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        // Internal-unit width matching the playground repro (~1124px /
+        // (1.06 × PROFESSIONAL_BASE_SCALE) ≈ 3211u). Generous enough that
+        // the (buggy) breaker packs all 8 bars onto one system.
+        width: 3300,
+      });
+      const svg = renderer.render({
+        clef: 'treble',
+        keySignature: 'C',
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C4', length: '1/4' }, { pitch: 'C4', length: '1/4' },
+          { pitch: 'G4', length: '1/4' }, { pitch: 'G4', length: '1/4' },
+          { pitch: 'A4', length: '1/4' }, { pitch: 'A4', length: '1/4' },
+          { pitch: 'G4', length: '1/2' },
+          { pitch: 'F4', length: '1/4' }, { pitch: 'F4', length: '1/4' },
+          { pitch: 'E4', length: '1/4' }, { pitch: 'E4', length: '1/4' },
+          { pitch: 'D4', length: '1/4' }, { pitch: 'D4', length: '1/4' },
+          { pitch: 'C4', length: '1/2' },
+          { pitch: 'G4', length: '1/4' }, { pitch: 'G4', length: '1/4' },
+          { pitch: 'F4', length: '1/4' }, { pitch: 'F4', length: '1/4' },
+          { pitch: 'E4', length: '1/4' }, { pitch: 'E4', length: '1/4' },
+          { pitch: 'D4', length: '1/2' },
+          { pitch: 'G4', length: '1/4' }, { pitch: 'G4', length: '1/4' },
+          { pitch: 'F4', length: '1/4' }, { pitch: 'F4', length: '1/4' },
+          { pitch: 'E4', length: '1/4' }, { pitch: 'E4', length: '1/4' },
+          { pitch: 'D4', length: '1/2' },
+        ],
+      });
+
+      const xFromTranslate = (el) => {
+        const t = el.getAttribute('transform') || '';
+        const m = /translate\(([-\d.]+)/.exec(t);
+        return m ? parseFloat(m[1]) : 0;
+      };
+
+      const staves = svg.querySelectorAll('g.staff');
+      expect(staves.length).toBeGreaterThanOrEqual(1);
+
+      let checkedNotes = 0;
+      for (const staff of staves) {
+        const staffLine = staff.querySelector('line.staff-line');
+        if (!staffLine) continue;
+        const staffRightX = parseFloat(staffLine.getAttribute('x2'));
+        const notes = staff.querySelectorAll('g.note');
+        for (const note of notes) {
+          checkedNotes += 1;
+          const noteX = xFromTranslate(note);
+          // The notehead center must sit within the staff; allow a small
+          // tolerance for the notehead half-width + float drift.
+          expect(noteX).toBeLessThanOrEqual(staffRightX + 0.5);
+        }
+      }
+      // Guard against a vacuous pass (e.g. selector drift).
+      expect(checkedNotes).toBe(28);
+    });
   });
 
   describe('time signature rendering', () => {
@@ -3220,7 +3301,21 @@ describe('NotationRenderer', () => {
     }
 
     it('pins repeat-barline geometry: notehead clearance, single barline at repeat-end, and volta bracket at note left edge', () => {
-      ctx.render({
+      // Width 1600 keeps the whole repeat/volta passage on ONE system so the
+      // repeat-end barline has a note on both sides and both endings share a
+      // staff — the geometry this test pins. (Was the default 800px ctx; the
+      // breaker now reserves the across-barline daylight the spring justifier
+      // adds at each interior boundary, so at 800 this 3-bar passage wraps to
+      // three one-bar systems and the repeat-end becomes the last glyph on its
+      // system with no following note. The geometry being checked is
+      // width-independent; 1600 simply restores the single-system layout.)
+      const wideContainer = document.createElement('div');
+      const renderer = new NotationRenderer({
+        container: wideContainer,
+        width: 1600,
+      });
+      const ctx = { container: wideContainer };
+      renderer.render({
         clef: 'treble',
         timeSignature: [4, 4],
         notes: [
@@ -3351,16 +3446,25 @@ describe('NotationRenderer', () => {
       expect(volta1).not.toBeNull();
       expect(volta2).not.toBeNull();
 
-      // System 2 contains: G5 F5 (ending-1), then A5 G5 (ending-2).
-      // Ending-1's first note is the first note in this system;
-      // ending-2's first note is the first note past the repeat-end.
-      const ending1FirstNote = endStaffNotes[0];
-      const ending2FirstNote = endStaffNotes.find((n) => n.x > endRepeatX);
-      expect(ending1FirstNote).toBeDefined();
-      expect(ending2FirstNote).toBeDefined();
-
+      // Each volta bracket's left edge must sit one notehead half-width to
+      // the left of ITS ending's first note. Identify each ending's first
+      // note as the leftmost note at/after its own bracket's left edge — this
+      // is layout-agnostic (works whether the endings share a system with the
+      // repeat body or wrap onto their own), unlike the old assumption that
+      // ending-1's first note was simply the first note of the staff.
       const volta1Left = bracketLeftX(volta1);
       const volta2Left = bracketLeftX(volta2);
+      const firstNoteAtOrAfter = (x) =>
+        endStaffNotes
+          .filter((n) => n.x >= x - 5)
+          .sort((a, b) => a.x - b.x)[0];
+      const ending1FirstNote = firstNoteAtOrAfter(volta1Left);
+      const ending2FirstNote = firstNoteAtOrAfter(volta2Left);
+      expect(ending1FirstNote).toBeDefined();
+      expect(ending2FirstNote).toBeDefined();
+      // ending-2 begins past the repeat-end barline.
+      expect(ending2FirstNote.x).toBeGreaterThan(endRepeatX);
+
       expect(volta1Left).toBeCloseTo(ending1FirstNote.x - HEAD_TIP_X, 0);
       expect(volta2Left).toBeCloseTo(ending2FirstNote.x - HEAD_TIP_X, 0);
     });
@@ -3372,7 +3476,18 @@ describe('NotationRenderer', () => {
     // here, whose notehead top sits ~19px above the staff and clips
     // through a bracket pinned at y=-15.
     it('lifts each volta bracket clear of high notes within its span', () => {
-      ctx.render({
+      // Width 1600 keeps the whole repeat/volta passage on one system so both
+      // endings share a staff (the layout this test inspects). See the sibling
+      // "pins repeat-barline geometry" test for why the default 800px ctx now
+      // wraps this passage to three one-bar systems after the daylight-aware
+      // breaker change. The bracket-clearance geometry is width-independent.
+      const wideContainer = document.createElement('div');
+      const renderer = new NotationRenderer({
+        container: wideContainer,
+        width: 1600,
+      });
+      const ctx = { container: wideContainer };
+      renderer.render({
         clef: 'treble',
         timeSignature: [4, 4],
         notes: [
@@ -4622,23 +4737,33 @@ describe('NotationRenderer', () => {
     });
 
     it('keeps a solo trailing measure unjustified (1-measure last-system rule)', () => {
-      // Use whole-note measures so greedy can fit 4 per system at width
-      // 1000 → greedy splits [4,4,4,4,1]. Single-measure final → ragged.
+      // Use whole-note measures so greedy fits 3 per system at width 1300
+      // → greedy splits 16 measures [3,3,3,3,3,1]. Single-measure final →
+      // ragged.
+      //
+      // (Was width 1000 / 17 measures, relying on 4-whole-notes-per-system.
+      // The breaker now accounts for the across-barline daylight the spring
+      // justifier reserves, so at 1000 only ~2 whole notes fit per system
+      // and the remainder no longer lands as a clean solo measure — at 1000
+      // the old 4/system packing actually overflowed the staff by ~180-240px,
+      // the very clipping bug this change fixes. Width 1300 fits 3 whole notes
+      // per system cleanly, and 16 measures (a multiple-of-3 plus one) leave a
+      // genuine solo trailing measure to exercise the ragged-final rule.)
       const renderer = new NotationRenderer({
         container: document.createElement('div'),
-        width: 1000,
+        width: 1300,
         breakingStrategy: 'greedy',
       });
       const piece = {
         timeSignature: [4, 4],
-        notes: Array.from({ length: 17 }, () => ({ pitch: 'C4', length: '1/1' })),
+        notes: Array.from({ length: 16 }, () => ({ pitch: 'C4', length: '1/1' })),
       };
       const svg = renderer.render(piece);
       // Identify the last system by max data-system-index.
       const staffGroups = Array.from(svg.querySelectorAll('g[data-system-index]'));
       const lastIdx = Math.max(...staffGroups.map((g) => Number(g.getAttribute('data-system-index'))));
       const lastSystemGroups = staffGroups.filter((g) => Number(g.getAttribute('data-system-index')) === lastIdx);
-      // Pin: the last system is exactly 1 measure wide (greedy [5,5,1]).
+      // Pin: the last system is exactly 1 measure wide (greedy [3,3,3,3,3,1]).
       const lastStart = Number(lastSystemGroups[0].getAttribute('data-start-measure'));
       const lastEnd = Number(lastSystemGroups[0].getAttribute('data-end-measure'));
       expect(lastEnd - lastStart + 1).toBe(1);
@@ -4649,7 +4774,7 @@ describe('NotationRenderer', () => {
       const x = parseFloat(
         /translate\(([-\d.]+),/.exec(lastFinal.getAttribute('transform'))[1]
       );
-      expect(x).toBeLessThan(1000 * 0.95);
+      expect(x).toBeLessThan(1300 * 0.95);
     });
 
     it('keeps the final system reasonably full on a long piece (optimal breaking rebalance)', () => {
@@ -4687,10 +4812,19 @@ describe('NotationRenderer', () => {
     });
 
     it('respects the breakingStrategy: "greedy" escape hatch (greedy differs from optimal)', () => {
-      // 17 uniform whole-note measures at width 800: a known-pathological
-      // greedy-vs-optimal input. Greedy packs [3,3,3,3,3,2] (last = 2);
-      // optimal rebalances to [2,3,3,3,3,3] (last = 3). If breakingStrategy
+      // 17 uniform whole-note measures at width 1200: a known-pathological
+      // greedy-vs-optimal input. Greedy packs [3,2,2,2,2,2,2,2] (last = 2);
+      // optimal rebalances to [2,2,2,2,2,2,2,3] (last = 3). If breakingStrategy
       // is silently ignored, both render the same.
+      //
+      // (Was width 800. Now that the breaker accounts for the across-barline
+      // daylight the spring justifier reserves, three whole notes no longer
+      // fit in an 800px system — at 800 the old layout packed 3-per-system
+      // but each system overflowed the staff by ~180-240px (the clipping bug
+      // this change fixes), and post-fix both strategies converge on ~2/system
+      // so the divergence the test exercises vanishes. Width 1200 fits three
+      // whole notes per system cleanly, restoring the same greedy-straggler-
+      // vs-optimal-rebalance contrast with no overflow.)
       const makeWholePiece = (mc) => {
         const notes = [];
         for (let m = 0; m < mc; m += 1) notes.push({ pitch: 'C4', length: '1/1' });
@@ -4699,12 +4833,12 @@ describe('NotationRenderer', () => {
       const piece = makeWholePiece(17);
       const greedyR = new NotationRenderer({
         container: document.createElement('div'),
-        width: 800,
+        width: 1200,
         breakingStrategy: 'greedy',
       });
       const optimalR = new NotationRenderer({
         container: document.createElement('div'),
-        width: 800,
+        width: 1200,
         breakingStrategy: 'optimal',
       });
       const g = greedyR.render(piece);
@@ -5547,9 +5681,18 @@ describe('NotationRenderer', () => {
       };
 
       // Both widths exercise stretched systems on the same piece.
-      // 800 fits all six notes on one system at modest stretch; 1200
+      // 900 fits all six notes on one system at modest stretch; 1200
       // pushes the system out further, growing inter-note gaps.
-      for (const width of [800, 1200]) {
+      //
+      // (Was [800, 1200]. Width 800 no longer keeps all six on one
+      // system: the breaker now accounts for the across-barline daylight
+      // the spring justifier reserves at the interior boundary, so the
+      // true minimum for 6 quarters exceeds 800's music budget and the
+      // piece correctly wraps to two systems. At width 800 the old layout
+      // actually overflowed the staff by ~17px — the very last-measure
+      // clipping this change fixes. 900 is the smallest width that keeps
+      // the single-system stretch case this test means to exercise.)
+      for (const width of [900, 1200]) {
         const { visibleGap, visibleGapAfter, interNote } = measure(width);
         // Floor: visible glyph-edge gap ≥ 2 staff spaces (40px) at
         // any width, on BOTH sides of the barline.

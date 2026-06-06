@@ -24,16 +24,44 @@
  * Greedy system-breaking.
  *
  * @param {Array<number>} combinedIntrinsics  per-measure intrinsic widths
- *   (combined across voices — the max).
+ *   (combined across voices — the max). Each width may already include the
+ *   measure's LEADING across-barline daylight (post-barline note-gap).
  * @param {number} availableWidth  total SVG music-area width.
  * @param {(systemIndex:number) => number} preludeWidthFn  px reserved at
  *   left for clef + key sig (every system) + time sig (system 0 only).
+ * @param {Array<number>} [leadingDaylights]  per-measure leading
+ *   across-barline daylight already baked into `combinedIntrinsics`. The
+ *   first measure of a system STARTS the system (not an interior barline),
+ *   so it reserves no across-bar daylight — we subtract its daylight from
+ *   that system's accumulator. Without this, every system's first measure
+ *   over-counts by its daylight and short pieces wrap one system too early.
  * @returns {Array<SystemPlan>}
  */
-export function breakIntoSystems(combinedIntrinsics, availableWidth, preludeWidthFn) {
+export function breakIntoSystems(
+  combinedIntrinsics,
+  availableWidth,
+  preludeWidthFn,
+  leadingDaylights = [],
+) {
   const plans = [];
   const n = combinedIntrinsics.length;
   if (n === 0) return plans;
+  const daylightAt = (i) => leadingDaylights[i] || 0;
+  // Daylight to DROP for a system starting at `s`: the leading across-barline
+  // daylight of the system's first measure that actually carries music.
+  // Leading EMPTY measures (zero-width marker flushes — repeat-end /
+  // ending-start, etc.) carry no width or daylight, but the first SOUNDING
+  // measure after them still starts the system (it sits at the staff's left,
+  // not after an interior barline), so its daylight must be dropped too.
+  // Without this, a volta whose system happens to open with an empty marker
+  // measure keeps its daylight while its twin (opening directly) drops it,
+  // and the two voltas render asymmetrically.
+  const systemLeadingDaylight = (s) => {
+    for (let i = s; i < n; i += 1) {
+      if (combinedIntrinsics[i] > 1e-6) return daylightAt(i);
+    }
+    return 0;
+  };
 
   let cursor = 0;
   let systemIndex = 0;
@@ -42,7 +70,10 @@ export function breakIntoSystems(combinedIntrinsics, availableWidth, preludeWidt
     const musicBudget = availableWidth - prelude;
 
     let end = cursor;
-    let acc = combinedIntrinsics[cursor];
+    // The system's first sounding measure starts the system — drop its
+    // leading across-barline daylight (no preceding barline within this
+    // system). Empty leading measures contribute neither width nor daylight.
+    let acc = combinedIntrinsics[cursor] - systemLeadingDaylight(cursor);
     if (acc > musicBudget) {
       // Degenerate: single measure can't fit. Place it solo and warn.
       // eslint-disable-next-line no-console
@@ -213,9 +244,26 @@ export function systemBadness(naturalSum, musicBudget, isLast) {
  * @param {(systemIndex:number) => number} preludeWidthFn
  * @returns {Array<SystemPlan>}
  */
-export function breakIntoSystemsOptimal(combinedIntrinsics, availableWidth, preludeWidthFn) {
+export function breakIntoSystemsOptimal(
+  combinedIntrinsics,
+  availableWidth,
+  preludeWidthFn,
+  leadingDaylights = [],
+) {
   const n = combinedIntrinsics.length;
   if (n === 0) return [];
+  const daylightAt = (i) => leadingDaylights[i] || 0;
+  // Daylight to DROP for a system starting at `s`: the leading daylight of
+  // the first SOUNDING (nonzero-width) measure, so leading empty marker
+  // measures don't keep the following measure's across-bar daylight (which
+  // would make sibling voltas wrap/render asymmetrically). See the greedy
+  // breaker for the full rationale.
+  const systemLeadingDaylight = (s) => {
+    for (let i = s; i < n; i += 1) {
+      if (combinedIntrinsics[i] > 1e-6) return daylightAt(i);
+    }
+    return 0;
+  };
 
   // best[m] = min total badness ending with m measures placed.
   // prev[m] = predecessor index (m'), and prevSystemIndex[m] is the system
@@ -240,7 +288,10 @@ export function breakIntoSystemsOptimal(combinedIntrinsics, availableWidth, prel
   for (let m = 1; m <= n; m += 1) {
     const isLast = m === n;
     for (let mp = m - 1; mp >= 0; mp -= 1) {
-      const natural = prefix[m] - prefix[mp];
+      // [mp..m-1] forms one system; its first measure (mp) starts the
+      // system, so drop its leading across-barline daylight (no preceding
+      // barline within this system).
+      const natural = prefix[m] - prefix[mp] - systemLeadingDaylight(mp);
       if (natural > pruneLimit && mp < m - 1) break; // monotonic: more measures = more width
       // System index that [mp..m-1] would occupy is sysIdx[mp] (0-based).
       const systemIndex = sysIdx[mp];
@@ -267,7 +318,7 @@ export function breakIntoSystemsOptimal(combinedIntrinsics, availableWidth, prel
   let cursor = n;
   while (cursor > 0) {
     const mp = prev[cursor];
-    const natural = prefix[cursor] - prefix[mp];
+    const natural = prefix[cursor] - prefix[mp] - systemLeadingDaylight(mp);
     plans.push({
       startMeasure: mp,
       endMeasure: cursor - 1,

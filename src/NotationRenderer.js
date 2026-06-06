@@ -852,17 +852,65 @@ export class NotationRenderer {
       // flush a measure (even empty), and time-signature beat-fills do
       // the same. We collect cumulative beats up to each measure boundary
       // and read the corresponding x from the full beat→x map.
-      if (!rhythmVoice || !rhythmVoice.notes) return [];
+      if (!rhythmVoice || !rhythmVoice.notes) return { widths: [], daylights: [] };
       const widths = [];
+      // Parallel to `widths`: the leading across-barline daylight baked into
+      // each measure. The breaker subtracts a measure's leading daylight when
+      // that measure STARTS a system (a system start is not an interior
+      // barline, so it reserves no across-bar daylight). See breakIntoSystems.
+      const daylights = [];
       let measureStartBeat = 0;
       let beat = 0;
       let accumBeats = 0;
+      // Beat of the first sounding event inside the current measure, so we
+      // can recover that measure's LEADING DAYLIGHT (post-barline gap).
+      let firstEventBeat = null;
+      // The piece's final layout beat (last key in fullBeatToX). The gap
+      // landing ON this beat is a system's TRAILING spring, which the
+      // justifier governs with the trailing-barline floor rather than
+      // reserving it as extra minimum width — so we must NOT count it as
+      // across-barline daylight (doing so spuriously wraps short pieces
+      // whose final measure is a single note).
+      const lastLayoutBeat = (() => {
+        let mx = 0;
+        for (const b of fullBeatToX.keys()) if (b > mx) mx = b;
+        return mx;
+      })();
       const flush = () => {
         const startX = fullBeatToX.get(measureStartBeat) ?? 0;
         const endX = fullBeatToX.get(beat) ?? startX;
-        widths.push(endX - startX);
+        // ACROSS-BARLINE DAYLIGHT: the spring justifier reserves one extra
+        // post-barline note-gap at every INTERIOR boundary — the
+        // barline-crossing spring carries `postNat` (downbeat → first note
+        // of the next measure) on top of the rhythmic gap (see the spring
+        // loop's `if (isInteriorBoundary(z)) natLength += postNat`). Springs
+        // only STRETCH, never compress below natLength (justifySystemSpring:
+        // slack ≤ 0 ⇒ return natLength), so this reservation raises the
+        // system's true unstretchable minimum width. The breaker historically
+        // measured measures from pure rhythm only, underestimated each
+        // post-barline measure by exactly that daylight, overpacked the
+        // system, and — when the minimum exceeded the width — the tail
+        // overflowed the staff/viewBox, clipping the last measure (e.g.
+        // Twinkle's bar 8 at ~1124px). Mirror the reservation here: every
+        // measure that FOLLOWS a boundary (measureStartBeat > 0) carries its
+        // leading daylight = gap from its downbeat to its first sounding
+        // note, EXCEPT when that gap lands on the piece's final beat (a
+        // trailing spring, floored not reserved — see lastLayoutBeat).
+        let daylight = 0;
+        if (
+          measureStartBeat > 0
+          && firstEventBeat != null
+          && firstEventBeat < lastLayoutBeat - 1e-6
+        ) {
+          const downbeatX = fullBeatToX.get(measureStartBeat) ?? startX;
+          const firstNoteX = fullBeatToX.get(firstEventBeat) ?? downbeatX;
+          daylight = firstNoteX - downbeatX;
+        }
+        widths.push(endX - startX + daylight);
+        daylights.push(daylight);
         measureStartBeat = beat;
         accumBeats = 0;
+        firstEventBeat = null;
       };
       for (const el of rhythmVoice.notes) {
         if (!el) continue;
@@ -904,15 +952,23 @@ export class NotationRenderer {
         }
         beat += evBeats;
         accumBeats += evBeats;
+        // Record the first sounding beat inside this measure (used to
+        // recover the leading post-barline daylight at flush time).
+        if (firstEventBeat === null) firstEventBeat = beat;
         if (rhythmMeasureLength && accumBeats >= rhythmMeasureLength - 1e-6) {
           flush();
         }
       }
       // Trailing partial measure.
       if (beat > measureStartBeat) flush();
-      return widths;
+      return { widths, daylights };
     })();
-    const combinedIntrinsics = naturalMeasureWidths;
+    const combinedIntrinsics = naturalMeasureWidths.widths;
+    // Leading across-barline daylight per measure (parallel to
+    // combinedIntrinsics). The breaker subtracts the first measure's
+    // daylight from each system it forms (system starts are not interior
+    // barlines).
+    const measureLeadingDaylights = naturalMeasureWidths.daylights;
 
     // Per-system prelude width: shared across voices (max), since voices
     // sit in the same horizontal coordinate frame. Time sig only on the
@@ -939,7 +995,12 @@ export class NotationRenderer {
     };
 
     const breakFn = this._breakingStrategy === 'greedy' ? breakIntoSystems : breakIntoSystemsOptimal;
-    const systemPlans = breakFn(combinedIntrinsics, this._width, preludePerSystem);
+    const systemPlans = breakFn(
+      combinedIntrinsics,
+      this._width,
+      preludePerSystem,
+      measureLeadingDaylights,
+    );
 
     // Multi-system tightening: when the piece wraps onto >1 system AND
     // the voices are independent (no brace group), the per-voice Y
