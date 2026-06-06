@@ -66,7 +66,7 @@ import { createBracket } from './components/Bracket.js';
 import { createSharedBarLine } from './components/SharedBarLine.js';
 import { analyzeOttava } from './lib/segmentOttava.js';
 import { createOttavaBracket } from './components/OttavaBracket.js';
-import { breakIntoSystems, breakIntoSystemsOptimal, justifySystem, justifySystemSpring } from './lib/breakIntoSystems.js';
+import { breakIntoSystems, breakIntoSystemsOptimal, justifySystemSpring } from './lib/breakIntoSystems.js';
 import { sliceVoiceByMeasure } from './lib/sliceVoiceByMeasure.js';
 
 // Chromatic offsets for converting scientific pitch (C4 = MIDI 60) to MIDI.
@@ -552,6 +552,257 @@ function accidentalGlyphForPitch(pitchAccidental, pitchLetter, keyInfo) {
   return ACCIDENTAL_TYPE_MAP[pitchAccidental] || null;
 }
 
+/**
+ * SHARED NATURAL-WIDTH METRIC + per-system spring layout.
+ *
+ * THE single source of truth for "how wide is a run of measures laid out as
+ * one system, and where does every note land". Both the system BREAKER (to
+ * decide break points) and the RENDERER (to lay each system out and to floor
+ * justification) call this — so breaking and rendering agree by construction.
+ *
+ * Estimate ≠ actual was the root-cause bug class: the breaker used to decide
+ * breaks from an approximate additive per-measure intrinsic-width table while
+ * the renderer laid systems out with this exact spring pipeline (natural
+ * `computeBeatLayout` + per-interior-boundary daylight + a trailing gap
+ * PROPORTIONAL to the last note's duration + the per-system prelude). Any
+ * mismatch overpacked some width; since justification only stretches (never
+ * compresses below natural), the last note got crammed under its minimum
+ * trailing or pushed past the viewBox. Computing both from this one function
+ * removes the mismatch entirely.
+ *
+ * @param {Array<{notes:Array}>} sliceVoices  the system's voices, notes
+ *   already sliced to this system's measure range.
+ * @param {Array<Array>} slicedVoiceNotes  per-voice sliced notes (for
+ *   leading-marker offset detection).
+ * @param {number} perSystemMusicStartX  x where music begins after the
+ *   prelude (clef + key sig + time sig). This carries the prelude term.
+ * @param {?number} sharedMeasureLength  beats per measure (barline cadence).
+ * @param {?number} systemRightX  if null/undefined, returns the NATURAL
+ *   (unstretched) layout and `naturalRightX`. If a number > naturalRightX,
+ *   the inter-note springs stretch to fill out to it (justified system).
+ * @returns {{
+ *   naturalRightX: number,        // closing-barline x at natural (= the metric)
+ *   stretchedBeatToX: Map<number,number>,
+ *   prePadMap: Map<number,number>,
+ *   postPadMap: Map<number,number>,
+ *   barlineGap: number,
+ *   trailingBarlineGap: number,
+ *   systemEndBeat: number,
+ *   measureCountFromBeats: number,
+ * }}
+ */
+function computeSystemSpringLayout(
+  sliceVoices,
+  slicedVoiceNotes,
+  perSystemMusicStartX,
+  sharedMeasureLength,
+  systemRightX = null,
+) {
+  // Natural beat→x for this system (no stretch).
+  const naturalBeatToX = computeBeatLayout(sliceVoices, perSystemMusicStartX);
+
+  // Last beat across all voices (system end).
+  let systemEndBeat = 0;
+  for (const v of sliceVoices) {
+    for (const e of collectVoiceEvents(v.notes)) {
+      if (e.endBeat > systemEndBeat) systemEndBeat = e.endBeat;
+    }
+  }
+
+  const sortedBeats = [...naturalBeatToX.keys()].sort((a, b) => a - b);
+
+  // Interior measure boundary: a positive integer multiple of the measure
+  // length, strictly before the system's last beat. The spring whose RIGHT
+  // endpoint lands here crosses a barline (Gould "Behind Bars", Spacing).
+  const isInteriorBoundary = (beat) => {
+    if (!sharedMeasureLength) return false;
+    if (beat <= 0) return false;
+    if (beat >= sortedBeats[sortedBeats.length - 1] - 1e-6) return false;
+    const ratio = beat / sharedMeasureLength;
+    return Math.abs(ratio - Math.round(ratio)) < 1e-6;
+  };
+
+  // Build springs. Barline-crossing springs carry the FULL across-bar
+  // daylight (pre + post gap); see the long comment in the renderer.
+  const allSprings = [];
+  for (let i = 0; i < sortedBeats.length - 1; i += 1) {
+    const a = sortedBeats[i];
+    const z = sortedBeats[i + 1];
+    let natLength = naturalBeatToX.get(z) - naturalBeatToX.get(a);
+    if (isInteriorBoundary(z)) {
+      const postNat = naturalBeatToX.get(sortedBeats[i + 2]) - naturalBeatToX.get(z);
+      natLength += postNat;
+    }
+    const K = Math.max(natLength, 1);
+    allSprings.push({ natLength, K });
+  }
+  const activeBeats = sortedBeats;
+
+  // Leading-offset: leading repeat-barline markers advance the cursor at
+  // music start without updating barlineOffset; the first spring's space is
+  // anchored past them. Mirrors the voice-loop's cursorX advances.
+  let leadingMusicOffset = 0;
+  const firstSliceWithNotes = slicedVoiceNotes.find((n) => n && n.length > 0);
+  if (firstSliceWithNotes) {
+    for (const el of firstSliceWithNotes) {
+      if (getMarkerType(el) === null && el && (el.length || el.position !== undefined || Array.isArray(el))) {
+        break;
+      }
+      if (el && (el.barline === 'repeat-start' || el.barline === 'repeat-both')) {
+        leadingMusicOffset +=
+          REPEAT_BARLINE_DOT_EDGE_OFFSET + REPEAT_BARLINE_INNER_PAD + HEAD_TIP_X;
+      }
+    }
+  }
+
+  // Per-boundary natural pre/post (last-note duration before the bar, first-
+  // note duration after) for duration-proportional gap splits.
+  let interiorBoundaryCount = 0;
+  const preBarlineNatural = new Map();
+  const postBarlineNatural = new Map();
+  if (sharedMeasureLength && activeBeats.length > 1) {
+    const lastBeat = activeBeats[activeBeats.length - 1];
+    for (let i = 1; i < activeBeats.length - 1; i += 1) {
+      const b = activeBeats[i];
+      if (b > 0 && b < lastBeat &&
+          Math.abs((b / sharedMeasureLength) - Math.round(b / sharedMeasureLength)) < 1e-6) {
+        interiorBoundaryCount += 1;
+        const preNat = naturalBeatToX.get(b) - naturalBeatToX.get(activeBeats[i - 1]);
+        const postNat = naturalBeatToX.get(activeBeats[i + 1]) - naturalBeatToX.get(b);
+        preBarlineNatural.set(b, preNat);
+        postBarlineNatural.set(b, postNat);
+      }
+    }
+  }
+
+  // Each interior boundary needs HEAD_TIP_X on each side (glyph-edge gaps);
+  // the trailing barline needs one HEAD_TIP_X on its pre-side.
+  const interiorBarlineOffset = 2 * HEAD_TIP_X * interiorBoundaryCount;
+  const trailingBarlineOffset = HEAD_TIP_X;
+  const measureCountFromBeats = interiorBoundaryCount + 1;
+
+  // Solve the spring stretch toward systemRightX. When systemRightX is null
+  // we pass a budget that forces slack ≤ 0, yielding natural lengths — the
+  // breaker only needs naturalRightX, and an unjustified system renders at
+  // natural too. (We then recompute naturalRightX below and the caller may
+  // re-call us with a real systemRightX to justify.)
+  const targetRightX = systemRightX == null ? 0 : systemRightX;
+  const stretchableBudget =
+    targetRightX - perSystemMusicStartX
+    - leadingMusicOffset
+    - trailingBarlineOffset
+    - interiorBarlineOffset;
+  const stretchedGaps = justifySystemSpring(
+    allSprings,
+    0,
+    stretchableBudget,
+    { isLast: false, measureCount: measureCountFromBeats },
+  );
+
+  // Build per-boundary pads (floored at MIN_BARLINE_PADDING), splitting each
+  // barline-crossing spring's stretched length into pre/post in proportion
+  // to the adjacent note durations.
+  const prePadMap = new Map();
+  const postPadMap = new Map();
+  for (let i = 0; i < sortedBeats.length - 1; i += 1) {
+    const z = sortedBeats[i + 1];
+    if (!preBarlineNatural.has(z)) continue;
+    const preNat = preBarlineNatural.get(z);
+    const postNat = postBarlineNatural.get(z);
+    const span = preNat + postNat;
+    const stretched = stretchedGaps[i];
+    const preShare = span > 0 ? stretched * (preNat / span) : stretched / 2;
+    const postShare = span > 0 ? stretched * (postNat / span) : stretched / 2;
+    prePadMap.set(z, Math.max(MIN_BARLINE_PADDING, preShare));
+    postPadMap.set(z, Math.max(MIN_BARLINE_PADDING, postShare));
+  }
+
+  // Trailing (last) spring → closing-barline pre-gap, floored at
+  // MIN_BARLINE_PADDING. PROPORTIONAL to the last note's duration: a half
+  // note is owed more trailing than a quarter — the crux of the cram bug.
+  const trailingSpringIdx = sortedBeats.length - 2;
+  const trailingBarlineGap = trailingSpringIdx >= 0
+    ? Math.max(MIN_BARLINE_PADDING, stretchedGaps[trailingSpringIdx])
+    : MIN_BARLINE_PADDING;
+
+  // Median of pre-pads for the legacy uniform-`barlineGap` API.
+  let barlineGap = MIN_BARLINE_PADDING;
+  if (prePadMap.size > 0) {
+    const vals = [...prePadMap.values()].sort((a, b) => a - b);
+    const m = Math.floor(vals.length / 2);
+    barlineGap = vals.length % 2 ? vals[m] : 0.5 * (vals[m - 1] + vals[m]);
+  }
+
+  // Zero the barline-crossing springs (right endpoint = boundary) and the
+  // trailing spring; the render loop re-emits these via barlineOffset.
+  for (let i = 0; i < sortedBeats.length - 1; i += 1) {
+    const z = sortedBeats[i + 1];
+    if (preBarlineNatural.has(z) || i === trailingSpringIdx) {
+      stretchedGaps[i] = 0;
+    }
+  }
+
+  // Build the OFFSET-FREE beat→x map (the render loop adds barlineOffset on
+  // top via `xForBeat`, so this must NOT pre-bake the barline pads — doing so
+  // would double-count). Anchor the first beat past the leading-barline
+  // advance so the first inter-note spring's full length is visible.
+  const stretchedBeatToX = new Map();
+  let runX = perSystemMusicStartX + leadingMusicOffset;
+  if (activeBeats.length > 0) {
+    stretchedBeatToX.set(activeBeats[0], runX);
+    for (let i = 0; i < stretchedGaps.length; i += 1) {
+      runX += stretchedGaps[i];
+      stretchedBeatToX.set(activeBeats[i + 1], runX);
+    }
+  }
+
+  // naturalRightX = the renderer's TRUE MINIMUM rightmost extent (closing
+  // barline) — the smallest system width below which the last note would be
+  // crammed under its floor or pushed off the staff. It is:
+  //   last note's natural x
+  //   + the accumulated interior barline daylight (preGap + HEAD_TIP_X +
+  //     postGap + HEAD_TIP_X at each interior boundary — proportional to the
+  //     surrounding note durations, the across-bar reservation from f6d8426)
+  //   + the MINIMUM trailing gap (MIN_BARLINE_PADDING) + the trailing
+  //     notehead half-width.
+  //
+  // The trailing term uses the FLOOR, not the proportional trailing
+  // `trailingBarlineGap`: above this width the renderer has slack and the
+  // trailing spring grows the trailing gap proportionally (a half note gets
+  // MORE than a quarter); AT this width the trailing sits exactly at its
+  // floor. Counting the full proportional trailing as required would wrap
+  // pieces a whole note-width too early (e.g. two whole notes would never
+  // share a system). Because the breaker keeps a run only when this minimum
+  // ≤ the system width, justification can only STRETCH the trailing from its
+  // floor — so the last note always keeps ≥ MIN_BARLINE_PADDING and never
+  // crams or clips. Mirrors the render loop's `xForBeat` + barlineOffset
+  // accumulation up to the last note.
+  let accumBarlineOffset = 0;
+  for (let i = 0; i < activeBeats.length; i += 1) {
+    const z = activeBeats[i];
+    if (prePadMap.has(z)) {
+      accumBarlineOffset += prePadMap.get(z) + HEAD_TIP_X;
+      accumBarlineOffset += postPadMap.get(z) + HEAD_TIP_X;
+    }
+  }
+  const lastBeatX = activeBeats.length > 0
+    ? stretchedBeatToX.get(activeBeats[activeBeats.length - 1])
+    : perSystemMusicStartX;
+  const naturalRightX =
+    lastBeatX + accumBarlineOffset + MIN_BARLINE_PADDING + trailingBarlineOffset;
+
+  return {
+    naturalRightX,
+    stretchedBeatToX,
+    prePadMap,
+    postPadMap,
+    barlineGap,
+    trailingBarlineGap,
+    systemEndBeat,
+    measureCountFromBeats,
+  };
+}
+
 export class NotationRenderer {
   /**
    * @param {Object} options
@@ -839,97 +1090,33 @@ export class NotationRenderer {
     // the iteration-A intrinsic-widths approximation (which used a flat
     // MIN_NOTE_GAP per event). Otherwise systems greedily pack measures
     // that don't actually fit when laid out.
-    const fullBeatToX = computeBeatLayout(parsed.voices, 0);
-    // Walk one voice's measure boundaries to bucket beats by measure
-    // index. Use the FIRST voice that has a timeSignature for the cadence.
+    // Walk one voice's measure boundaries to count measures. Use the FIRST
+    // voice that has a timeSignature for the cadence.
     const rhythmVoice = parsed.voices.find((v) => v.timeSignature) || parsed.voices[0];
     const rhythmMeasureLength = rhythmVoice && rhythmVoice.timeSignature
       ? rhythmVoice.timeSignature[0] * (4 / rhythmVoice.timeSignature[1])
       : null;
-    const naturalMeasureWidths = (() => {
-      // Walk the rhythm voice element-by-element to match measureIntrinsic
-      // Widths's measure-splitting semantics: explicit barline tokens
-      // flush a measure (even empty), and time-signature beat-fills do
-      // the same. We collect cumulative beats up to each measure boundary
-      // and read the corresponding x from the full beat→x map.
-      if (!rhythmVoice || !rhythmVoice.notes) return { widths: [], daylights: [] };
-      const widths = [];
-      // Parallel to `widths`: the leading across-barline daylight baked into
-      // each measure. The breaker subtracts a measure's leading daylight when
-      // that measure STARTS a system (a system start is not an interior
-      // barline, so it reserves no across-bar daylight). See breakIntoSystems.
-      const daylights = [];
-      let measureStartBeat = 0;
+    // Measure count: walk the rhythm voice, flushing on explicit barline
+    // tokens and time-signature beat-fills (mirrors sliceVoiceByMeasure's
+    // measure-splitting semantics). We only need the COUNT now — the per-
+    // measure intrinsic-WIDTH estimate is gone, replaced by the shared
+    // natural-width metric (`systemNaturalWidth`) below.
+    const measureCount = (() => {
+      if (!rhythmVoice || !rhythmVoice.notes) return 0;
+      let count = 0;
       let beat = 0;
+      let measureStartBeat = 0;
       let accumBeats = 0;
-      // Beat of the first sounding event inside the current measure, so we
-      // can recover that measure's LEADING DAYLIGHT (post-barline gap).
-      let firstEventBeat = null;
-      // The piece's final layout beat (last key in fullBeatToX). The gap
-      // landing ON this beat is a system's TRAILING spring, which the
-      // justifier governs with the trailing-barline floor rather than
-      // reserving it as extra minimum width — so we must NOT count it as
-      // across-barline daylight (doing so spuriously wraps short pieces
-      // whose final measure is a single note).
-      const lastLayoutBeat = (() => {
-        let mx = 0;
-        for (const b of fullBeatToX.keys()) if (b > mx) mx = b;
-        return mx;
-      })();
-      const flush = () => {
-        const startX = fullBeatToX.get(measureStartBeat) ?? 0;
-        const endX = fullBeatToX.get(beat) ?? startX;
-        // ACROSS-BARLINE DAYLIGHT: the spring justifier reserves one extra
-        // post-barline note-gap at every INTERIOR boundary — the
-        // barline-crossing spring carries `postNat` (downbeat → first note
-        // of the next measure) on top of the rhythmic gap (see the spring
-        // loop's `if (isInteriorBoundary(z)) natLength += postNat`). Springs
-        // only STRETCH, never compress below natLength (justifySystemSpring:
-        // slack ≤ 0 ⇒ return natLength), so this reservation raises the
-        // system's true unstretchable minimum width. The breaker historically
-        // measured measures from pure rhythm only, underestimated each
-        // post-barline measure by exactly that daylight, overpacked the
-        // system, and — when the minimum exceeded the width — the tail
-        // overflowed the staff/viewBox, clipping the last measure (e.g.
-        // Twinkle's bar 8 at ~1124px). Mirror the reservation here: every
-        // measure that FOLLOWS a boundary (measureStartBeat > 0) carries its
-        // leading daylight = gap from its downbeat to its first sounding
-        // note, EXCEPT when that gap lands on the piece's final beat (a
-        // trailing spring, floored not reserved — see lastLayoutBeat).
-        let daylight = 0;
-        if (
-          measureStartBeat > 0
-          && firstEventBeat != null
-          && firstEventBeat < lastLayoutBeat - 1e-6
-        ) {
-          const downbeatX = fullBeatToX.get(measureStartBeat) ?? startX;
-          const firstNoteX = fullBeatToX.get(firstEventBeat) ?? downbeatX;
-          daylight = firstNoteX - downbeatX;
-        }
-        widths.push(endX - startX + daylight);
-        daylights.push(daylight);
-        measureStartBeat = beat;
-        accumBeats = 0;
-        firstEventBeat = null;
-      };
+      const flush = () => { count += 1; measureStartBeat = beat; accumBeats = 0; };
       for (const el of rhythmVoice.notes) {
         if (!el) continue;
-        if (!Array.isArray(el) && el.barline !== undefined) {
-          flush();
-          continue;
-        }
-        // Skip markers.
+        if (!Array.isArray(el) && el.barline !== undefined) { flush(); continue; }
         if (!Array.isArray(el) && (
-          el.ending !== undefined
-          || el.navigation !== undefined
-          || el.tempo !== undefined
-          || el.tempoChange !== undefined
-          || el.expression !== undefined
-          || el.rehearsal !== undefined
-          || el.dynamic !== undefined
-          || el.hairpin !== undefined
+          el.ending !== undefined || el.navigation !== undefined
+          || el.tempo !== undefined || el.tempoChange !== undefined
+          || el.expression !== undefined || el.rehearsal !== undefined
+          || el.dynamic !== undefined || el.hairpin !== undefined
         )) continue;
-        // Sounding event beat advance.
         let evBeats = 0;
         if (Array.isArray(el)) {
           const first = el.find((n) => n && n.length);
@@ -952,23 +1139,11 @@ export class NotationRenderer {
         }
         beat += evBeats;
         accumBeats += evBeats;
-        // Record the first sounding beat inside this measure (used to
-        // recover the leading post-barline daylight at flush time).
-        if (firstEventBeat === null) firstEventBeat = beat;
-        if (rhythmMeasureLength && accumBeats >= rhythmMeasureLength - 1e-6) {
-          flush();
-        }
+        if (rhythmMeasureLength && accumBeats >= rhythmMeasureLength - 1e-6) flush();
       }
-      // Trailing partial measure.
       if (beat > measureStartBeat) flush();
-      return { widths, daylights };
+      return count;
     })();
-    const combinedIntrinsics = naturalMeasureWidths.widths;
-    // Leading across-barline daylight per measure (parallel to
-    // combinedIntrinsics). The breaker subtracts the first measure's
-    // daylight from each system it forms (system starts are not interior
-    // barlines).
-    const measureLeadingDaylights = naturalMeasureWidths.daylights;
 
     // Per-system prelude width: shared across voices (max), since voices
     // sit in the same horizontal coordinate frame. Time sig only on the
@@ -994,23 +1169,55 @@ export class NotationRenderer {
       return maxPrelude;
     };
 
+    // Per-system music-start X for a given system index (isFirst drives the
+    // time-sig term). Mirrors preludePerSystem's per-voice max but anchored
+    // at the CLEF_ONLY_EXTRA_PAD default like the inline per-system code.
+    const musicStartXForSystem = (systemIndex) => {
+      let startX = STAFF_START_X + CLEF_WIDTH + CLEF_ONLY_EXTRA_PAD;
+      for (const voice of parsed.voices) {
+        let x = STAFF_START_X + CLEF_WIDTH;
+        const keyInfo = getKeySignature(voice.keySignature || 'C');
+        const hasKeySig = keyInfo.count > 0;
+        if (hasKeySig) x += keySignatureAdvance(keyInfo.count);
+        const hasTimeSig = systemIndex === 0 && voice.timeSignature;
+        if (hasTimeSig) {
+          const { width: tsWidth } = createTimeSignature(voice.timeSignature);
+          x += tsWidth + TIME_SIG_PADDING;
+        } else if (!hasKeySig) {
+          x += CLEF_ONLY_EXTRA_PAD;
+        }
+        if (x > startX) startX = x;
+      }
+      return startX;
+    };
+
+    // THE SHARED NATURAL-WIDTH METRIC. Returns the renderer's TRUE natural
+    // (unstretched) extent of laying out measures [start..end] as one system
+    // on `systemIndex` — computed by the exact same `computeSystemSpringLayout`
+    // the renderer uses below. The breaker decides breaks from this number, so
+    // breaking and rendering agree by construction: a run fits iff its natural
+    // width ≤ this._width, justification therefore only ever STRETCHES, and
+    // the last note always keeps its proportional trailing (never crammed,
+    // never clipped). This supersedes the old additive intrinsic-width table
+    // plus the f6d8426 daylight array and the 9ce0b20 fixed trailingReserve —
+    // three overlapping ESTIMATES collapsed into one source of truth.
+    const systemNaturalWidth = (startMeasure, endMeasure, systemIndex) => {
+      const slicedNotes = parsed.voices.map((v, vi) => sliceVoiceByMeasure(
+        shiftedVoiceNotes[vi], sharedMeasureLength, startMeasure, endMeasure
+      ));
+      const sliceVoices = parsed.voices.map((v, vi) => ({ ...v, notes: slicedNotes[vi] }));
+      const startX = musicStartXForSystem(systemIndex);
+      const { naturalRightX } = computeSystemSpringLayout(
+        sliceVoices, slicedNotes, startX, sharedMeasureLength, null
+      );
+      return naturalRightX;
+    };
+
     const breakFn = this._breakingStrategy === 'greedy' ? breakIntoSystems : breakIntoSystemsOptimal;
     const systemPlans = breakFn(
-      combinedIntrinsics,
+      measureCount,
       this._width,
-      preludePerSystem,
-      measureLeadingDaylights,
-      // Trailing reserve: the renderer reserves `trailingBarlineOffset =
-      // HEAD_TIP_X` past each system's last note CENTER (the notehead
-      // half-width to its right edge / closing barline). The per-measure
-      // intrinsics measure only up to the last note's center, so the
-      // breaker must reserve the same half-width or it packs a system whose
-      // rightmost glyph lands ~HEAD_TIP_X past this._width — the spring
-      // justifier can't compress below natural length, so that note clips
-      // (e.g. Twinkle at width 1000 / scale 0.78, beat 30 ~7.5u past the
-      // viewBox). This refines f6d8426's breaker-vs-layout reconciliation
-      // for the trailing edge.
-      HEAD_TIP_X,
+      systemNaturalWidth,
     );
 
     // Multi-system tightening: when the piece wraps onto >1 system AND
@@ -1056,7 +1263,6 @@ export class NotationRenderer {
         musicStartX,
         startMeasure: 0,
         endMeasure: -1,
-        measureTargetWidths: [],
         isFirstSystem: true,
         isLastSystem: true,
         systemYOffset: 0,
@@ -1073,9 +1279,6 @@ export class NotationRenderer {
         const isFirst = si === 0;
         const isLast = si === systemPlans.length - 1;
         const preludeWidth = preludePerSystem(si);
-        const availableMusicWidth = this._width - preludeWidth;
-        const measureTargetWidths = justifySystem(plan, combinedIntrinsics, availableMusicWidth);
-        const justified = measureTargetWidths.reduce((a, b) => a + b, 0) > plan.intrinsicSum + 1e-6;
 
         // System slice per voice. Slice indices use the shared measure
         // length (driving the system break). The slicer assigns markers
@@ -1115,320 +1318,43 @@ export class NotationRenderer {
 
         // Per-system music start: same musicStartX rule, but recompute
         // since later systems skip the time sig.
-        let perSystemMusicStartX = STAFF_START_X + CLEF_WIDTH + CLEF_ONLY_EXTRA_PAD;
-        for (const voice of parsed.voices) {
-          let x = STAFF_START_X + CLEF_WIDTH;
-          const keyInfo = getKeySignature(voice.keySignature || 'C');
-          const hasKeySig = keyInfo.count > 0;
-          if (hasKeySig) x += keySignatureAdvance(keyInfo.count);
-          const hasTimeSig = isFirst && voice.timeSignature;
-          if (hasTimeSig) {
-            const { width: tsWidth } = createTimeSignature(voice.timeSignature);
-            x += tsWidth + TIME_SIG_PADDING;
-          } else if (!hasKeySig) {
-            // Continuation system (or first system with no time-sig)
-            // where the clef alone is the prelude — see CLEF_ONLY_EXTRA_PAD.
-            x += CLEF_ONLY_EXTRA_PAD;
-          }
-          if (x > perSystemMusicStartX) perSystemMusicStartX = x;
-        }
+        const perSystemMusicStartX = musicStartXForSystem(si);
 
-        // Natural beat→x for this system (no stretch).
-        const naturalBeatToX = computeBeatLayout(sliceVoices, perSystemMusicStartX);
-
-        // Last beat across all voices (system end).
-        let systemEndBeat = 0;
-        for (const ev of (() => {
-          const all = [];
-          for (const v of sliceVoices) {
-            for (const e of collectVoiceEvents(v.notes)) all.push(e);
-          }
-          return all;
-        })()) {
-          if (ev.endBeat > systemEndBeat) systemEndBeat = ev.endBeat;
-        }
-
-        // Measure count in this system → barline padding budget.
-        const measureCountInSystem = plan.endMeasure - plan.startMeasure + 1;
-        const naturalMusicEndX = naturalBeatToX.get(systemEndBeat) || perSystemMusicStartX;
-        const naturalMusicWidth = naturalMusicEndX - perSystemMusicStartX;
-        // 2 × BAR_LINE_PADDING per intermediate measure boundary the
-        // voice loop will insert (pre + post). The final boundary that
-        // closes the system contributes only +BAR_LINE_PADDING (pre-
-        // barline); no notes follow so the post-pad doesn't reach the
-        // system right edge. For barline x we need
-        // `2*BAR_LINE_PADDING*(N-1) + BAR_LINE_PADDING`. This must stay
-        // in lockstep with BAR_LINE_PADDING — otherwise the system-end
-        // barline drifts off the right side of the staff lines (Gould
-        // Behind Bars: the staff line terminates at the right face of
-        // the closing barline, never short of it).
-        const barlinePadAtSystemEnd =
-          2 * BAR_LINE_PADDING * (measureCountInSystem - 1) + BAR_LINE_PADDING;
-        // Choose system right edge:
-        //   justified: width
-        //   unjustified: musicStartX + naturalMusicWidth + barline pad at end
-        const systemRightX = justified
-          ? this._width
-          : perSystemMusicStartX + naturalMusicWidth + barlinePadAtSystemEnd;
-        // Rhythm-proportional (spring-model) stretch of the music portion.
-        // Each gap between consecutive beats in the natural layout is a
-        // spring whose K scales with log2(durationBeats / quarter) — longer
-        // durations soak more of the available slack, mirroring Gould
-        // "Behind Bars" (Spacing), Lilypond, and Dorico.
-        //
-        // PROPORTIONAL JUSTIFICATION: every inter-event spring (including
-        // the trailing spring after the last sounding note) participates
-        // in stretch, weighted by its K. This is the load-bearing rule —
-        // dropping the trailing spring or pinning the last note to a
-        // hard-coded target produces "first note + huge middle gap + last
-        // note" layouts on sparse systems (two-note voltas, etc.), since
-        // the slack collapses into the one remaining spring. By keeping
-        // every spring in play, slack absorbs by stretchability across
-        // ALL gaps so the rendering reads as evenly spaced.
-        //
-        // LEADING-OFFSET CORRECTION: the renderer's voice loop advances
-        // cursorX past leading markers (repeat-start barline at music
-        // start, etc.) WITHOUT updating `barlineOffset`. The first note
-        // therefore renders at musicStartX + leadingOffset, while the
-        // SECOND note renders at xForBeat(b_1) = stretchedBeatToX[b_1]
-        // + 0. If we anchor stretchedBeatToX[b_0] = musicStartX, the
-        // visible gap between note 1 and note 2 is (g_0 − leadingOffset)
-        // — the leading-barline width gets stolen out of the first
-        // spring. We compensate by anchoring stretchedBeatToX[b_0] =
-        // musicStartX + leadingOffset and subtracting leadingOffset from
-        // the stretchable budget.
-        //
-        // INTERIOR BARLINE CORRECTION: every interior measure boundary
-        // contributes 2*BAR_LINE_PADDING of cursor advance the voice loop
-        // adds at render time (pre + post). Subtract that from the
-        // stretchable budget so the system's rightmost glyph still lands
-        // near the staff terminus.
-        //
-        // END-OF-SYSTEM RESERVATION: the closing barline of every
-        // non-final system gets the SAME scaling pad as every interior
-        // boundary — `barlineGap + HEAD_TIP_X` on the inner side, no
-        // outer side because no note follows. Computed inside
-        // `solveWithGap` from the current `gap` so pass 1 (floor) and
-        // pass 2 (scaled) both see the right reservation. The trailing
-        // spring is zeroed (see `trailingSpringIndex` below) so the
-        // freed slack flows into the inter-note springs.
-        const sortedBeats = [...naturalBeatToX.keys()].sort((a, b) => a - b);
-        // Identify which beats sit on interior measure boundaries (a
-        // positive integer-multiple of the shared measure length, but
-        // strictly before the system's last beat). The spring whose
-        // RIGHT endpoint lands on such a beat crosses a barline — its
-        // length governs the last-note→barline gap, which per Gould
-        // "Behind Bars" (Spacing) and Lilypond's `BarLine.padding` is a
-        // FIXED engraving padding, not a rhythmic spring.
-        const isInteriorBoundary = (beat) => {
-          if (!sharedMeasureLength) return false;
-          if (beat <= 0) return false;
-          if (beat >= sortedBeats[sortedBeats.length - 1] - 1e-6) return false;
-          const ratio = beat / sharedMeasureLength;
-          return Math.abs(ratio - Math.round(ratio)) < 1e-6;
-        };
-        const allSprings = [];
-        for (let i = 0; i < sortedBeats.length - 1; i += 1) {
-          const a = sortedBeats[i];
-          const z = sortedBeats[i + 1];
-          let natLength = naturalBeatToX.get(z) - naturalBeatToX.get(a);
-          // EVERY spring (interior boundary, trailing, inter-note)
-          // participates in stretch with K = natLength, so each
-          // stretches by the same proportional factor (1+F). Per Gould
-          // "Behind Bars" (Spacing), Lilypond `Spacing_spanner`, and
-          // Dorico rhythmic-spacing, the horizontal space following
-          // any note — whether the next event is another note or a
-          // barline — is proportional to that note's duration on the
-          // rhythmic grid. The MIN_BARLINE_PADDING floor is applied
-          // post-solve at the render emit sites (preGap / postGap /
-          // trailingBarlineGap), not in the spring graph, so the
-          // floor never absorbs slack that should go to inter-note
-          // springs.
-          //
-          // BARLINE-CROSSING springs (right endpoint is an interior
-          // boundary) carry the FULL across-bar daylight: the pre-bar
-          // gap (last-note → barline) AND the post-bar gap (barline →
-          // downbeat). The downbeat → second-note inter-note gap lives
-          // in the NEXT spring and must stay rhythmic, so the daylight
-          // can't be funded by stealing it (that collapsed the downbeat
-          // onto the second note). We reserve the extra post-bar beat
-          // here — the spring whose left endpoint is the boundary — so
-          // the justifier shrinks the rhythmic springs to fit and the
-          // system still lands on systemRightX.
-          if (isInteriorBoundary(z)) {
-            const postNat = naturalBeatToX.get(sortedBeats[i + 2]) - naturalBeatToX.get(z);
-            natLength += postNat;
-          }
-          // Floor at 1 so degenerate near-zero-duration boundaries
-          // still contribute something to the spring sum.
-          const K = Math.max(natLength, 1);
-          allSprings.push({ natLength, K });
-        }
-        const boundarySpringDelta = 0;
-        const activeBeats = sortedBeats;
-
-        // Leading-offset detection: scan the first sliced voice for
-        // non-sounding markers preceding the first note/rest/chord and
-        // sum their cursorX advance. Mirrors the voice-loop's `cursorX
-        // +=` advances for those marker types. Only the markers that
-        // appear at music start before any sounding event count.
-        let leadingMusicOffset = 0;
-        const firstSliceWithNotes = slicedVoiceNotes.find((n) => n && n.length > 0);
-        if (firstSliceWithNotes) {
-          for (const el of firstSliceWithNotes) {
-            if (getMarkerType(el) === null && el && (el.length || el.position !== undefined || Array.isArray(el))) {
-              break;
-            }
-            if (el && el.barline === 'repeat-start') {
-              // Matches voice-loop: prePad=0 at music start, then
-              // cursorX += noteCenterAdvance.
-              leadingMusicOffset +=
-                REPEAT_BARLINE_DOT_EDGE_OFFSET + REPEAT_BARLINE_INNER_PAD + HEAD_TIP_X;
-            } else if (el && el.barline === 'repeat-both') {
-              leadingMusicOffset +=
-                REPEAT_BARLINE_DOT_EDGE_OFFSET + REPEAT_BARLINE_INNER_PAD + HEAD_TIP_X;
-            }
-            // Other leading markers (ending start, tempo, dynamic,
-            // rehearsal) don't advance cursorX in a way that compresses
-            // the first spring (they translate at cursorX without
-            // post-advancing the cursor, OR their pre-render cursor
-            // sits where the first note will land anyway).
-          }
-        }
-
-        const measureLengthForOffset = sharedMeasureLength;
-        let interiorBoundaryCount = 0;
-        // Per-boundary natural lengths (last-note duration before the
-        // bar, first-note duration after). Used to compute
-        // duration-proportional pre/post gaps per Gould "Behind Bars"
-        // (Spacing) / Lilypond / Dorico: each note's trailing space is
-        // proportional to ITS OWN duration, whether the next event is
-        // a note or a barline. Keyed by interior-boundary beat
-        // (`beatPosition` at which the render loop emits the bar).
-        const preBarlineNatural = new Map();
-        const postBarlineNatural = new Map();
-        if (measureLengthForOffset && activeBeats.length > 1) {
-          const lastBeat = activeBeats[activeBeats.length - 1];
-          for (let i = 1; i < activeBeats.length - 1; i += 1) {
-            const b = activeBeats[i];
-            if (b > 0 && b < lastBeat &&
-                Math.abs((b / measureLengthForOffset) - Math.round(b / measureLengthForOffset)) < 1e-6) {
-              interiorBoundaryCount += 1;
-              const preNat = naturalBeatToX.get(b) - naturalBeatToX.get(activeBeats[i - 1]);
-              const postNat = naturalBeatToX.get(activeBeats[i + 1]) - naturalBeatToX.get(b);
-              preBarlineNatural.set(b, preNat);
-              postBarlineNatural.set(b, postNat);
-            }
-          }
-        }
-        // Per Gould "Behind Bars" (Spacing), Lilypond `Spacing_spanner`,
-        // and Dorico rhythmic-spacing: every spring (including the
-        // ones that straddle a barline) stretches by the same factor
-        // (1+F), so each note's trailing horizontal space is
-        // proportional to ITS OWN duration regardless of whether the
-        // next event is another note or a barline.
-        //
-        // Each interior boundary needs HEAD_TIP_X on each side to step
-        // over the surrounding notehead half-widths (the engraving
-        // rule is measured glyph-edge to glyph-edge, not
-        // center-to-center). The trailing barline needs one
-        // HEAD_TIP_X on its pre-side. Springs carry the rest.
-        const interiorBarlineOffset = 2 * HEAD_TIP_X * interiorBoundaryCount;
-        const trailingBarlineOffset = HEAD_TIP_X;
-        const stretchableBudget =
-          systemRightX - perSystemMusicStartX
-          - leadingMusicOffset
-          - trailingBarlineOffset
-          - interiorBarlineOffset;
-        const stretchedGaps = justifySystemSpring(
-          allSprings,
-          0,
-          stretchableBudget,
-          {
-            isLast: false, // last-system gating already handled by `justified` above
-            measureCount: measureCountInSystem,
-          }
+        // ONE SHARED METRIC. Compute this system's TRUE natural extent via
+        // the same helper the breaker used to decide breaks. Because the
+        // breaker only kept this run if naturalRightX ≤ this._width,
+        // justification can only STRETCH from here — never compress below
+        // natural — so the last note always keeps its proportional trailing.
+        const naturalLayout = computeSystemSpringLayout(
+          sliceVoices, slicedVoiceNotes, perSystemMusicStartX, sharedMeasureLength, null
         );
-        // After stretching, build per-boundary pads with a floor of
-        // MIN_BARLINE_PADDING. The post-floor delta is small relative
-        // to a stretched system and doesn't merit a re-solve.
-        const prePadMap = new Map();
-        const postPadMap = new Map();
-        let preBarlineSlack = 0; // total padding added by floor clamps
-        const padFor = (springIdx) => {
-          if (springIdx < 0 || springIdx >= stretchedGaps.length) return MIN_BARLINE_PADDING;
-          const stretched = stretchedGaps[springIdx];
-          if (stretched >= MIN_BARLINE_PADDING) return stretched;
-          preBarlineSlack += (MIN_BARLINE_PADDING - stretched);
-          return MIN_BARLINE_PADDING;
-        };
-        // For each interior boundary beat b, the barline-crossing spring
-        // (right endpoint b) carries the FULL across-bar daylight. Split
-        // its stretched length into the pre-bar gap (last-note → barline)
-        // and the post-bar gap (barline → downbeat) in proportion to the
-        // two adjacent note durations, so equal durations give a barline
-        // centered between its neighbours (Gould "Behind Bars", Spacing)
-        // and unequal durations bias the daylight toward the longer note.
-        // Floor each side at MIN_BARLINE_PADDING.
-        for (let i = 0; i < sortedBeats.length - 1; i += 1) {
-          const z = sortedBeats[i + 1];
-          if (!preBarlineNatural.has(z)) continue;
-          const preNat = preBarlineNatural.get(z);
-          const postNat = postBarlineNatural.get(z);
-          const span = preNat + postNat;
-          const stretched = stretchedGaps[i];
-          const preShare = span > 0 ? stretched * (preNat / span) : stretched / 2;
-          const postShare = span > 0 ? stretched * (postNat / span) : stretched / 2;
-          if (preShare < MIN_BARLINE_PADDING) preBarlineSlack += MIN_BARLINE_PADDING - preShare;
-          if (postShare < MIN_BARLINE_PADDING) preBarlineSlack += MIN_BARLINE_PADDING - postShare;
-          prePadMap.set(z, Math.max(MIN_BARLINE_PADDING, preShare));
-          postPadMap.set(z, Math.max(MIN_BARLINE_PADDING, postShare));
-        }
-        // Trailing (last) spring → closing barline pre-gap.
-        const trailingSpringIdx = sortedBeats.length - 2;
-        const trailingBarlineGap = trailingSpringIdx >= 0
-          ? Math.max(MIN_BARLINE_PADDING, stretchedGaps[trailingSpringIdx])
-          : MIN_BARLINE_PADDING;
-        // Median of pre-pads for the legacy uniform-`barlineGap` API.
-        let barlineGap = MIN_BARLINE_PADDING;
-        if (prePadMap.size > 0) {
-          const vals = [...prePadMap.values()].sort((a, b) => a - b);
-          const m = Math.floor(vals.length / 2);
-          barlineGap = vals.length % 2
-            ? vals[m]
-            : 0.5 * (vals[m - 1] + vals[m]);
-        }
-        // Zero only the BARLINE-CROSSING spring (whose RIGHT endpoint is
-        // a boundary beat: last-note → downbeat) and the trailing spring.
-        // The render loop re-emits these explicitly via barlineOffset
-        // (preGap + postGap around the bar, trailingBarlineGap at the
-        // system close), so leaving them non-zero would double-count.
-        //
-        // CRITICAL: the spring whose LEFT endpoint is a boundary beat is
-        // NOT a barline gap — it is the ordinary inter-note gap from the
-        // measure's downbeat to its second note (e.g. the two A4s in
-        // Twinkle's bar 2). It must keep its stretched length like any
-        // other inter-note spring. Zeroing it (the old behaviour) parked
-        // the second note exactly on the downbeat, so every measure after
-        // the first rendered its first two notes on top of each other.
-        for (let i = 0; i < sortedBeats.length - 1; i += 1) {
-          const z = sortedBeats[i + 1];
-          if (preBarlineNatural.has(z) || i === trailingSpringIdx) {
-            stretchedGaps[i] = 0;
-          }
-        }
-        const stretchedBeatToX = new Map();
-        // Anchor the first beat past the leading-barline advance so the
-        // first inter-note spring's full stretched length materialises
-        // as visible space between note 1 and note 2.
-        let runX = perSystemMusicStartX + leadingMusicOffset;
-        if (activeBeats.length > 0) {
-          stretchedBeatToX.set(activeBeats[0], runX);
-          for (let i = 0; i < stretchedGaps.length; i += 1) {
-            runX += stretchedGaps[i];
-            stretchedBeatToX.set(activeBeats[i + 1], runX);
-          }
-        }
+        const naturalRightX = naturalLayout.naturalRightX;
+        const systemEndBeat = naturalLayout.systemEndBeat;
+        const measureCountInSystem = plan.endMeasure - plan.startMeasure + 1;
+
+        // Justify (stretch to fill the width) unless this is a solo trailing
+        // final system — Gould's last-system rule leaves a 1-measure final
+        // ragged at natural. Otherwise stretch out to this._width.
+        const soloFinal = isLast && measureCountInSystem === 1;
+        const justified = !soloFinal && naturalRightX < this._width - 1e-6;
+        const systemRightX = justified ? this._width : naturalRightX;
+
+        // Lay the system out at the chosen right edge. When justified we pass
+        // this._width and the inter-note springs stretch into the slack; when
+        // not, we pass naturalRightX and get the natural layout back — the
+        // SAME number the breaker floored at, by construction.
+        const layout = justified
+          ? computeSystemSpringLayout(
+              sliceVoices, slicedVoiceNotes, perSystemMusicStartX, sharedMeasureLength, systemRightX
+            )
+          : naturalLayout;
+        const {
+          stretchedBeatToX,
+          prePadMap,
+          postPadMap,
+          barlineGap,
+          trailingBarlineGap,
+        } = layout;
         // Re-slice ottava segments to be relative to the slice'd voice
         // notes array. Build a mapping from original-index → slice-index
         // using sliceVoiceByMeasure's logic — easiest: re-walk and match
@@ -1512,7 +1438,6 @@ export class NotationRenderer {
           musicStartX: perSystemMusicStartX,
           startMeasure: plan.startMeasure,
           endMeasure: plan.endMeasure,
-          measureTargetWidths,
           isFirstSystem: isFirst,
           isLastSystem: isLast,
           systemYOffset,
@@ -1625,8 +1550,6 @@ export class NotationRenderer {
     musicStartX,
     startMeasure,
     endMeasure,
-    // eslint-disable-next-line no-unused-vars
-    measureTargetWidths,
     isFirstSystem,
     isLastSystem,
     systemYOffset = 0,

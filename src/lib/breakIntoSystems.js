@@ -23,82 +23,55 @@
 /**
  * Greedy system-breaking.
  *
- * @param {Array<number>} combinedIntrinsics  per-measure intrinsic widths
- *   (combined across voices — the max). Each width may already include the
- *   measure's LEADING across-barline daylight (post-barline note-gap).
- * @param {number} availableWidth  total SVG music-area width.
- * @param {(systemIndex:number) => number} preludeWidthFn  px reserved at
- *   left for clef + key sig (every system) + time sig (system 0 only).
- * @param {Array<number>} [leadingDaylights]  per-measure leading
- *   across-barline daylight already baked into `combinedIntrinsics`. The
- *   first measure of a system STARTS the system (not an interior barline),
- *   so it reserves no across-bar daylight — we subtract its daylight from
- *   that system's accumulator. Without this, every system's first measure
- *   over-counts by its daylight and short pieces wrap one system too early.
- * @param {number} [trailingReserve]  fixed space the renderer reserves PAST
- *   the system's last note CENTER before the staff/viewBox right edge — the
- *   trailing notehead half-width that steps from the last note's center to
- *   its right edge / the closing barline (`trailingBarlineOffset =
- *   HEAD_TIP_X` in NotationRenderer). The breaker's per-measure intrinsics
- *   stop at the last note's center, so without reserving this the breaker
- *   thinks a system fits when its rightmost glyph actually lands
- *   ~HEAD_TIP_X past the budget; the spring justifier can't compress below
- *   natural length, so that note clips. Charge it once per system.
+ * SHARED-WIDTH METRIC. The breaker decides breaks using the SAME true
+ * natural (unstretched) minimum width the renderer actually lays each system
+ * out with — not an additive per-measure estimate. `systemNaturalWidth(start,
+ * end, systemIndex)` returns the full natural extent (staff-left prelude →
+ * closing barline) of rendering measures `[start..end]` as one system,
+ * computed from the renderer's exact `computeBeatLayout` + spring/daylight +
+ * proportional-trailing reservations. A run FITS a system iff that natural
+ * width ≤ `availableWidth`. Because system width is NOT a sum of independent
+ * per-measure widths (daylight lives BETWEEN measures; the trailing term
+ * depends on the LAST measure's duration), the old additive
+ * `combinedIntrinsics` + leading-daylight + fixed-trailingReserve model was
+ * fundamentally approximate and is replaced by this per-candidate metric.
+ *
+ * @param {number} measureCount  number of measures in the piece.
+ * @param {number} availableWidth  total SVG width the system must fit within.
+ * @param {(startMeasure:number, endMeasure:number, systemIndex:number) => number}
+ *   systemNaturalWidth  true natural extent of `[start..end]` as one system.
  * @returns {Array<SystemPlan>}
  */
 export function breakIntoSystems(
-  combinedIntrinsics,
+  measureCount,
   availableWidth,
-  preludeWidthFn,
-  leadingDaylights = [],
-  trailingReserve = 0,
+  systemNaturalWidth,
 ) {
   const plans = [];
-  const n = combinedIntrinsics.length;
+  const n = measureCount;
   if (n === 0) return plans;
-  const daylightAt = (i) => leadingDaylights[i] || 0;
-  // Daylight to DROP for a system starting at `s`: the leading across-barline
-  // daylight of the system's first measure that actually carries music.
-  // Leading EMPTY measures (zero-width marker flushes — repeat-end /
-  // ending-start, etc.) carry no width or daylight, but the first SOUNDING
-  // measure after them still starts the system (it sits at the staff's left,
-  // not after an interior barline), so its daylight must be dropped too.
-  // Without this, a volta whose system happens to open with an empty marker
-  // measure keeps its daylight while its twin (opening directly) drops it,
-  // and the two voltas render asymmetrically.
-  const systemLeadingDaylight = (s) => {
-    for (let i = s; i < n; i += 1) {
-      if (combinedIntrinsics[i] > 1e-6) return daylightAt(i);
-    }
-    return 0;
-  };
 
   let cursor = 0;
   let systemIndex = 0;
   while (cursor < n) {
-    const prelude = preludeWidthFn(systemIndex);
-    // Reserve the trailing notehead half-width once per system: the
-    // rendered extent runs from the staff left to the last note's center
-    // (what the intrinsics measure) PLUS this half-width to the glyph's
-    // right edge / closing barline. Shrinking the budget by it makes the
-    // breaker wrap before the rightmost glyph would overflow.
-    const musicBudget = availableWidth - prelude - trailingReserve;
-
     let end = cursor;
-    // The system's first sounding measure starts the system — drop its
-    // leading across-barline daylight (no preceding barline within this
-    // system). Empty leading measures contribute neither width nor daylight.
-    let acc = combinedIntrinsics[cursor] - systemLeadingDaylight(cursor);
-    if (acc > musicBudget) {
-      // Degenerate: single measure can't fit. Place it solo and warn.
+    // The single-measure natural width. If even one measure can't fit, place
+    // it solo and warn (degenerate — matches the old behaviour).
+    let acc = systemNaturalWidth(cursor, cursor, systemIndex);
+    if (acc > availableWidth) {
       // eslint-disable-next-line no-console
       console.warn(
-        `breakIntoSystems: measure ${cursor} intrinsic width ${acc.toFixed(1)}px exceeds available music width ${musicBudget.toFixed(1)}px; placing solo and overflowing`
+        `breakIntoSystems: measure ${cursor} natural width ${acc.toFixed(1)}px exceeds available width ${availableWidth.toFixed(1)}px; placing solo and overflowing`
       );
     } else {
-      while (end + 1 < n && acc + combinedIntrinsics[end + 1] <= musicBudget) {
+      // Keep extending while the candidate run's TRUE natural width still
+      // fits. Recomputed per candidate (not summed) because daylight and the
+      // proportional trailing term are non-additive across measures.
+      while (end + 1 < n) {
+        const next = systemNaturalWidth(cursor, end + 1, systemIndex);
+        if (next > availableWidth) break;
         end += 1;
-        acc += combinedIntrinsics[end];
+        acc = next;
       }
     }
 
@@ -252,84 +225,58 @@ export function systemBadness(naturalSum, musicBudget, isLast) {
  * differs), this is exact in practice. We track predecessors so we can
  * reconstruct and assign correct system indices on the way out.
  *
- * Inputs match `breakIntoSystems`.
+ * SHARED-WIDTH METRIC. Like `breakIntoSystems`, the badness/overflow checks
+ * use `systemNaturalWidth(start, end, systemIndex)` — the renderer's true
+ * natural extent (prelude → closing barline, with the exact spring/daylight/
+ * proportional-trailing reservations) — compared against `availableWidth`.
+ * The natural width ALREADY includes the prelude, so the budget passed to
+ * `systemBadness` is the full `availableWidth` (no separate prelude subtract).
  *
- * @param {Array<number>} combinedIntrinsics
- * @param {number} availableWidth
- * @param {(systemIndex:number) => number} preludeWidthFn
+ * @param {number} measureCount  number of measures in the piece.
+ * @param {number} availableWidth  total SVG width the system must fit within.
+ * @param {(startMeasure:number, endMeasure:number, systemIndex:number) => number}
+ *   systemNaturalWidth  true natural extent of `[start..end]` as one system.
  * @returns {Array<SystemPlan>}
  */
 export function breakIntoSystemsOptimal(
-  combinedIntrinsics,
+  measureCount,
   availableWidth,
-  preludeWidthFn,
-  leadingDaylights = [],
-  trailingReserve = 0,
+  systemNaturalWidth,
 ) {
-  const n = combinedIntrinsics.length;
+  const n = measureCount;
   if (n === 0) return [];
-  const daylightAt = (i) => leadingDaylights[i] || 0;
-  // Daylight to DROP for a system starting at `s`: the leading daylight of
-  // the first SOUNDING (nonzero-width) measure, so leading empty marker
-  // measures don't keep the following measure's across-bar daylight (which
-  // would make sibling voltas wrap/render asymmetrically). See the greedy
-  // breaker for the full rationale.
-  const systemLeadingDaylight = (s) => {
-    for (let i = s; i < n; i += 1) {
-      if (combinedIntrinsics[i] > 1e-6) return daylightAt(i);
-    }
-    return 0;
-  };
 
   // best[m] = min total badness ending with m measures placed.
-  // prev[m] = predecessor index (m'), and prevSystemIndex[m] is the system
-  // index that the last system would land on. We compute system index via
-  // a chain count from m back to 0.
+  // prev[m] = predecessor index (m'); sysIdx[m] = system count to reach m.
   const best = new Array(n + 1).fill(Infinity);
   const prev = new Array(n + 1).fill(-1);
-  const sysIdx = new Array(n + 1).fill(0); // system count to reach m
+  const sysIdx = new Array(n + 1).fill(0);
   best[0] = 0;
   sysIdx[0] = 0;
 
-  // Prefix sums for O(1) range natural-sum.
-  const prefix = new Array(n + 1).fill(0);
-  for (let i = 0; i < n; i += 1) prefix[i + 1] = prefix[i] + combinedIntrinsics[i];
-
-  // Practical pruning: skip ranges much wider than the canvas.
-  // Use the smallest prelude as a lower bound on the budget for pruning.
-  const minPrelude = Math.min(preludeWidthFn(0), preludeWidthFn(1));
-  const looseBudget = availableWidth - minPrelude;
-  const pruneLimit = looseBudget * 4; // wide latitude; only avoids absurd spans
+  const pruneLimit = availableWidth * 4; // wide latitude; only avoids absurd spans
 
   for (let m = 1; m <= n; m += 1) {
     const isLast = m === n;
     for (let mp = m - 1; mp >= 0; mp -= 1) {
-      // [mp..m-1] forms one system; its first measure (mp) starts the
-      // system, so drop its leading across-barline daylight (no preceding
-      // barline within this system).
-      const natural = prefix[m] - prefix[mp] - systemLeadingDaylight(mp);
-      if (natural > pruneLimit && mp < m - 1) break; // monotonic: more measures = more width
-      // System index that [mp..m-1] would occupy is sysIdx[mp] (0-based).
+      // [mp..m-1] forms one system. The natural width is the renderer's
+      // true extent for that run on the system index it would occupy
+      // (sysIdx[mp]); it already includes the prelude, so compare it
+      // directly against availableWidth.
       const systemIndex = sysIdx[mp];
-      const prelude = preludeWidthFn(systemIndex);
-      // Reserve the trailing notehead half-width once per system (see the
-      // greedy breaker): intrinsics stop at the last note's center, but the
-      // glyph's right edge / closing barline lands ~HEAD_TIP_X further out,
-      // so the breaker must shrink the budget to wrap before that overflows.
-      const musicBudget = availableWidth - prelude - trailingReserve;
-      const badness = systemBadness(natural, musicBudget, isLast);
-      // If this is a non-last severely-overflowed range AND we have at
-      // least one alternative in mp, no need to extend further leftward.
+      const natural = systemNaturalWidth(mp, m - 1, systemIndex);
+      if (natural > pruneLimit && mp < m - 1) break; // monotonic: more measures = more width
+      const badness = systemBadness(natural, availableWidth, isLast);
       const candidate = best[mp] + badness;
       if (candidate < best[m]) {
         best[m] = candidate;
         prev[m] = mp;
         sysIdx[m] = sysIdx[mp] + 1;
       }
-      // Pruning: once we're firmly in overflow territory and have a
-      // finite-cost alternative, going further left only makes natural
-      // larger and badness monotonically worse for this system. Stop.
-      if (natural > musicBudget && best[m] < Infinity) break;
+      // Pruning: once firmly in overflow territory with a finite-cost
+      // alternative, going further left only grows natural and worsens
+      // badness monotonically for this system. Stop.
+      if (natural > availableWidth && best[m] < Infinity) break;
     }
   }
 
@@ -338,7 +285,7 @@ export function breakIntoSystemsOptimal(
   let cursor = n;
   while (cursor > 0) {
     const mp = prev[cursor];
-    const natural = prefix[cursor] - prefix[mp] - systemLeadingDaylight(mp);
+    const natural = systemNaturalWidth(mp, cursor - 1, sysIdx[mp]);
     plans.push({
       startMeasure: mp,
       endMeasure: cursor - 1,
@@ -351,16 +298,13 @@ export function breakIntoSystemsOptimal(
   if (plans.length > 0) plans[plans.length - 1].isLast = true;
 
   // Degenerate-fit warning to match greedy's behaviour.
-  for (const p of plans) {
-    if (p.endMeasure === p.startMeasure) {
-      const prelude = preludeWidthFn(plans.indexOf(p));
-      const music = availableWidth - prelude;
-      if (p.intrinsicSum > music) {
-        // eslint-disable-next-line no-console
-        console.warn(
-          `breakIntoSystemsOptimal: measure ${p.startMeasure} intrinsic width ${p.intrinsicSum.toFixed(1)}px exceeds available music width ${music.toFixed(1)}px; placing solo and overflowing`
-        );
-      }
+  for (let pi = 0; pi < plans.length; pi += 1) {
+    const p = plans[pi];
+    if (p.endMeasure === p.startMeasure && p.intrinsicSum > availableWidth) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `breakIntoSystemsOptimal: measure ${p.startMeasure} natural width ${p.intrinsicSum.toFixed(1)}px exceeds available width ${availableWidth.toFixed(1)}px; placing solo and overflowing`
+      );
     }
   }
 

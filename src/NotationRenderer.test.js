@@ -1690,6 +1690,116 @@ describe('NotationRenderer', () => {
         ).toBe(true);
       }
     });
+
+    it('keeps the last note of every system at least its proportional trailing before the closing barline across a width sweep (no crammed final half note)', () => {
+      // Engraving invariant (Gould, Behind Bars, Spacing): the closing
+      // barline of a system sits at least MIN_BARLINE_PADDING past the
+      // rightmost notehead — and MORE for a long final note, since trailing
+      // space is proportional to the note's duration. A half note must get
+      // more trailing than a quarter. The staff line terminates exactly at
+      // the closing barline (right face), so `staffRight - lastNoteCenterX`
+      // is the realized trailing gap for that system.
+      //
+      // Regression (playground: preset Twinkle Twinkle, width 1004,
+      // scale 0.78 → internal width ≈ 3889u): all 8 bars packed onto a
+      // single system, the final HALF note (beat 30) landed at x ≈ 3867
+      // with the staff right edge / viewBox at ≈ 3892 — only ~25u of
+      // trailing, below MIN_BARLINE_PADDING (40), and far below the larger
+      // proportional trailing a half note is owed. The note center was
+      // *just* inside the viewBox (so the older center-only tests passed),
+      // but the note was crammed against the closing barline and its glyph
+      // overran it.
+      //
+      // Root cause: the breaker decided breaks from an APPROXIMATE
+      // per-measure intrinsic-width table, while the renderer lays each
+      // system out with the exact spring/justification pipeline whose
+      // trailing reservation is PROPORTIONAL to the last note's duration.
+      // The fixed `trailingReserve = HEAD_TIP_X` could not cover a half
+      // note's larger proportional trailing, so the breaker overpacked and
+      // justification (which only stretches) could not open the gap.
+      //
+      // Pin: at every sampled width — bracketing the internal ~3889u
+      // boundary that triggered the cram — every system's last note keeps
+      // at least MIN_BARLINE_PADDING of trailing (small float tolerance),
+      // whether the piece stays on one system or wraps. A piece must WRAP
+      // rather than cram its final note.
+      const twinkle = {
+        clef: 'treble',
+        keySignature: 'C',
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C4', length: '1/4' }, { pitch: 'C4', length: '1/4' },
+          { pitch: 'G4', length: '1/4' }, { pitch: 'G4', length: '1/4' },
+          { pitch: 'A4', length: '1/4' }, { pitch: 'A4', length: '1/4' },
+          { pitch: 'G4', length: '1/2' },
+          { pitch: 'F4', length: '1/4' }, { pitch: 'F4', length: '1/4' },
+          { pitch: 'E4', length: '1/4' }, { pitch: 'E4', length: '1/4' },
+          { pitch: 'D4', length: '1/4' }, { pitch: 'D4', length: '1/4' },
+          { pitch: 'C4', length: '1/2' },
+          { pitch: 'G4', length: '1/4' }, { pitch: 'G4', length: '1/4' },
+          { pitch: 'F4', length: '1/4' }, { pitch: 'F4', length: '1/4' },
+          { pitch: 'E4', length: '1/4' }, { pitch: 'E4', length: '1/4' },
+          { pitch: 'D4', length: '1/2' },
+          { pitch: 'G4', length: '1/4' }, { pitch: 'G4', length: '1/4' },
+          { pitch: 'F4', length: '1/4' }, { pitch: 'F4', length: '1/4' },
+          { pitch: 'E4', length: '1/4' }, { pitch: 'E4', length: '1/4' },
+          { pitch: 'D4', length: '1/2' },
+        ],
+      };
+
+      const xFromTranslate = (el) => {
+        const m = /translate\(([-\d.]+)/.exec(el.getAttribute('transform') || '');
+        return m ? parseFloat(m[1]) : 0;
+      };
+
+      // MIN_BARLINE_PADDING is 40 internal units (see NotationRenderer).
+      const MIN_TRAILING = 40;
+      // Small tolerance for the post-solve floor split's float drift.
+      const TOL = 1.5;
+
+      // Internal-unit widths bracketing the ~3889u playground boundary
+      // (width 1004 / scale 0.78), plus the exact value and a few wider
+      // ones. The invariant must hold at every width: each system's last
+      // note keeps >= MIN_BARLINE_PADDING trailing, and no note's glyph
+      // overruns the staff/viewBox right edge.
+      const widths = [3700, 3800, 3889, 3892.185592185592, 3950, 4100, 4400];
+      for (const width of widths) {
+        const renderer = new NotationRenderer({
+          container: document.createElement('div'),
+          width,
+        });
+        const svg = renderer.render(twinkle);
+
+        const staves = [...svg.querySelectorAll('g.staff')];
+        expect(staves.length).toBeGreaterThanOrEqual(1);
+
+        let checkedSystems = 0;
+        let totalNotes = 0;
+        for (const staff of staves) {
+          const staffLine = staff.querySelector('line.staff-line');
+          if (!staffLine) continue;
+          const staffRight = parseFloat(staffLine.getAttribute('x2'));
+          const notes = [...staff.querySelectorAll('g.note')];
+          if (notes.length === 0) continue;
+          checkedSystems += 1;
+          totalNotes += notes.length;
+          const noteXs = notes.map(xFromTranslate);
+          const lastNoteX = Math.max(...noteXs);
+          const trailing = staffRight - lastNoteX;
+          // The closing barline must clear the rightmost note by at least
+          // MIN_BARLINE_PADDING (a HALF note is owed even more, but pinning
+          // the floor already catches the cram and stays robust).
+          expect(
+            trailing >= MIN_TRAILING - TOL
+              ? true
+              : `width ${width}: system trailing ${trailing.toFixed(2)} < MIN_BARLINE_PADDING ${MIN_TRAILING} (lastNoteX ${lastNoteX.toFixed(2)}, staffRight ${staffRight.toFixed(2)})`
+          ).toBe(true);
+        }
+        // Guard against a vacuous pass (selector drift / empty render).
+        expect(checkedSystems).toBeGreaterThanOrEqual(1);
+        expect(totalNotes).toBe(28);
+      }
+    });
   });
 
   describe('time signature rendering', () => {
@@ -3300,7 +3410,18 @@ describe('NotationRenderer', () => {
     }
 
     it('keeps decrescendo tip ≥0.5 staff space from "p" and centers it on the letter', () => {
-      ctx.render({
+      // Width 1400 keeps the whole 2.5-measure phrase on ONE system so the
+      // decrescendo hairpin spans within a single staff (the geometry this
+      // test pins). The shared natural-width breaker now wraps this phrase at
+      // the default ctx width, splitting the hairpin across a system boundary
+      // (where it is truncated → the group is absent). The hairpin/dynamic
+      // clearance geometry is width-independent; 1400 simply restores the
+      // single-system layout this test inspects.
+      const wideContainer = document.createElement('div');
+      document.body.appendChild(wideContainer);
+      const wideRenderer = new NotationRenderer({ container: wideContainer, width: 1400 });
+      const ctx = { container: wideContainer };
+      wideRenderer.render({
         clef: 'treble',
         timeSignature: [4, 4],
         notes: [
@@ -4891,18 +5012,18 @@ describe('NotationRenderer', () => {
     });
 
     it('respects the breakingStrategy: "greedy" escape hatch (greedy differs from optimal)', () => {
-      // 17 uniform whole-note measures at width 1600: a known-pathological
-      // greedy-vs-optimal input. Greedy leaves a 2-measure straggler on the
-      // last system; optimal rebalances to a fuller final (4). If
+      // 17 uniform whole-note measures at width 2000: a known-pathological
+      // greedy-vs-optimal input. Greedy packs [5,5,5,2] — a 2-measure
+      // straggler; optimal rebalances to [4,4,4,5] — a fuller final (5). If
       // breakingStrategy is silently ignored, both render the same.
       //
-      // (Was width 1200. After the trailing-edge reserve added on top of
-      // f6d8426's daylight accounting, the per-system budget shrank by the
-      // trailing notehead half-width, which at 1200 flips packing so both
-      // strategies converge on a 3-measure final and the divergence the
-      // test exercises vanishes. Width 1600 fits 3-4 whole notes per system
-      // with no overflow and restores a clean greedy-straggler-vs-optimal-
-      // rebalance contrast — greedy final 2, optimal final 4.)
+      // (Was width 1600. The shared natural-width metric replaced the old
+      // additive intrinsic + fixed trailingReserve estimate; whole-note
+      // systems now fit 5 per system at width 2000 — and crucially at 1600
+      // greedy left a 1-measure final, erasing the straggler-2 contrast this
+      // test exercises. Width 2000 fits 5 whole notes per system cleanly with
+      // no overflow and restores the textbook greedy-straggler-2 vs
+      // optimal-rebalance-to-5 divergence.)
       const makeWholePiece = (mc) => {
         const notes = [];
         for (let m = 0; m < mc; m += 1) notes.push({ pitch: 'C4', length: '1/1' });
@@ -4911,12 +5032,12 @@ describe('NotationRenderer', () => {
       const piece = makeWholePiece(17);
       const greedyR = new NotationRenderer({
         container: document.createElement('div'),
-        width: 1600,
+        width: 2000,
         breakingStrategy: 'greedy',
       });
       const optimalR = new NotationRenderer({
         container: document.createElement('div'),
-        width: 1600,
+        width: 2000,
         breakingStrategy: 'optimal',
       });
       const g = greedyR.render(piece);

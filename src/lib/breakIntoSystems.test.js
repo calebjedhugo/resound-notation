@@ -7,23 +7,40 @@ import {
   systemBadness,
 } from './breakIntoSystems.js';
 
+// The breakers now take a SHARED natural-width metric callback
+// `systemNaturalWidth(start, end, systemIndex)` instead of an additive
+// per-measure intrinsics array + prelude function (see breakIntoSystems.js —
+// the additive model was the estimate-vs-actual bug source). For these
+// abstract unit tests we reconstruct the OLD additive semantics as a metric:
+// natural width of [start..end] = prelude(systemIndex) + Σ intrinsics, and a
+// run fits iff that natural width ≤ availableWidth. This keeps every
+// expected break-point identical to the pre-refactor contract while
+// exercising the new metric-driven control flow.
+const metricFor = (intrinsics, preludeFn) =>
+  (start, end, systemIndex) => {
+    let sum = 0;
+    for (let i = start; i <= end; i += 1) sum += intrinsics[i];
+    return preludeFn(systemIndex) + sum;
+  };
+
 describe('breakIntoSystems', () => {
   it('returns one system for a piece that fits within the width', () => {
     const intrinsics = [100, 100, 100];
-    const plans = breakIntoSystems(intrinsics, 500, () => 100);
+    const plans = breakIntoSystems(intrinsics.length, 500, metricFor(intrinsics, () => 100));
     expect(plans).toHaveLength(1);
     expect(plans[0]).toMatchObject({
       startMeasure: 0,
       endMeasure: 2,
       isLast: true,
     });
-    expect(plans[0].intrinsicSum).toBeCloseTo(300);
+    // intrinsicSum is now the system's natural width (prelude + Σ) = 100 + 300.
+    expect(plans[0].intrinsicSum).toBeCloseTo(400);
   });
 
   it('greedily packs measures and breaks to a new system when next would overflow', () => {
     const intrinsics = [200, 200, 200, 200, 200, 200];
     // Width=500, prelude=100 → music budget=400 → 2 measures per system.
-    const plans = breakIntoSystems(intrinsics, 500, () => 100);
+    const plans = breakIntoSystems(intrinsics.length, 500, metricFor(intrinsics, () => 100));
     expect(plans).toHaveLength(3);
     expect(plans[0]).toMatchObject({ startMeasure: 0, endMeasure: 1, isLast: false });
     expect(plans[1]).toMatchObject({ startMeasure: 2, endMeasure: 3, isLast: false });
@@ -34,7 +51,7 @@ describe('breakIntoSystems', () => {
     const intrinsics = [200, 200, 200, 200];
     // First system: prelude 200 → music budget 300 → 1 measure.
     // Subsequent: prelude 80 → music budget 420 → 2 measures.
-    const plans = breakIntoSystems(intrinsics, 500, (i) => (i === 0 ? 200 : 80));
+    const plans = breakIntoSystems(intrinsics.length, 500, metricFor(intrinsics, (i) => (i === 0 ? 200 : 80)));
     expect(plans).toHaveLength(3);
     expect(plans[0].endMeasure).toBe(0);
     expect(plans[1].endMeasure).toBe(2);
@@ -44,7 +61,7 @@ describe('breakIntoSystems', () => {
   it('warns and places a wide single measure solo when it exceeds available width', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const intrinsics = [1000, 100];
-    const plans = breakIntoSystems(intrinsics, 500, () => 100);
+    const plans = breakIntoSystems(intrinsics.length, 500, metricFor(intrinsics, () => 100));
     expect(plans).toHaveLength(2);
     expect(plans[0]).toMatchObject({ startMeasure: 0, endMeasure: 0 });
     expect(warn).toHaveBeenCalled();
@@ -229,7 +246,8 @@ describe('systemBadness', () => {
 
 describe('breakIntoSystemsOptimal', () => {
   it('returns one system for a piece that fits within the width', () => {
-    const plans = breakIntoSystemsOptimal([100, 100, 100], 500, () => 100);
+    const intr = [100, 100, 100];
+    const plans = breakIntoSystemsOptimal(intr.length, 500, metricFor(intr, () => 100));
     expect(plans).toHaveLength(1);
     expect(plans[0]).toMatchObject({ startMeasure: 0, endMeasure: 2, isLast: true });
   });
@@ -237,8 +255,8 @@ describe('breakIntoSystemsOptimal', () => {
   it('matches greedy on an even-distribution piece (no rebalance possible)', () => {
     // 6 identical measures; both algorithms have only one sensible split.
     const intrinsics = [200, 200, 200, 200, 200, 200];
-    const greedy = breakIntoSystems(intrinsics, 500, () => 100);
-    const optimal = breakIntoSystemsOptimal(intrinsics, 500, () => 100);
+    const greedy = breakIntoSystems(intrinsics.length, 500, metricFor(intrinsics, () => 100));
+    const optimal = breakIntoSystemsOptimal(intrinsics.length, 500, metricFor(intrinsics, () => 100));
     expect(optimal).toHaveLength(greedy.length);
     for (let i = 0; i < greedy.length; i += 1) {
       expect(optimal[i].startMeasure).toBe(greedy[i].startMeasure);
@@ -252,8 +270,8 @@ describe('breakIntoSystemsOptimal', () => {
     // Optimal: rebalances (e.g. [4,4,4,5] or [5,4,4,4]) so the last
     // system is a larger fraction of the average system content.
     const intrinsics = Array(17).fill(100);
-    const greedy = breakIntoSystems(intrinsics, 600, () => 80);
-    const optimal = breakIntoSystemsOptimal(intrinsics, 600, () => 80);
+    const greedy = breakIntoSystems(intrinsics.length, 600, metricFor(intrinsics, () => 80));
+    const optimal = breakIntoSystemsOptimal(intrinsics.length, 600, metricFor(intrinsics, () => 80));
 
     const greedyLastCount = greedy[greedy.length - 1].endMeasure
       - greedy[greedy.length - 1].startMeasure + 1;
@@ -273,7 +291,8 @@ describe('breakIntoSystemsOptimal', () => {
 
   it('handles a single-measure-too-wide degenerate case without crashing', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    const plans = breakIntoSystemsOptimal([1000, 100], 500, () => 100);
+    const intr = [1000, 100];
+    const plans = breakIntoSystemsOptimal(intr.length, 500, metricFor(intr, () => 100));
     expect(plans.length).toBeGreaterThanOrEqual(1);
     // Wide measure is placed alone in some system.
     const solo = plans.find((p) => p.startMeasure === 0 && p.endMeasure === 0);
@@ -283,12 +302,12 @@ describe('breakIntoSystemsOptimal', () => {
   });
 
   it('returns no systems for an empty piece', () => {
-    expect(breakIntoSystemsOptimal([], 500, () => 100)).toEqual([]);
+    expect(breakIntoSystemsOptimal(0, 500, metricFor([], () => 100))).toEqual([]);
   });
 
   it('covers all measures exactly once with monotonically increasing ranges', () => {
     const intrinsics = [120, 80, 100, 200, 90, 110, 130, 70, 150];
-    const plans = breakIntoSystemsOptimal(intrinsics, 500, () => 60);
+    const plans = breakIntoSystemsOptimal(intrinsics.length, 500, metricFor(intrinsics, () => 60));
     let expected = 0;
     for (const p of plans) {
       expect(p.startMeasure).toBe(expected);
