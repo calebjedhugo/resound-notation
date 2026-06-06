@@ -151,6 +151,16 @@ function applyOttavaShift(voiceNotes, segments) {
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const DEFAULT_WIDTH = 800;
 const DEFAULT_HEIGHT = 200;
+// Display calibration: scale 1.0 renders a PROFESSIONAL staff size. The
+// renderer's internal unit is 20 px per staff space (STAFF_HEIGHT / 4 = 80/4).
+// Engraving standard is a staff space ≈ 1.75 mm (LilyPond default global staff
+// size 20; MuseScore default spatium ≈ 1.76 mm) — a full 4-space staff ≈ 7 mm.
+// At 96 CSS dpi that is (1.75 × 96/25.4) ≈ 6.61 px per space, so the base
+// display scale converting internal units to professional output is:
+//   6.61 / 20 ≈ 0.331
+// The `scale` constructor option multiplies THIS base: scale 1 = professional,
+// scale 2 = twice professional, etc.
+export const PROFESSIONAL_BASE_SCALE = (1.75 * 96) / 25.4 / 20; // ≈ 0.331
 const STAFF_START_X = 20;
 const STAFF_TOP_OFFSET = 10;
 // Bravura clefs render at ~54px (gClef) to ~56px (cClef). 90 leaves
@@ -548,7 +558,10 @@ export class NotationRenderer {
    * @param {HTMLElement} [options.container] - DOM element to append SVG to
    * @param {number} [options.width] - SVG width
    * @param {number} [options.height] - SVG height
-   * @param {number} [options.scale] - Scaling factor
+   * @param {number} [options.scale] - Display scale. 1.0 (default) renders a
+   *   professional staff size (~7 mm / 1.75 mm staff space at 96 dpi); 2.0 is
+   *   twice that, etc. Acts on the output width/height only — the viewBox stays
+   *   in internal coordinates.
    * @param {boolean} [options.observeContainer=false] - if true, attach
    *   a ResizeObserver to the container at construction time.
    * @param {'reflow'|'zoom-to-fit'} [options.responsiveMode='reflow'] -
@@ -1428,13 +1441,15 @@ export class NotationRenderer {
     // same internal coords now occupy `scale × ` more pixels. This avoids
     // wrapping content in a transform group (which would push it past
     // viewBox edges and complicate clipping).
-    if (this._scale !== 1.0) {
+    // The effective multiplier is the user scale × the professional base, so
+    // scale 1.0 yields a standard ~7 mm staff. viewBox stays in internal units,
+    // so the consumer sees the SVG scaled since width/height differ from it.
+    const effectiveScale = this._scale * PROFESSIONAL_BASE_SCALE;
+    if (effectiveScale !== 1.0) {
       const heightAttr = this._svg.getAttribute('height');
       const svgPxHeight = parseFloat(heightAttr);
-      this._svg.setAttribute('width', svgPxWidth * this._scale);
-      this._svg.setAttribute('height', svgPxHeight * this._scale);
-      // viewBox stays in internal units → consumer sees the SVG scaled
-      // up/down by `scale` since width/height differ from viewBox extent.
+      this._svg.setAttribute('width', svgPxWidth * effectiveScale);
+      this._svg.setAttribute('height', svgPxHeight * effectiveScale);
     }
 
     if (this._container) {

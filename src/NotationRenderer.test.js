@@ -2419,7 +2419,9 @@ describe('NotationRenderer', () => {
       });
 
       const svg = ctx.getSvg();
-      const height = parseInt(svg.getAttribute('height'), 10);
+      // Layout height is the viewBox extent (internal units); the height attr is
+      // now the professional-scaled display size, so read the viewBox here.
+      const height = parseFloat(svg.getAttribute('viewBox').split(/\s+/)[3]);
       // Two-voice baseline = 2 * 200 + 40 = 440. Content-aware viewport
       // may grow this a few px to fit stems/ledger lines that protrude
       // past the band; we accept a small margin (≤ 80) but the height
@@ -2834,7 +2836,9 @@ describe('NotationRenderer', () => {
     it('sets SVG height to accommodate the grand staff layout', () => {
       ctx.render(grandStaffInput);
       const svg = ctx.getSvg();
-      const height = parseInt(svg.getAttribute('height'), 10);
+      // Layout height is the viewBox extent (internal units), not the now
+      // professional-scaled height attr.
+      const height = parseFloat(svg.getAttribute('viewBox').split(/\s+/)[3]);
       // Grand staff should be taller than single staff (200) but possibly
       // different from normal multi-voice height (440)
       expect(height).toBeGreaterThan(200);
@@ -5623,10 +5627,13 @@ describe('NotationRenderer', () => {
 
       tick(renderer);
 
-      // Exactly one flush, at the latest width.
+      // Exactly one flush, at the latest width. Layout width is the viewBox
+      // extent (internal units); the width attr is now professional-scaled.
       expect(flushSpy).toHaveBeenCalledTimes(1);
       expect(
-        parseFloat(renderer.getSvgElement().getAttribute('width'))
+        parseFloat(
+          renderer.getSvgElement().getAttribute('viewBox').split(/\s+/)[2]
+        )
       ).toBeCloseTo(600, 0);
     });
 
@@ -5720,8 +5727,17 @@ describe('NotationRenderer', () => {
       // After tick: all three setters applied.
       const svg = renderer.getSvgElement();
       expect(svg.querySelectorAll('.note').length).toBe(4);
-      // Width: 800 internal × scale 2 = 1600 displayed.
-      expect(parseFloat(svg.getAttribute('width'))).toBeCloseTo(1600, 0);
+      // Width 800 at scale 2 displays at twice the scale-1 professional size.
+      // Compare to a scale-1 reference so the assertion is base-invariant.
+      const refC = document.createElement('div');
+      new NotationRenderer({ container: refC, width: 800, scale: 1 }).render([
+        { pitch: 'C4', length: '1/4' },
+        { pitch: 'D4', length: '1/4' },
+        { pitch: 'E4', length: '1/4' },
+        { pitch: 'F4', length: '1/4' },
+      ]);
+      const refW = parseFloat(refC.querySelector('svg').getAttribute('width'));
+      expect(parseFloat(svg.getAttribute('width'))).toBeCloseTo(refW * 2, 0);
     });
 
     it('rAF is scheduled exactly once across multiple setters in one tick', () => {
