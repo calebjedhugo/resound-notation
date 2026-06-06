@@ -5391,11 +5391,17 @@ describe('NotationRenderer', () => {
       // after M1.
       // Three 4/4 measures laid out so M2 (the "Q Q H" bar) ends the
       // first system (non-final → fully justified). M3 wraps to the last
-      // system and isn't tested. At 1000px the first two measures fit
-      // together on a justified system; the third wraps below.
+      // system and isn't tested. At 1200px the first two measures fit
+      // together on a justified system; the third wraps below. (1200,
+      // not 1000: each interior barline now reserves a full post-bar
+      // daylight beat so the downbeat clears the bar instead of sitting
+      // on the measure's second note — see the barline-crossing spring
+      // in NotationRenderer.js — which makes a two-measure system a bit
+      // wider, so it needs more room to fit-and-stretch rather than
+      // overflow-and-snap.)
       const renderer = new NotationRenderer({
         container: document.createElement('div'),
-        width: 1000,
+        width: 1200,
       });
       const svg = renderer.render({
         clef: 'treble',
