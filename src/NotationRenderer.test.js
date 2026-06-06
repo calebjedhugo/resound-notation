@@ -1612,6 +1612,116 @@ describe('NotationRenderer', () => {
       expect(checkedNotes).toBe(28);
     });
 
+    it('caps the across-barline daylight to a fraction of the inter-note gap while still justifying the system to its right edge', () => {
+      // Engraving convention (Gould, "Behind Bars", Spacing; LilyPond /
+      // Dorico BarLine.padding ≈ 1 staff space): the daylight between a
+      // barline and the first note of the next measure is a modest, roughly
+      // fixed gap (~1.5–2.5 staff spaces). It must NOT scale up to a full
+      // inter-note allocation when the system is justified.
+      //
+      // Regression (Old Hundredth, justified grand staff): the across-barline
+      // spring carried natural length preNat + postNat and split the
+      // STRETCHED length proportionally into pre/post shares with no upper
+      // cap — only a MIN_BARLINE_PADDING floor. So each post-barline gap grew
+      // to ≈ a full inter-note left-to-left step (barline→first-note daylight
+      // ≈ 1.0× the median inter-note gap; measured 162u vs 163u inter-note).
+      // The documented rule (BARLINE_GAP_RATIO × medianInterNoteGap, capped)
+      // was defined but never applied.
+      //
+      // Pin TWO things on a justified multi-measure single system:
+      //   (a) interior barline→first-note daylight ≤ ~0.6× the median
+      //       inter-note left-to-left gap (was ~1.0×), and
+      //   (b) the system STILL justifies — the closing barline reaches the
+      //       staff right edge; freed slack flows to the inter-note springs,
+      //       it is NOT left as an under-justified gap at the system end.
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        // Wide enough that a 4-measure quarter-note piece packs onto ONE
+        // system AND is justified out well past natural width — the regime
+        // where the uncapped pre/post shares blow up.
+        width: 2600,
+      });
+      const svg = renderer.render({
+        clef: 'treble',
+        keySignature: 'C',
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C5', length: '1/4' }, { pitch: 'D5', length: '1/4' },
+          { pitch: 'E5', length: '1/4' }, { pitch: 'F5', length: '1/4' },
+          { pitch: 'G5', length: '1/4' }, { pitch: 'F5', length: '1/4' },
+          { pitch: 'E5', length: '1/4' }, { pitch: 'D5', length: '1/4' },
+          { pitch: 'C5', length: '1/4' }, { pitch: 'D5', length: '1/4' },
+          { pitch: 'E5', length: '1/4' }, { pitch: 'F5', length: '1/4' },
+          { pitch: 'G5', length: '1/4' }, { pitch: 'F5', length: '1/4' },
+          { pitch: 'E5', length: '1/4' }, { pitch: 'D5', length: '1/4' },
+        ],
+      });
+
+      const xFromTranslate = (el) => {
+        const t = el.getAttribute('transform') || '';
+        const m = /translate\(([-\d.]+)/.exec(t);
+        return m ? parseFloat(m[1]) : 0;
+      };
+
+      // Single justified system expected at this width.
+      const staves = svg.querySelectorAll('g.staff');
+      expect(staves.length).toBe(1);
+      const staff = staves[0];
+
+      // Notehead x positions (note-group translate = notehead logical x).
+      const noteXs = Array.from(staff.querySelectorAll('g.note')).map(
+        xFromTranslate,
+      );
+      expect(noteXs.length).toBe(16);
+      noteXs.sort((a, b) => a - b);
+
+      // Median inter-note left-to-left gap, EXCLUDING the across-barline
+      // gaps (which are the largest). With 4 notes/measure the within-measure
+      // gaps dominate the lower half of the sorted gap list.
+      const gaps = [];
+      for (let i = 1; i < noteXs.length; i += 1) gaps.push(noteXs[i] - noteXs[i - 1]);
+      const sortedGaps = [...gaps].sort((a, b) => a - b);
+      // The 12 within-measure gaps are smaller than the 3 across-barline
+      // gaps; the median of the smaller cluster approximates the inter-note step.
+      const interNoteGap = sortedGaps[Math.floor(sortedGaps.length / 4)];
+      expect(interNoteGap).toBeGreaterThan(0);
+
+      // Interior barline x positions (thin auto-barlines).
+      const barXs = Array.from(staff.querySelectorAll('g.bar-line line'))
+        .map((l) => parseFloat(l.getAttribute('x1')))
+        .sort((a, b) => a - b);
+      // 3 interior barlines for a 4-measure piece.
+      const interiorBars = barXs.slice(0, 3);
+      expect(interiorBars.length).toBe(3);
+
+      // (a) Each interior barline→first-note daylight must be a MODEST gap,
+      //     not a full inter-note step.
+      for (const bx of interiorBars) {
+        const firstAfter = noteXs.find((x) => x > bx + 0.5);
+        expect(firstAfter).toBeDefined();
+        const daylight = firstAfter - bx;
+        expect(daylight).toBeLessThanOrEqual(0.6 * interNoteGap);
+        // Floored sensibly — never collapse to nothing.
+        expect(daylight).toBeGreaterThan(0);
+      }
+
+      // (b) The system still justifies: closing barline reaches the staff
+      //     right edge (freed slack absorbed by inter-note springs).
+      const staffRightX = parseFloat(
+        staff.querySelector('line.staff-line').getAttribute('x2'),
+      );
+      const allBarXs = barXs.slice();
+      for (const bl of staff.querySelectorAll('.barline-final, [class*="barline-repeat"]')) {
+        const t = bl.getAttribute('transform') || '';
+        const m = /translate\(([-\d.]+)/.exec(t);
+        if (m) allBarXs.push(parseFloat(m[1]));
+      }
+      const closingBarX = Math.max(...allBarXs);
+      // The closing barline lands at the staff terminus (within a notehead
+      // half-width). A full under-justified gap at the end would be ~150u+.
+      expect(staffRightX - closingBarX).toBeLessThanOrEqual(15);
+    });
+
     it('never lets the rightmost note overflow the viewBox across a sweep of boundary widths (trailing-edge clipping)', () => {
       // Engraving invariant (Gould, Behind Bars, ch. on spacing): every
       // rendered note must stay within its system's staff / the SVG
@@ -5763,49 +5873,65 @@ describe('NotationRenderer', () => {
 
       const HEAD_TIP_X = 11.8;
 
-      // Use the FIRST system (M1 + M2). data-system-index lives on each
-      // voice's staff group, so filter on the first system index.
-      const sys0Staves = Array.from(svg.querySelectorAll('g[data-system-index="0"]'));
-      expect(sys0Staves.length).toBeGreaterThan(0);
-      const sys0Staff = sys0Staves[0];
-      const noteGroups = sys0Staff.querySelectorAll('g.note, g.chord');
-      const xs = Array.from(noteGroups)
-        .map((g) => parseFloat(/translate\(\s*([-\d.]+)/.exec(g.getAttribute('transform'))[1]))
-        .sort((a, b) => a - b);
-      expect(xs.length).toBe(7);
+      // Closing-barline trailing gap of the FIRST system (M1 + M2), where
+      // M2 closes on a HALF note. We compare it against a sibling render
+      // whose first system closes on a QUARTER, isolating the trailing
+      // (last-note → CLOSING-barline) spring — the only gap that still
+      // scales freely with the last note's duration. The interior M1/M2
+      // barline gap is now CAPPED (across-barline daylight cap) and is no
+      // longer a duration-proportional probe.
+      const closingTrailingGap = (rsvg) => {
+        const sysStaves = Array.from(rsvg.querySelectorAll('g[data-system-index="0"]'));
+        expect(sysStaves.length).toBeGreaterThan(0);
+        const staff = sysStaves[0];
+        const noteGroups = staff.querySelectorAll('g.note, g.chord');
+        const nxs = Array.from(noteGroups)
+          .map((g) => parseFloat(/translate\(\s*([-\d.]+)/.exec(g.getAttribute('transform'))[1]))
+          .sort((a, b) => a - b);
+        const lastX = nxs[nxs.length - 1];
+        const bxs = Array.from(staff.querySelectorAll('g.bar-line line'))
+          .map((l) => parseFloat(l.getAttribute('x1')));
+        const closingBarX = Math.max(...bxs.filter((x) => x > lastX));
+        return closingBarX - (lastX + HEAD_TIP_X);
+      };
 
-      // Bar lines on system 0 (left→right). Three bars expected: the
-      // M1/M2 interior bar (between xs[3] and xs[4]), the M2-closing bar
-      // (after xs[6]), and any leading bars are excluded since we read
-      // x positions only.
-      const bars = Array.from(sys0Staff.querySelectorAll('g.bar-line line'))
-        .map((l) => parseFloat(l.getAttribute('x1')))
-        .sort((a, b) => a - b);
-      const interiorBarX = bars.find((x) => x > xs[3] && x < xs[4]);
-      const closingBarX = Math.max(...bars.filter((x) => x > xs[6]));
+      // System closing on a HALF note (this fixture's M2).
+      const trailingGapHalf = closingTrailingGap(svg);
 
-      // Inter-note gap inside M1 (Q→Q within a measure).
-      const interNoteGap = xs[1] - xs[0];
+      // Sibling: identical shape but the first system closes on a QUARTER.
+      const rQ = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 1200,
+      });
+      const svgQ = rQ.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          // M1: Q Q Q Q
+          { pitch: 'C5', length: '1/4' }, { pitch: 'C5', length: '1/4' },
+          { pitch: 'C5', length: '1/4' }, { pitch: 'C5', length: '1/4' },
+          // M2: Q Q Q Q (closes on a quarter — the only change vs. above)
+          { pitch: 'C5', length: '1/4' }, { pitch: 'C5', length: '1/4' },
+          { pitch: 'C5', length: '1/4' }, { pitch: 'C5', length: '1/4' },
+          // M3 filler so M2 is not the final (justified) system.
+          { pitch: 'C5', length: '1/4' }, { pitch: 'C5', length: '1/4' },
+          { pitch: 'C5', length: '1/4' }, { pitch: 'C5', length: '1/4' },
+        ],
+      });
+      const trailingGapQuarter = closingTrailingGap(svgQ);
 
-      // Trailing gap from last Q of M1 (xs[3]) to the M1/M2 barline.
-      const trailingGapM1 = interiorBarX - (xs[3] + HEAD_TIP_X);
-      // Trailing gap from the half note (xs[6]) to the closing barline.
-      const trailingGapM2 = closingBarX - (xs[6] + HEAD_TIP_X);
-
-      // Both gaps clear the 40px floor (with 1.5px float slack).
-      expect(trailingGapM1).toBeGreaterThanOrEqual(40 - 1.5);
-      expect(trailingGapM2).toBeGreaterThanOrEqual(40 - 1.5);
-
-      // The trailing-quarter gap cannot exceed an inter-quarter gap by
-      // much — once stretch pushes both above the floor they're spawned
-      // by the same log-duration spring weighting and should track.
-      expect(trailingGapM1).toBeLessThanOrEqual(interNoteGap + 5);
+      // Both clear the 40px floor (with 1.5px float slack).
+      expect(trailingGapHalf).toBeGreaterThanOrEqual(40 - 1.5);
+      expect(trailingGapQuarter).toBeGreaterThanOrEqual(40 - 1.5);
 
       // Log-duration ratio: half:quarter natural-spacing is 140:100 =
-      // 1.40. Allow [1.3, 1.5] to absorb floor-clamp and stretch jitter.
-      const trailingRatio = trailingGapM2 / trailingGapM1;
+      // 1.40. The half-closing system reserves a visibly larger trailing
+      // gap than the quarter-closing one. Allow [1.3, 1.6] for floor-clamp,
+      // slack-redistribution, and stretch jitter (the two systems carry
+      // slightly different inter-note slack, nudging the ratio above 1.4).
+      const trailingRatio = trailingGapHalf / trailingGapQuarter;
       expect(trailingRatio).toBeGreaterThanOrEqual(1.3);
-      expect(trailingRatio).toBeLessThanOrEqual(1.5);
+      expect(trailingRatio).toBeLessThanOrEqual(1.6);
     });
 
     it('scales note-to-barline padding with system stretch (visible glyph-edge floor + ratio band)', () => {
@@ -5901,13 +6027,18 @@ describe('NotationRenderer', () => {
         // when both adjacent notes have the same duration (here
         // quarters on both sides).
         expect(Math.abs(visibleGap - visibleGapAfter)).toBeLessThan(1.0);
-        // Duration-proportional rule: with equal-duration notes
-        // around the barline, the visible gap matches the inter-note
-        // gap (both scale by `quarter_natural * (1+F)`). Allow [0.85,
-        // 1.15] for float jitter.
+        // Capped across-barline daylight (Gould "Behind Bars", Spacing;
+        // LilyPond/Dorico BarLine.padding ≈ 1 staff space): when the system
+        // is justified, the across-barline gap is a MODEST roughly-fixed gap
+        // — `max(MIN_BARLINE_PADDING, BARLINE_GAP_RATIO × medianInterNoteGap)`
+        // — NOT a full inter-note allocation. The freed slack flows to the
+        // inter-note springs, so the visible gap stays WELL BELOW the inter-
+        // note gap (was ≈1.0× before the cap; now bounded by the ratio).
+        // Floored at MIN_BARLINE_PADDING (≈40px), so very wide systems keep
+        // the ratio small while narrow stretch keeps the gap at its floor.
         const ratio = visibleGap / interNote;
-        expect(ratio).toBeGreaterThanOrEqual(0.85);
-        expect(ratio).toBeLessThanOrEqual(1.15);
+        expect(ratio).toBeLessThanOrEqual(0.6);
+        expect(ratio).toBeGreaterThan(0);
       }
     });
   });

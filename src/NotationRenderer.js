@@ -699,11 +699,45 @@ function computeSystemSpringLayout(
     { isLast: false, measureCount: measureCountFromBeats },
   );
 
-  // Build per-boundary pads (floored at MIN_BARLINE_PADDING), splitting each
-  // barline-crossing spring's stretched length into pre/post in proportion
-  // to the adjacent note durations.
+  // Median inter-note gap from the STRETCHED non-boundary springs — the
+  // reference scale for the across-barline cap. Inter-note springs are every
+  // spring whose right endpoint is NOT an interior boundary and is NOT the
+  // trailing (closing-barline) spring. Per Gould "Behind Bars" (Spacing) and
+  // LilyPond/Dorico BarLine.padding (~1 staff space) the across-barline
+  // daylight is a modest roughly-fixed gap, NOT a full note allocation.
+  const trailingSpringIdxForMedian = sortedBeats.length - 2;
+  const interNoteStretched = [];
+  for (let i = 0; i < sortedBeats.length - 1; i += 1) {
+    const z = sortedBeats[i + 1];
+    if (preBarlineNatural.has(z) || i === trailingSpringIdxForMedian) continue;
+    interNoteStretched.push(stretchedGaps[i]);
+  }
+  let medianInterNoteGap = 0;
+  if (interNoteStretched.length > 0) {
+    const vals = [...interNoteStretched].sort((a, b) => a - b);
+    const m = Math.floor(vals.length / 2);
+    medianInterNoteGap = vals.length % 2 ? vals[m] : 0.5 * (vals[m - 1] + vals[m]);
+  }
+  // The documented cap: applied pad = max(MIN_BARLINE_PADDING,
+  // BARLINE_GAP_RATIO × medianInterNoteGap). When there are NO inter-note
+  // springs to scale against (one note per measure, e.g. whole-note bars)
+  // the across-barline spring is the ONLY horizontal spacing mechanism and
+  // there is nowhere to redistribute freed slack — so the cap is disabled
+  // (Infinity) and the boundary spring stretches freely, exactly as before.
+  // Capping it there would cram every whole-note measure to the floor and
+  // dump all justification slack onto the trailing spring.
+  const barlinePadCap = medianInterNoteGap > 0
+    ? Math.max(MIN_BARLINE_PADDING, BARLINE_GAP_RATIO * medianInterNoteGap)
+    : Infinity;
+
+  // Build per-boundary pads, splitting each barline-crossing spring's
+  // stretched length into pre/post in proportion to the adjacent note
+  // durations, FLOORED at MIN_BARLINE_PADDING and CAPPED at barlinePadCap.
+  // The slack freed by the cap is redistributed to the inter-note springs
+  // below so the system still justifies fully to its right edge.
   const prePadMap = new Map();
   const postPadMap = new Map();
+  let freedBarlineSlack = 0;
   for (let i = 0; i < sortedBeats.length - 1; i += 1) {
     const z = sortedBeats[i + 1];
     if (!preBarlineNatural.has(z)) continue;
@@ -713,8 +747,45 @@ function computeSystemSpringLayout(
     const stretched = stretchedGaps[i];
     const preShare = span > 0 ? stretched * (preNat / span) : stretched / 2;
     const postShare = span > 0 ? stretched * (postNat / span) : stretched / 2;
-    prePadMap.set(z, Math.max(MIN_BARLINE_PADDING, preShare));
-    postPadMap.set(z, Math.max(MIN_BARLINE_PADDING, postShare));
+    const prePad = Math.min(barlinePadCap, Math.max(MIN_BARLINE_PADDING, preShare));
+    const postPad = Math.min(barlinePadCap, Math.max(MIN_BARLINE_PADDING, postShare));
+    // Freed slack = stretched length we no longer spend on this boundary.
+    // The boundary occupies prePad + postPad of daylight (the surrounding
+    // HEAD_TIP_X glyph gaps are reserved separately via barlineOffset and are
+    // unaffected by the cap), so anything above that is released.
+    freedBarlineSlack += Math.max(0, stretched - (prePad + postPad));
+    prePadMap.set(z, prePad);
+    postPadMap.set(z, postPad);
+  }
+
+  // Redistribute the freed across-barline slack across the NON-boundary
+  // springs (every inter-note spring AND the trailing closing-barline spring)
+  // PROPORTIONAL to each spring's current stretched length. This keeps the
+  // system justified to systemRightX — the daylight cap only changes WHERE the
+  // slack lives, not the total width — while preserving the rhythm-
+  // proportional invariant: distributing in proportion to existing length
+  // scales every gap by the same factor, so equal inter-note gaps stay equal
+  // and the trailing gap keeps its duration-proportional ratio to them.
+  // Without this the system would under-justify, leaving a gap at the right
+  // edge; distributing evenly (not proportionally) would distort uniform
+  // spacing.
+  if (freedBarlineSlack > 0) {
+    const targetIdx = [];
+    let targetTotal = 0;
+    for (let i = 0; i < sortedBeats.length - 1; i += 1) {
+      const z = sortedBeats[i + 1];
+      if (preBarlineNatural.has(z)) continue; // boundary springs stay zeroed
+      targetIdx.push(i);
+      targetTotal += stretchedGaps[i];
+    }
+    if (targetTotal > 0) {
+      for (const i of targetIdx) {
+        stretchedGaps[i] += freedBarlineSlack * (stretchedGaps[i] / targetTotal);
+      }
+    } else if (targetIdx.length > 0) {
+      const perSpring = freedBarlineSlack / targetIdx.length;
+      for (const i of targetIdx) stretchedGaps[i] += perSpring;
+    }
   }
 
   // Trailing (last) spring → closing-barline pre-gap, floored at
