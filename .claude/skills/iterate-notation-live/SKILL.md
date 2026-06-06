@@ -1,15 +1,20 @@
 ---
 name: iterate-notation-live
-description: Boot the resound-notation dev playground and open it in a live browser (chrome-devtools MCP) so you and the user are looking at the SAME rendered notation, then run the iterate-notation polish loop. Use when the user says "load the notation dev env in the browser", "let's look at <preset> together", "open resound-notation so we can both see it", or invokes /iterate-notation-live. For the snap-only loop without a shared browser, use iterate-notation instead.
+description: Boot the resound-notation dev playground and open it in a live browser (chrome-devtools MCP) so you and the user are looking at the SAME rendered notation, then WAIT for the user to say what to fix — do not pick defects on your own. When the user names a fix, dispatch an agent that drives the live browser directly (chrome-devtools) to see the defect and verify its fix, following iterate-notation's TDD discipline. Use when the user says "load the notation dev env in the browser", "let's look at <preset> together", "open resound-notation so we can both see it", or invokes /iterate-notation-live. For the snap-only autonomous loop, use iterate-notation instead.
 ---
 
 # Iterate on notation rendering — with a shared live browser
 
-Same goal as the sibling `iterate-notation` skill (visual polish of the SMuFL/Bravura
-renderer in `resound-notation`), but it first stands up a **live browser tab the user
-also has open**, so you both see the same page in real time. The live browser also lets
-you inspect the rendered DOM directly for exact coordinates — far more precise than a
-PNG snap when diagnosing overlaps, alignment, or spacing.
+Same engineering discipline as the sibling `iterate-notation` skill (visual polish of the
+SMuFL/Bravura renderer in `resound-notation`), with two deliberate differences:
+
+1. **You do NOT pick what to fix.** After setup you stop and wait for the user. This skill
+   is driver-in-the-loop, not autonomous.
+2. **The fix agents drive the live browser directly** (chrome-devtools MCP) to see the
+   defect and verify their own fix in the real DOM — not `snap.sh` PNGs.
+
+It first stands up a **live browser tab the user also has open**, so you both see the same
+page in real time, and the DOM can be inspected for exact coordinates.
 
 ## Step 1 — Boot the dev server (once)
 
@@ -48,20 +53,81 @@ pull every note's x and flag pairs within ~0.5px:
 }
 ```
 
-## Step 3 — Do the work (follow iterate-notation)
+## Step 3 — STOP. Wait for the user to name the fix.
 
-From here, **follow the process documented in the sibling skill**:
-`../iterate-notation/SKILL.md` (read it now and execute it). In short: pick the next
-visually-off thing, dispatch ONE focused agent per defect to run the red → audit →
-green → snap → commit cycle, then verify yourself and check in with the user.
+After the browser is open and confirmed, **do not start fixing anything.** Do not scan
+for defects, do not pick "the next visually-off thing," do not dispatch any agent. Say
+what's on screen, then hand control back to the user and wait. The user decides what to
+fix and when.
 
-Differences when running the live variant:
-- **Verify in the live browser, not just `snap.sh`.** After an agent returns, reload the
-  tab (or re-click the preset) and re-run the overlap/position `evaluate_script` to
-  confirm the fix landed in the actual DOM. The agent's summary says what it intended;
-  the live DOM shows what happened.
-- The agents themselves still use `snap.sh` + TDD as documented in `iterate-notation`
-  — the shared browser is the **main session's** eyes, not the agent's.
+(This is the key difference from `iterate-notation`, whose default is to pick the next
+defect itself. Here, you only act on an explicit instruction.)
+
+You may, when asked, help the user look: switch presets, screenshot, run the
+`evaluate_script` DOM probes above. That's observation, not iteration — still no agents.
+
+## Step 4 — When the user names a fix, dispatch a browser-driving agent
+
+One agent per defect the user names. Follow the TDD discipline documented in
+`../iterate-notation/SKILL.md` (read it for the red → audit → green → full-suite →
+commit cycle, the integration-first test rules, and the lockstep-files constraint), with
+these live-variant overrides:
+
+- **The agent uses the live browser, not `snap.sh`.** It loads the chrome-devtools MCP
+  tools (via ToolSearch) and drives the browser to (a) observe the defect and (b) verify
+  its own fix in the real DOM with `take_screenshot` + the `evaluate_script` probes.
+- **Browser hygiene:** the agent opens its OWN page with `new_page` (don't hijack the
+  user's tab), works there, and closes it when done. Run agents **sequentially** (one
+  defect at a time) — multiple agents driving Chrome at once collide.
+- **To see a source edit in the browser the agent MUST restart Vite** (the `.nosync` HMR
+  gotcha below): `pkill -f vite`, `rm -rf dev/node_modules/.vite`, restart `npm run dev`,
+  then load its page with `ignoreCache`. A plain reload shows stale output.
+- **`npx jest` remains the source of truth for correctness** (unaffected by HMR); the
+  browser is for the *visual* confirmation the user cares about.
+
+After the agent returns, **verify in the shared tab yourself** — reload with `ignoreCache`
+and re-run the overlap/position probe; the agent's summary says what it intended, the live
+DOM shows what happened. Report one or two sentences, then **wait for the next
+instruction** (back to Step 3). Never auto-advance to another fix.
+
+> Note: subagents driving chrome-devtools depends on MCP tools being available inside the
+> dispatched agent. Verify on first use; if the agent can't reach chrome-devtools, fall
+> back to having it use `snap.sh` for its own viewing while the MAIN session does the live
+> browser verification.
+
+### Agent prompt template (live variant)
+
+```
+One iteration of a visual fix in
+~/Development/personal dev work.nosync/resound-notation. A Vite dev server
+is running (dev/, http://localhost:5173) and the user is watching a tab.
+
+DEFECT (named by the user): <one sentence>
+PRESET / INPUT: <preset label or JSON the user gave>
+EXPECTED: <engraving rule + Gould/Bravura citation if any>
+
+Do this:
+1. Read the repo CLAUDE.md and ../iterate-notation/SKILL.md for conventions.
+2. Load the chrome-devtools MCP tools (ToolSearch), new_page your OWN tab to
+   http://localhost:5173/?preset=<label>, and confirm you can see the defect
+   (take_screenshot + evaluate_script over svg.notation). If chrome-devtools
+   is unavailable to you, say so and use dev/snap.sh instead.
+3. Add ONE failing integration test in src/NotationRenderer.test.js through
+   ctx.render([...]) querying the DOM; run jest to confirm RED.
+4. Spawn a fresh agent to AUDIT the test (integration-first quality) before
+   fixing; address REVISE feedback. (Audit prompt: see iterate-notation.)
+5. Make the smallest change that turns it green. Run `npx jest`; all pass.
+6. Restart Vite so the browser reflects the edit (pkill -f vite;
+   rm -rf dev/node_modules/.vite; npm run dev &), reload your tab with cache
+   bypass, and visually confirm the fix + re-run the DOM probe.
+7. Close your tab. git add -A and commit (Gould-style message, co-author
+   trailer). One commit.
+
+Constraints: don't touch CLAUDE.md/TODO.md/unrelated tests; keep
+Note.js/Beam.js/NotationRenderer.js/GraceNote.js geometry in lockstep;
+don't change load-bearing constants unless that's the defect.
+Report: files touched, commit hash, one sentence on the visible change. <200 words.
+```
 
 ## Gotchas (this environment) — see memory `reference_resound_dev_debug`
 
