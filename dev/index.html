@@ -63,9 +63,57 @@
         gap: 16px;
         align-items: center;
         font-size: 12px;
+        flex-wrap: wrap;
       }
       .controls label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
       .controls input[type="range"] { width: 140px; }
+      .controls .readout {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        background: #374151;
+        border: 1px solid #4b5563;
+        border-radius: 3px;
+        padding: 1px 6px;
+        min-width: 52px;
+        text-align: right;
+      }
+      .controls input[type="number"] {
+        width: 64px;
+        background: #374151;
+        color: #fff;
+        border: 1px solid #4b5563;
+        border-radius: 3px;
+        padding: 2px 4px;
+        font-family: inherit;
+        font-size: 11px;
+      }
+      /* Scale dial */
+      .dial-group { display: flex; align-items: center; gap: 8px; }
+      #scale-dial {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 30%, #4b5563, #1f2937 75%);
+        border: 2px solid #60a5fa;
+        position: relative;
+        cursor: grab;
+        flex: 0 0 auto;
+        touch-action: none;
+        user-select: none;
+      }
+      #scale-dial:active { cursor: grabbing; }
+      #scale-dial .indicator {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 2px;
+        height: 16px;
+        background: #fff;
+        transform-origin: bottom center;
+        /* pointer points outward from center toward the top edge */
+        transform: translate(-50%, -100%) rotate(0deg);
+        border-radius: 1px;
+      }
       main { flex: 1; display: flex; min-height: 0; }
       .pane {
         flex: 1;
@@ -73,6 +121,15 @@
         flex-direction: column;
         min-width: 0;
       }
+      .pane.left { flex: 0 0 auto; }
+      #splitter {
+        flex: 0 0 6px;
+        background: #d1d5db;
+        cursor: col-resize;
+        position: relative;
+        z-index: 5;
+      }
+      #splitter:hover, #splitter.dragging { background: #2563eb; }
       .pane-header {
         font-size: 11px;
         text-transform: uppercase;
@@ -139,15 +196,23 @@
       <div class="preset-bar" id="preset-bar"></div>
       <div class="controls">
         <label><input type="checkbox" id="grid-toggle" /> Coordinate grid (10px)</label>
-        <label>Width: <input type="range" id="width-slider" min="400" max="1200" value="800" step="10" /> <span id="width-value">800</span>px</label>
+        <label>Width: <input type="number" id="width-input" min="200" max="4000" step="10" /> <span class="readout" id="width-value">800px</span></label>
+        <div class="dial-group">
+          <span>Scale</span>
+          <div id="scale-dial" tabindex="0" role="slider" aria-label="Scale" title="Drag to zoom · wheel to fine-tune · double-click resets to 1.00×">
+            <div class="indicator"></div>
+          </div>
+          <span class="readout" id="scale-value">1.00×</span>
+        </div>
       </div>
     </header>
     <main>
-      <div class="pane left">
+      <div class="pane left" id="left-pane" style="width: 40%;">
         <div class="pane-header">JSON input</div>
         <textarea id="editor" spellcheck="false" autocomplete="off"></textarea>
         <div id="error"></div>
       </div>
+      <div id="splitter" title="Drag to resize the preview"></div>
       <div class="pane">
         <div class="pane-header">Rendered SVG</div>
         <div id="render-host">
