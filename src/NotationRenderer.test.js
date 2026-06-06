@@ -1,7 +1,10 @@
 /** @jest-environment jsdom */
 
 import { createNotationContext } from './__tests__/helpers/testUtils.js';
-import { NotationRenderer } from './NotationRenderer.js';
+import {
+  NotationRenderer,
+  PROFESSIONAL_BASE_SCALE,
+} from './NotationRenderer.js';
 
 describe('NotationRenderer', () => {
   let ctx;
@@ -5883,9 +5886,17 @@ describe('NotationRenderer', () => {
         observerInstances[0].fire();
         tick(renderer);
 
-        // 1200 / scale(2) = 600
-        expect(renderer._width).toBeCloseTo(600, 0);
-        // Reflow at width=600 should produce multiple systems for a 64-quarter piece.
+        // Fill math: layout width must account for the FULL display scale
+        // (user scale × PROFESSIONAL_BASE_SCALE) so the on-screen SVG fills
+        // the container. So width = 1200 / (2 × PROFESSIONAL_BASE_SCALE).
+        // The old assertion expected 600 (= 1200/scale only); that encoded a
+        // bug that dropped PROFESSIONAL_BASE_SCALE and under-filled to ~1/3.
+        const expectedWidth = 1200 / (2 * PROFESSIONAL_BASE_SCALE);
+        expect(renderer._width).toBeCloseTo(expectedWidth, 0);
+        // And the rendered SVG width attribute should equal the container width.
+        const svgWidth = parseFloat(renderer.getSvgElement().getAttribute('width'));
+        expect(svgWidth).toBeCloseTo(1200, 0);
+        // Reflow still produces multiple systems for a 64-quarter piece.
         const staves = renderer.getSvgElement().querySelectorAll('.staff-lines');
         expect(staves.length).toBeGreaterThan(1);
       });
@@ -5945,6 +5956,146 @@ describe('NotationRenderer', () => {
         new NotationRenderer({ container, observeContainer: true });
         expect(observerInstances.length).toBe(1);
       });
+    });
+  });
+
+  describe('container owns width (responsive by default)', () => {
+    // The fill invariant: with a single-voice treble input there is no brace,
+    // so bracketLeftMargin = 0 and the SVG width attribute equals exactly
+    //   this._width × this._scale × PROFESSIONAL_BASE_SCALE.
+    // When the container owns width, that product must equal container
+    // clientWidth — the SVG fills the box.
+    const EFF = PROFESSIONAL_BASE_SCALE; // scale defaults to 1
+
+    const trebleMelody = () => {
+      const notes = [];
+      for (let i = 0; i < 32; i++) {
+        notes.push({ pitch: 'C5', length: '1/4' });
+      }
+      return {
+        timeSignature: [4, 4],
+        voices: [{ id: 'v1', clef: 'treble', notes }],
+      };
+    };
+
+    const mockClientWidth = (el, getValue) => {
+      Object.defineProperty(el, 'clientWidth', {
+        configurable: true,
+        get: () => getValue(),
+      });
+    };
+
+    // Minimal jsdom-friendly ResizeObserver mock (jsdom has none natively).
+    let observerInstances;
+    let originalRO;
+
+    beforeEach(() => {
+      observerInstances = [];
+      originalRO = global.ResizeObserver;
+      global.ResizeObserver = class {
+        constructor(cb) {
+          this.cb = cb;
+          this.targets = [];
+          observerInstances.push(this);
+        }
+        observe(target) { this.targets.push(target); }
+        unobserve(target) {
+          this.targets = this.targets.filter((t) => t !== target);
+        }
+        disconnect() { this.targets = []; }
+        fire() {
+          if (this.targets.length === 0) return;
+          const entries = this.targets.map((t) => ({
+            target: t,
+            contentRect: { width: t.clientWidth || 0, height: t.clientHeight || 0 },
+          }));
+          this.cb(entries, this);
+        }
+      };
+    });
+
+    afterEach(() => {
+      global.ResizeObserver = originalRO;
+    });
+
+    const tick = (renderer) => renderer._flush();
+
+    it('a. container-only (no width) fills the container on first paint', () => {
+      const container = document.createElement('div');
+      mockClientWidth(container, () => 600);
+      const renderer = new NotationRenderer({ container });
+      const svg = renderer.render(trebleMelody());
+      const svgWidth = parseFloat(svg.getAttribute('width'));
+      // Fills exactly: 600 (not ~200, which is what the old cw/scale bug gave).
+      expect(svgWidth).toBeCloseTo(600, 0);
+      // Sanity: layout width is the un-scaled fill width.
+      expect(renderer._width).toBeCloseTo(600 / EFF, 0);
+    });
+
+    it('b. reacts to resize: re-fills and reflows when clientWidth shrinks', () => {
+      const container = document.createElement('div');
+      let cw = 600;
+      mockClientWidth(container, () => cw);
+      const renderer = new NotationRenderer({ container });
+      renderer.render(trebleMelody());
+
+      // Auto-observe should be ON (container present, no explicit width).
+      expect(observerInstances.length).toBe(1);
+      const stavesWide =
+        renderer.getSvgElement().querySelectorAll('.staff-lines').length;
+
+      cw = 300;
+      observerInstances[0].fire();
+      tick(renderer);
+
+      const svgWidth = parseFloat(
+        renderer.getSvgElement().getAttribute('width'),
+      );
+      expect(svgWidth).toBeCloseTo(300, 0);
+      // Reflow = constant note size, more systems at the narrower width.
+      const stavesNarrow =
+        renderer.getSvgElement().querySelectorAll('.staff-lines').length;
+      expect(stavesNarrow).toBeGreaterThan(stavesWide);
+    });
+
+    it('c. explicit width is fixed and NOT auto-observed', () => {
+      const container = document.createElement('div');
+      let cw = 1000;
+      mockClientWidth(container, () => cw);
+      const renderer = new NotationRenderer({ container, width: 1200 });
+      const svg = renderer.render(trebleMelody());
+
+      // Layout reflects the explicit 1200, NOT the container's 1000 — the
+      // explicit width is a fixed-size override that fits comfortably.
+      const svgWidth = parseFloat(svg.getAttribute('width'));
+      expect(svgWidth).toBeCloseTo(1200 * EFF, 0);
+      expect(renderer._width).toBe(1200);
+      // Explicit width => no auto-observe attached.
+      expect(observerInstances.length).toBe(0);
+
+      // Changing clientWidth (and there being no observer) must not change
+      // the fixed layout — explicit width means "I want fixed".
+      cw = 200;
+      renderer._flush();
+      expect(renderer._width).toBe(1200);
+      expect(
+        parseFloat(renderer.getSvgElement().getAttribute('width')),
+      ).toBeCloseTo(1200 * EFF, 0);
+    });
+
+    it('d. headless safety: no container, no width uses DEFAULT_WIDTH; no RO crash', () => {
+      const renderer = new NotationRenderer({});
+      expect(observerInstances.length).toBe(0);
+      expect(renderer._width).toBe(800); // DEFAULT_WIDTH
+      expect(() => renderer.render(trebleMelody())).not.toThrow();
+
+      // Also: container present but ResizeObserver undefined => observe() is a
+      // safe no-op and render still works.
+      global.ResizeObserver = undefined;
+      const container = document.createElement('div');
+      mockClientWidth(container, () => 500);
+      const r2 = new NotationRenderer({ container });
+      expect(() => r2.render(trebleMelody())).not.toThrow();
     });
   });
 

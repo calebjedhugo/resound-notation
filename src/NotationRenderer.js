@@ -562,8 +562,10 @@ export class NotationRenderer {
    *   professional staff size (~7 mm / 1.75 mm staff space at 96 dpi); 2.0 is
    *   twice that, etc. Acts on the output width/height only — the viewBox stays
    *   in internal coordinates.
-   * @param {boolean} [options.observeContainer=false] - if true, attach
-   *   a ResizeObserver to the container at construction time.
+   * @param {boolean} [options.observeContainer] - explicitly opt in/out of
+   *   the construction-time ResizeObserver. When omitted, auto-observe
+   *   defaults ON if a container is present and no explicit width was given
+   *   ("container owns width"), and OFF otherwise (explicit width = fixed).
    * @param {'reflow'|'zoom-to-fit'} [options.responsiveMode='reflow'] -
    *   how the ResizeObserver callback maps container width to render
    *   state. `'reflow'` updates width (more/fewer measures per system);
@@ -574,12 +576,16 @@ export class NotationRenderer {
     width,
     height,
     scale,
-    observeContainer = false,
+    observeContainer,
     responsiveMode = 'reflow',
     breakingStrategy = 'optimal',
   } = {}) {
     this._container = container || null;
-    this._width = width || DEFAULT_WIDTH;
+    // Record whether the caller pinned an explicit width BEFORE defaulting.
+    // Explicit width means "fixed layout" (no auto-observe); a bare
+    // { container } means "container owns width" (responsive by default).
+    this._widthExplicit = width != null;
+    this._width = width != null ? width : DEFAULT_WIDTH;
     this._height = height || DEFAULT_HEIGHT;
     this._scale = scale || 1.0;
     this._breakingStrategy = breakingStrategy;
@@ -598,9 +604,30 @@ export class NotationRenderer {
     // compute scale = container.clientWidth / naturalWidth.
     this._naturalWidth = null;
 
-    if (observeContainer) {
+    // Auto-observe decision. An explicit observeContainer:true/false always
+    // wins. Otherwise default ON when a container is present and width was
+    // NOT explicit — that's the "container owns width" responsive case.
+    const shouldObserve =
+      observeContainer != null
+        ? observeContainer
+        : !!this._container && !this._widthExplicit;
+    if (shouldObserve) {
       this.observe();
     }
+  }
+
+  /**
+   * Layout width that, after the display scale is applied, makes the SVG
+   * exactly fill a container of clientWidth `cw`. The on-screen SVG width is
+   * `this._width * this._scale * PROFESSIONAL_BASE_SCALE`, so to land at `cw`
+   * the layout width must be `cw / (scale * PROFESSIONAL_BASE_SCALE)`.
+   * @param {number} cw - container.clientWidth in CSS pixels
+   * @returns {number} layout width in internal units
+   * @private
+   */
+  _layoutWidthFor(cw) {
+    const eff = (this._scale || 1) * PROFESSIONAL_BASE_SCALE;
+    return eff > 0 ? cw / eff : cw;
   }
 
   /**
@@ -629,6 +656,19 @@ export class NotationRenderer {
   render(songData) {
     this._removeSvg();
     this._song = songData;
+    // Container-owns-width: when no explicit width was given and we're in
+    // reflow mode, measure the container and fit on the FIRST paint so there
+    // is no 800px flash before the ResizeObserver fires. Idempotent with the
+    // observer (both route through _layoutWidthFor). Not done for zoom-to-fit,
+    // which keeps the natural layout and only changes scale.
+    if (
+      this._responsiveMode === 'reflow' &&
+      !this._widthExplicit &&
+      this._container &&
+      this._container.clientWidth > 0
+    ) {
+      this._width = this._layoutWidthFor(this._container.clientWidth);
+    }
     if (this._naturalWidth == null) {
       this._naturalWidth = this._width;
     }
@@ -3254,9 +3294,11 @@ export class NotationRenderer {
         if (!ref) return;
         this.setScale(cw / ref);
       } else {
-        // 'reflow' (default)
-        const scale = this._scale || 1;
-        this.setWidth(cw / scale);
+        // 'reflow' (default). Fill the container: the layout width must
+        // account for the FULL display scale (user scale × professional
+        // base) so svg width == cw. Using cw / scale alone (the old bug)
+        // dropped PROFESSIONAL_BASE_SCALE and under-filled to ~1/3.
+        this.setWidth(this._layoutWidthFor(cw));
       }
     });
     this._resizeObserver.observe(this._container);

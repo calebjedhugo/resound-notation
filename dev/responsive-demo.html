@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>resound-notation — container owns width</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+        padding: 24px;
+        background: #f7f7f8;
+        color: #222;
+      }
+      h1 { font-size: 16px; margin: 0 0 4px; }
+      p.note {
+        font-size: 13px;
+        color: #555;
+        margin: 0 0 16px;
+      }
+      code { background: #eee; padding: 1px 4px; border-radius: 3px; }
+      /* User-resizable wrapper: drag the bottom-right handle, OR use the
+         slider. The library measures #container.clientWidth and fills it. */
+      #wrapper {
+        resize: horizontal;
+        overflow: auto;
+        border: 1px solid #888;
+        background: #fff;
+        width: 700px;
+        min-width: 220px;
+        max-width: 100%;
+        padding: 12px;
+      }
+      #container { width: 100%; }
+      .slider-row {
+        margin: 12px 0;
+        font-size: 13px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .slider-row input[type="range"] { width: 320px; }
+    </style>
+  </head>
+  <body>
+    <h1>Container owns width</h1>
+    <p class="note">
+      Library-driven responsive — no width passed.
+      Constructed as <code>new NotationRenderer({ container })</code>; the
+      library measures the container, fills it, and reflows on resize via its
+      own <code>observe()</code>. Drag the box's bottom-right handle or use the
+      slider — no width is ever passed by this page.
+    </p>
+
+    <div class="slider-row">
+      <label for="w">Wrapper width</label>
+      <input type="range" id="w" min="240" max="1200" value="700" step="10" />
+      <span id="w-val">700px</span>
+    </div>
+
+    <div id="wrapper">
+      <div id="container"></div>
+    </div>
+
+    <script type="module">
+      import { NotationRenderer } from '../src/NotationRenderer.js';
+
+      // A Twinkle-ish multi-bar treble melody.
+      const song = {
+        timeSignature: [4, 4],
+        voices: [
+          {
+            id: 'v1',
+            clef: 'treble',
+            notes: [
+              { pitch: 'C4', length: '1/4' }, { pitch: 'C4', length: '1/4' },
+              { pitch: 'G4', length: '1/4' }, { pitch: 'G4', length: '1/4' },
+              { pitch: 'A4', length: '1/4' }, { pitch: 'A4', length: '1/4' },
+              { pitch: 'G4', length: '1/2' },
+              { pitch: 'F4', length: '1/4' }, { pitch: 'F4', length: '1/4' },
+              { pitch: 'E4', length: '1/4' }, { pitch: 'E4', length: '1/4' },
+              { pitch: 'D4', length: '1/4' }, { pitch: 'D4', length: '1/4' },
+              { pitch: 'C4', length: '1/2' },
+              { pitch: 'G4', length: '1/4' }, { pitch: 'G4', length: '1/4' },
+              { pitch: 'F4', length: '1/4' }, { pitch: 'F4', length: '1/4' },
+              { pitch: 'E4', length: '1/4' }, { pitch: 'E4', length: '1/4' },
+              { pitch: 'D4', length: '1/2' },
+            ],
+          },
+        ],
+      };
+
+      const container = document.getElementById('container');
+      // NO width — container owns it. observe() is auto-attached.
+      const renderer = new NotationRenderer({ container });
+      renderer.render(song);
+
+      // Slider just resizes the wrapper; the library handles the reflow.
+      const slider = document.getElementById('w');
+      const wrapper = document.getElementById('wrapper');
+      const readout = document.getElementById('w-val');
+      slider.addEventListener('input', () => {
+        wrapper.style.width = `${slider.value}px`;
+        readout.textContent = `${slider.value}px`;
+      });
+    </script>
+  </body>
+</html>
