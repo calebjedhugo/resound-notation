@@ -41,6 +41,22 @@ const splitter = document.getElementById('splitter');
 const SCALE_MIN = 0.25;
 const SCALE_MAX = 4;
 
+// Calibration: the dev-UI scale 1.0× = a standard PROFESSIONAL staff size.
+// Engraving norm is a staff space ≈ 1.75 mm (LilyPond default global staff
+// size 20; MuseScore default spatium ≈ 1.76 mm) — a full 4-space staff ≈ 7 mm.
+// The renderer draws 20 px per staff space at renderer-scale 1.0, so at 96 CSS
+// dpi the professional renderer-scale is:
+//   (1.75 mm × 96/25.4) px  ÷  20 px/space  ≈ 6.61 / 20 ≈ 0.331
+// User-facing scale is a multiple of this base: 1.0× = professional, 2.0× = 2×
+// professional, etc. rendererScale() is the only value handed to the renderer.
+const STAFF_SPACE_MM = 1.75;
+const CSS_DPI = 96;
+const PRO_SCALE = (STAFF_SPACE_MM * CSS_DPI) / 25.4 / 20; // ≈ 0.331
+
+function rendererScale() {
+  return config.scale * PRO_SCALE;
+}
+
 const presetButtons = new Map();
 
 const config = {
@@ -142,7 +158,7 @@ function drawGridInner() {
   overlay.setAttribute('width', width);
   overlay.setAttribute('height', height);
   overlay.setAttribute('viewBox', `0 0 ${width} ${height}`);
-  const step = 10 * config.scale; // 10 layout-px lines, in rendered px
+  const step = 10 * rendererScale(); // 10 layout-px lines, in rendered px
   let i = 0;
   for (let y = 0; y <= height + 0.5; y += step, i++) {
     const layoutY = i * 10;
@@ -264,10 +280,10 @@ function applyWidth(px, { fromObserver = false } = {}) {
     widthInput.value = String(w);
   }
   // `w` is the VISUAL width (px the line occupies on screen). The renderer
-  // lays out in pre-scale units, so the layout width must be divided by scale:
-  // a smaller scale yields a larger layout width => more bars per line, all
-  // filling the same visual width.
-  if (renderer) renderer.setWidth(w / config.scale);
+  // lays out in pre-scale units, so the layout width must be divided by the
+  // renderer scale: a smaller scale yields a larger layout width => more bars
+  // per line, all filling the same visual width.
+  if (renderer) renderer.setWidth(w / rendererScale());
   syncUrl();
 }
 
@@ -304,10 +320,10 @@ function applyScale(scale) {
   scaleValue.textContent = `${config.scale.toFixed(2)}×`;
   updateDialIndicator();
   if (renderer) {
-    renderer.setScale(config.scale);
+    renderer.setScale(rendererScale());
     // Re-derive layout width from the (unchanged) visual width so changing the
     // scale reflows the number of bars per line instead of just resizing.
-    renderer.setWidth(config.width / config.scale);
+    renderer.setWidth(config.width / rendererScale());
   }
   syncUrl();
 }
@@ -492,8 +508,8 @@ if (startPreset) {
 // Create the renderer ONCE with the configured width + scale.
 renderer = new NotationRenderer({
   container,
-  width: config.width / config.scale,
-  scale: config.scale,
+  width: config.width / rendererScale(),
+  scale: rendererScale(),
 });
 updateDialIndicator();
 
