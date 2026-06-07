@@ -1722,24 +1722,28 @@ describe('NotationRenderer', () => {
       expect(staffRightX - closingBarX).toBeLessThanOrEqual(15);
     });
 
-    it('caps the closing-barline trailing daylight on a justified multi-note last measure (does NOT balloon)', () => {
-      // Engraving convention (Gould, "Behind Bars", Spacing): a last note that
-      // does NOT fill its measure sits a constant, modest distance from the
-      // barline — the SAME tight gap as every interior across-barline daylight
-      // — regardless of stretch. The leading side was already capped (commit
-      // 466a53c); the TRAILING side (last note → CLOSING barline) was not, so
-      // a justified system dumped all freed slack onto the closing spring and
-      // the final note floated far from the closing barline (Old Hundredth:
-      // ~486–510u, ~24 staff spaces). The closing spring must be a SOURCE of
-      // freed slack (capped at barlinePadCap, excess redistributed to the
-      // inter-note springs), NOT a sink that absorbs it.
+    it('gives a justified multi-note last measure a duration-proportional closing-barline trailing daylight (NOT a tight constant)', () => {
+      // CORRECT MENTAL MODEL (Gould, "Behind Bars", Spacing): a barline
+      // coincides with the NEXT measure's downbeat.
+      //   • LEADING (barline → first note): the first note IS the downbeat —
+      //     no duration sits between them — so a small FIXED daylight (capped,
+      //     commit 466a53c). Asserted elsewhere (test ~1615).
+      //   • TRAILING (last note → barline): the last note occupies REAL TIME
+      //     up to the barline, so its distance is PROPORTIONAL to its own
+      //     duration (sub-linear per durationSymbols.spacing: whole 200, half
+      //     140, quarter 100, eighth 70). A measure closing on a quarter is
+      //     owed ~one beat of trailing — NOT artificially clamped to the small
+      //     leading constant.
       //
-      // Two measures of 4 quarters, justified onto one wide system. Pin:
+      // ce2731a wrongly CAPPED the closing trailing to that constant; this
+      // pins the restored proportional behavior. Two measures of 4 quarters,
+      // justified onto one wide system. Pin:
       //   (a) the closing trailing daylight (last notehead-right → closing
-      //       barline) is a tight constant, NOT ballooned — ≤ ~0.6× the median
-      //       inter-note left-to-left gap, and
+      //       barline) is PROPORTIONAL — comparable to the inter-note gap for
+      //       a quarter (≈ one quarter's spacing), NOT clamped to a small
+      //       fraction of it, and
       //   (b) the system STILL justifies: the closing barline reaches the
-      //       staff right edge (freed slack flows to inter-note springs).
+      //       staff right edge.
       const renderer = new NotationRenderer({
         container: document.createElement('div'),
         width: 2600,
@@ -1790,10 +1794,14 @@ describe('NotationRenderer', () => {
       const closingBarX = Math.max(...allBarXs);
       const lastNoteX = noteXs[noteXs.length - 1];
 
-      // (a) trailing daylight is a tight constant, not ballooned.
+      // (a) trailing daylight is PROPORTIONAL — a last quarter is owed ~a
+      //     quarter's worth of trailing, so the gap is a substantial fraction
+      //     of the inter-note step, NOT clamped below 0.6× it (the flat-cap
+      //     premise). The inter-note left-to-left gap bundles a full notehead
+      //     width + glyph gaps, so the daylight-only trailing is naturally a
+      //     bit smaller; require it to clear well past the flat-cap ceiling.
       const trailingDaylight = closingBarX - (lastNoteX + HEAD_TIP_X);
-      expect(trailingDaylight).toBeGreaterThan(0);
-      expect(trailingDaylight).toBeLessThanOrEqual(0.6 * interNoteGap);
+      expect(trailingDaylight).toBeGreaterThan(0.6 * interNoteGap);
 
       // (b) system still justifies to the right edge.
       const staffRightX = parseFloat(
@@ -5969,35 +5977,32 @@ describe('NotationRenderer', () => {
       // with 1.5 px float slack.
       expect(visibleTrailingGap).toBeGreaterThanOrEqual(40 - 1.5);
 
-      // Capped across-barline daylight (Gould "Behind Bars", Spacing;
-      // LilyPond/Dorico BarLine.padding ≈ 1 staff space): on a JUSTIFIED
-      // system, the closing-barline trailing daylight of a last note that does
-      // NOT fill its measure is a MODEST roughly-fixed gap — the SAME constant
-      // as every interior across-barline daylight — NOT a full inter-note
-      // allocation. The freed slack flows into the inter-note springs, so the
-      // visible trailing gap stays WELL BELOW the inter-note gap (was ≈1.0×
-      // before the trailing cap; now bounded by BARLINE_GAP_RATIO). This test
-      // previously asserted ratio ∈ [0.85, 1.15] (duration-proportional), which
-      // pinned the pre-cap behavior the trailing cap intentionally removes.
+      // Duration-proportional trailing (Gould "Behind Bars", Spacing;
+      // LilyPond `Spacing_spanner`; Dorico): the barline coincides with the
+      // next downbeat, so a last note that does NOT fill its measure occupies
+      // real time up to the barline → trailing-after-quarter ≈ inter-quarter
+      // gap. Allow [0.85, 1.15] for float / snap-to-terminus jitter on the
+      // closing bar. (ce2731a wrongly clamped this to ≤0.6×; restored here.)
       const ratio = visibleTrailingGap / interGap;
-      expect(ratio).toBeLessThanOrEqual(0.6);
-      expect(ratio).toBeGreaterThan(0);
+      expect(ratio).toBeGreaterThanOrEqual(0.85);
+      expect(ratio).toBeLessThanOrEqual(1.15);
     });
 
-    // Closing-barline trailing daylight on a JUSTIFIED system is a CONSTANT,
-    // independent of the last note's duration.
+    // Closing-barline trailing daylight on a JUSTIFIED system is
+    // PROPORTIONAL to the last note's duration.
     //
-    // Per Gould "Behind Bars" (Spacing) and LilyPond/Dorico BarLine.padding
-    // (≈ 1 staff space): a last note that does NOT fill its measure sits a
-    // constant ~1.5–2.5 staff spaces from the closing barline regardless of
-    // whether it is a quarter, half, whole, eighth, etc. So a measure ending
-    // on a HALF note shows the SAME trailing daylight as one ending on a
-    // QUARTER (ratio ≈ 1.0) — NOT a duration-proportional ~1.4×. This test
-    // previously pinned the ~1.4× proportional trailing, which the trailing
-    // across-barline cap intentionally replaces with the constant gap.
+    // Per Gould "Behind Bars" (Spacing), LilyPond `Spacing_spanner`, and
+    // Dorico rhythmic spacing: the barline coincides with the next measure's
+    // downbeat, so the last note occupies real time UP TO the barline and its
+    // trailing space is proportional to ITS OWN duration. A measure ending on
+    // a HALF note therefore shows a visibly LARGER trailing daylight than one
+    // ending on a QUARTER — ratio ≈ 1.4, the durationSymbols.spacing ratio
+    // half:quarter = 140:100. (ce2731a wrongly flattened this to a constant;
+    // this restores proportionality. LEADING — barline → first note — stays
+    // capped small, asserted elsewhere.)
     //
     // The MIN_BARLINE_PADDING (40px) remains the FLOOR.
-    it('keeps the closing-barline trailing daylight constant across last-note durations on a justified system (half ≈ quarter)', () => {
+    it('scales the closing-barline trailing daylight proportionally to the last-note duration on a justified system (half ≈ 1.4× quarter)', () => {
       // Two consecutive 4/4 measures forcing stretch at 800px:
       //   Measure 1: Q Q Q Q (closes on a quarter)
       //   Measure 2: Q Q H   (closes on a half)
@@ -6047,10 +6052,8 @@ describe('NotationRenderer', () => {
       // Closing-barline trailing gap of the FIRST system (M1 + M2), where
       // M2 closes on a HALF note. We compare it against a sibling render
       // whose first system closes on a QUARTER, isolating the trailing
-      // (last-note → CLOSING-barline) spring — the only gap that still
-      // scales freely with the last note's duration. The interior M1/M2
-      // barline gap is now CAPPED (across-barline daylight cap) and is no
-      // longer a duration-proportional probe.
+      // (last-note → CLOSING-barline) spring — which scales with the last
+      // note's duration (a half is owed ~1.4× a quarter's trailing).
       const closingTrailingGap = (rsvg) => {
         const sysStaves = Array.from(rsvg.querySelectorAll('g[data-system-index="0"]'));
         expect(sysStaves.length).toBeGreaterThan(0);
@@ -6095,15 +6098,80 @@ describe('NotationRenderer', () => {
       expect(trailingGapHalf).toBeGreaterThanOrEqual(40 - 1.5);
       expect(trailingGapQuarter).toBeGreaterThanOrEqual(40 - 1.5);
 
-      // Capped across-barline daylight: the closing trailing gap is the SAME
-      // constant whether the system ends on a half or a quarter (the cap does
-      // not scale with the last note's duration). Ratio ≈ 1.0; allow [0.85,
-      // 1.2] for float / floor-clamp / inter-note-slack jitter between the two
-      // sibling systems. (Was [1.3, 1.6] when the trailing was duration-
-      // proportional.)
+      // Duration-proportional trailing: half:quarter natural spacing is
+      // 140:100 = 1.40 (durationSymbols.spacing). The half-closing system
+      // reserves a visibly larger trailing gap than the quarter-closing one.
+      // Allow [1.25, 1.6] for floor-clamp, slack-redistribution, and stretch
+      // jitter (the two sibling systems carry slightly different inter-note
+      // slack, nudging the ratio around 1.4).
       const trailingRatio = trailingGapHalf / trailingGapQuarter;
-      expect(trailingRatio).toBeGreaterThanOrEqual(0.85);
-      expect(trailingRatio).toBeLessThanOrEqual(1.2);
+      expect(trailingRatio).toBeGreaterThanOrEqual(1.25);
+      expect(trailingRatio).toBeLessThanOrEqual(1.6);
+    });
+
+    it('orders the closing-barline trailing daylight monotonically by last-note duration (whole > half > quarter > eighth > 16th > 32nd) on justified systems', () => {
+      // Sub-linear duration spacing (Gould "Behind Bars", Spacing; encoded in
+      // durationSymbols.spacing: whole 200, half 140, quarter 100, eighth 70,
+      // 16th 50, 32nd 36): the barline coincides with the next downbeat, so
+      // the last note's trailing daylight is PROPORTIONAL to its OWN duration.
+      // Sweep the last note of measure 2 across all six durations on otherwise
+      // identical justified systems and assert STRICTLY MONOTONIC trailing — a
+      // longer last note is owed more trailing.
+      //
+      // Each fixture: M1 = four quarters; M2 = filler notes that complete the
+      // bar followed by the swept closing note; M3 = four quarters so M2's
+      // closing barline is INTERIOR (the probed system is non-final → fully
+      // justified). At width 1300 every fixture wraps to exactly two systems
+      // with M1+M2 on system 0 (verified empirically), so we always probe a
+      // justified system whose last note is the swept closing note. The whole
+      // note is the measure-FILLING (centered) case — its proportional measure
+      // is the widest, so its trailing still tops the ordering.
+      const HEAD_TIP_X = 11.8;
+      const q = (n = 1) => Array.from({ length: n }, () => ({ pitch: 'C5', length: '1/4' }));
+
+      // M2 body (notes BEFORE the swept closing note) that completes the bar so
+      // the closing note lands exactly on the 4-beat boundary.
+      const M2_BODY = {
+        '1/1': [], // whole note alone fills the bar (measure-filling → centered)
+        '1/2': q(2), // 2 quarters + half
+        '1/4': q(3), // 3 quarters + quarter
+        '1/8': [...q(3), { pitch: 'C5', length: '1/8' }], // 3q + 8th + 8th
+        '1/16': [...q(3), { pitch: 'C5', length: '1/8' }, { pitch: 'C5', length: '1/16' }],
+        '1/32': [...q(3), { pitch: 'C5', length: '1/8' },
+          { pitch: 'C5', length: '1/16' }, { pitch: 'C5', length: '1/32' }],
+      };
+
+      const closingTrailing = (len) => {
+        const notes = [
+          ...q(4), // M1
+          ...M2_BODY[len], { pitch: 'C5', length: len }, // M2 (swept close)
+          ...q(4), // M3 filler → M2 barline interior/justified
+        ];
+        const r = new NotationRenderer({
+          container: document.createElement('div'),
+          width: 1300,
+        });
+        const svg = r.render({ clef: 'treble', timeSignature: [4, 4], notes });
+        const staff = svg.querySelector('g[data-system-index="0"]');
+        const nxs = Array.from(staff.querySelectorAll('g.note, g.chord'))
+          .map((g) => parseFloat(/translate\(\s*([-\d.]+)/.exec(g.getAttribute('transform'))[1]))
+          .sort((a, b) => a - b);
+        const lastX = nxs[nxs.length - 1];
+        const bxs = Array.from(staff.querySelectorAll('g.bar-line line'))
+          .map((l) => parseFloat(l.getAttribute('x1')));
+        const closingBarX = Math.max(...bxs.filter((x) => x > lastX));
+        return closingBarX - (lastX + HEAD_TIP_X);
+      };
+
+      const trailings = ['1/1', '1/2', '1/4', '1/8', '1/16', '1/32'].map(closingTrailing);
+
+      // All positive (every last note clears its floor).
+      for (const t of trailings) expect(t).toBeGreaterThan(0);
+
+      // Strict monotonic ordering by duration (longer = more trailing).
+      for (let i = 1; i < trailings.length; i += 1) {
+        expect(trailings[i - 1]).toBeGreaterThan(trailings[i]);
+      }
     });
 
     it('scales note-to-barline padding with system stretch (visible glyph-edge floor + ratio band)', () => {
@@ -6195,22 +6263,26 @@ describe('NotationRenderer', () => {
         // any width, on BOTH sides of the barline.
         expect(visibleGap).toBeGreaterThanOrEqual(40 - 1.5);
         expect(visibleGapAfter).toBeGreaterThanOrEqual(40 - 1.5);
-        // Symmetry: pre- and post-gaps stay locked at the same value
-        // when both adjacent notes have the same duration (here
-        // quarters on both sides).
-        expect(Math.abs(visibleGap - visibleGapAfter)).toBeLessThan(1.0);
-        // Capped across-barline daylight (Gould "Behind Bars", Spacing;
-        // LilyPond/Dorico BarLine.padding ≈ 1 staff space): when the system
-        // is justified, the across-barline gap is a MODEST roughly-fixed gap
-        // — `max(MIN_BARLINE_PADDING, BARLINE_GAP_RATIO × medianInterNoteGap)`
-        // — NOT a full inter-note allocation. The freed slack flows to the
-        // inter-note springs, so the visible gap stays WELL BELOW the inter-
-        // note gap (was ≈1.0× before the cap; now bounded by the ratio).
-        // Floored at MIN_BARLINE_PADDING (≈40px), so very wide systems keep
-        // the ratio small while narrow stretch keeps the gap at its floor.
-        const ratio = visibleGap / interNote;
-        expect(ratio).toBeLessThanOrEqual(0.6);
-        expect(ratio).toBeGreaterThan(0);
+
+        // ASYMMETRY across the barline — the barline sits at the NEXT
+        // measure's downbeat (Gould "Behind Bars", Spacing):
+        //   • visibleGap = last-note → barline = TRAILING. The note occupies
+        //     real time up to the barline → PROPORTIONAL to its duration.
+        //     For a quarter that is ~one quarter's spacing — comparable to the
+        //     inter-note step (the inter-note gap bundles a full notehead width
+        //     so trailing daylight runs a bit smaller, but stays a SUBSTANTIAL
+        //     fraction, well past the small leading cap).
+        //   • visibleGapAfter = barline → first-note = LEADING. The first note
+        //     IS the downbeat, no duration between → small FIXED cap (466a53c).
+        // So pre (big) ≠ post (small) even for equal-duration quarters.
+        const trailingRatio = visibleGap / interNote;
+        const leadingRatio = visibleGapAfter / interNote;
+        // Trailing is proportional: a clear majority of the inter-note step.
+        expect(trailingRatio).toBeGreaterThan(0.6);
+        // Leading stays capped small (BARLINE_GAP_RATIO × median ≈ 0.35×).
+        expect(leadingRatio).toBeLessThanOrEqual(0.6);
+        // They are asymmetric: trailing visibly exceeds leading.
+        expect(visibleGap).toBeGreaterThan(visibleGapAfter + 5);
       }
     });
   });

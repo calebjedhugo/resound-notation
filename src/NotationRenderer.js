@@ -749,9 +749,18 @@ function computeSystemSpringLayout(
 
   // Build per-boundary pads, splitting each barline-crossing spring's
   // stretched length into pre/post in proportion to the adjacent note
-  // durations, FLOORED at MIN_BARLINE_PADDING and CAPPED at barlinePadCap.
-  // The slack freed by the cap is redistributed to the inter-note springs
-  // below so the system still justifies fully to its right edge.
+  // durations. The two sides of a barline are NOT symmetric — the barline
+  // coincides with the NEXT measure's downbeat (Gould "Behind Bars", Spacing):
+  //   • PRE-pad  = last note → barline = TRAILING daylight. The last note
+  //     occupies real time UP TO the barline, so this is duration-PROPORTIONAL
+  //     (its stretched share), floored at MIN_BARLINE_PADDING. NOT capped — a
+  //     half is owed ~1.4× a quarter's trailing.
+  //   • POST-pad = barline → first note = LEADING daylight. The first note IS
+  //     the downbeat (no duration between it and the barline), so this is a
+  //     small FIXED gap — floored at MIN_BARLINE_PADDING and CAPPED at
+  //     barlinePadCap (commit 466a53c).
+  // Only the LEADING (post) cap frees slack; it is redistributed to the inter-
+  // note springs below so the system still justifies fully to its right edge.
   const prePadMap = new Map();
   const postPadMap = new Map();
   let freedBarlineSlack = 0;
@@ -764,13 +773,15 @@ function computeSystemSpringLayout(
     const stretched = stretchedGaps[i];
     const preShare = span > 0 ? stretched * (preNat / span) : stretched / 2;
     const postShare = span > 0 ? stretched * (postNat / span) : stretched / 2;
-    const prePad = Math.min(barlinePadCap, Math.max(MIN_BARLINE_PADDING, preShare));
+    // TRAILING: proportional, floored only (no cap).
+    const prePad = Math.max(MIN_BARLINE_PADDING, preShare);
+    // LEADING: floored AND capped.
     const postPad = Math.min(barlinePadCap, Math.max(MIN_BARLINE_PADDING, postShare));
-    // Freed slack = stretched length we no longer spend on this boundary.
-    // The boundary occupies prePad + postPad of daylight (the surrounding
-    // HEAD_TIP_X glyph gaps are reserved separately via barlineOffset and are
-    // unaffected by the cap), so anything above that is released.
-    freedBarlineSlack += Math.max(0, stretched - (prePad + postPad));
+    // Freed slack = ONLY the leading (post) excess; the boundary spring's full
+    // stretched length is preShare + postShare, and we now spend prePad (≈
+    // preShare, the trailing keeps its proportional length) + postPad (capped),
+    // so the released amount is postShare − postPad.
+    freedBarlineSlack += Math.max(0, postShare - postPad);
     prePadMap.set(z, prePad);
     postPadMap.set(z, postPad);
   }
@@ -799,12 +810,12 @@ function computeSystemSpringLayout(
 
   // Redistribute the freed LEADING across-barline slack across the non-boundary
   // springs (inter-note springs AND the trailing closing-barline spring)
-  // PROPORTIONAL to each spring's current stretched length — unchanged from the
-  // leading-cap commit (466a53c). This keeps the system justified to
-  // systemRightX and preserves the rhythm-proportional invariant. The trailing
-  // spring stays a recipient: its excess above the cap is removed AFTER this,
-  // purely from the closing-barline daylight value (trailingBarlineGap) without
-  // moving any note — see the cap below.
+  // PROPORTIONAL to each spring's current stretched length — the leading-cap
+  // commit (466a53c). This keeps the system justified to systemRightX and
+  // preserves the rhythm-proportional invariant: scaling every recipient by the
+  // same factor keeps equal inter-note gaps equal AND lets the trailing
+  // (closing-barline) spring keep its duration-proportional length (a half note
+  // gets more trailing than a quarter).
   if (freedBarlineSlack > 0) {
     const targetIdx = [];
     let targetTotal = 0;
@@ -824,76 +835,21 @@ function computeSystemSpringLayout(
     }
   }
 
-  // CAP the MULTI-NOTE last measure's trailing (closing-barline) daylight to
-  // the SAME across-barline constant as every interior boundary. Per Gould
-  // "Behind Bars" (Spacing), a last note that does NOT fill its measure sits a
-  // constant ~1.5–2.5 staff spaces from the barline regardless of its duration.
-  //
-  // The closing barline is pinned to systemRightX (justified) and the trailing
-  // spring is zeroed below, so the trailing DAYLIGHT = systemRightX − lastNoteX
-  // − HEAD_TIP_X. To shrink that daylight to the cap we must move the last note
-  // RIGHT by the excess; pushing the excess into the inter-note springs (all of
-  // which precede the last note) moves it right by exactly that amount while the
-  // pinned closing barline stays put — slack conservation, no overrun. We use
-  // the ACTUAL (pinned) daylight, NOT the raw trailing-spring length, so a long
-  // last note (whose spring carries its own width) is not over-pushed past the
-  // barline. Only on a JUSTIFIED system ending on a real closing barline; a
-  // ragged final system keeps natural lengths (cram-bug floor untouched).
-  const trailingIsCapped =
-    systemRightX != null
-    && systemEndsOnBarline
-    && trailingSpringIdx >= 0
-    && !trailingIsMeasureFilling
-    && barlinePadCap !== Infinity;
-  if (trailingIsCapped) {
-    // Provisional last-note x, mirroring the post-zeroing position math below:
-    // stretchedBeatToX(lastNoteStart) + accumulated interior barline offsets.
-    let provInteriorOffset = 0;
-    for (let i = 0; i < activeBeats.length - 1; i += 1) {
-      const z = activeBeats[i];
-      if (prePadMap.has(z)) {
-        provInteriorOffset += prePadMap.get(z) + postPadMap.get(z) + 2 * HEAD_TIP_X;
-      }
-    }
-    let provLastNoteX = perSystemMusicStartX + leadingMusicOffset;
-    for (let i = 0; i < trailingSpringIdx; i += 1) {
-      const z = sortedBeats[i + 1];
-      if (preBarlineNatural.has(z)) continue; // zeroed boundary spring
-      provLastNoteX += stretchedGaps[i];
-    }
-    provLastNoteX += provInteriorOffset;
-    const actualDaylight = systemRightX - provLastNoteX - trailingBarlineOffset;
-    // Floor the cap a few px above MIN_BARLINE_PADDING so the rendered VISIBLE
-    // daylight (glyph-edge → barline) stays ≥ MIN_BARLINE_PADDING: the closing
-    // barline placement carries a small fixed inset (BAR_LINE_PADDING / snap
-    // rounding) that the provisional last-note x does not model exactly, so
-    // pushing all the way to MIN would land the visible gap a hair under floor.
-    const cap = Math.max(MIN_BARLINE_PADDING + 4, barlinePadCap);
-    const excess = actualDaylight - cap;
-    if (excess > 0) {
-      const targetIdx = [];
-      let targetTotal = 0;
-      for (let i = 0; i < sortedBeats.length - 1; i += 1) {
-        const z = sortedBeats[i + 1];
-        if (preBarlineNatural.has(z)) continue;
-        if (i === trailingSpringIdx) continue;
-        targetIdx.push(i);
-        targetTotal += stretchedGaps[i];
-      }
-      if (targetTotal > 0) {
-        for (const i of targetIdx) {
-          stretchedGaps[i] += excess * (stretchedGaps[i] / targetTotal);
-        }
-      } else if (targetIdx.length > 0) {
-        const per = excess / targetIdx.length;
-        for (const i of targetIdx) stretchedGaps[i] += per;
-      }
-    }
-  }
+  // The MULTI-NOTE last measure's trailing (closing-barline) daylight is NOT
+  // capped: the barline coincides with the next downbeat, so the last note
+  // occupies real time up to it and its trailing is duration-PROPORTIONAL — a
+  // half is owed ~1.4× a quarter, a whole ~2×. The trailing spring keeps its
+  // natural/stretched length (floored at MIN_BARLINE_PADDING below); on a
+  // justified system the spring solver already grew it proportionally, and the
+  // breaker reserves only the MIN_BARLINE_PADDING floor in naturalRightX so the
+  // run still fits and justification only STRETCHES the trailing from its floor
+  // (cram-bug / trailing-clip invariants f6d8426/9ce0b20/102018a). Only the
+  // measure-FILLING lone-note case is special-cased (CENTERED, below).
 
   // Trailing (last) spring → closing-barline pre-gap, floored at
-  // MIN_BARLINE_PADDING. For a MEASURE-FILLING note this is the duration-
-  // proportional stretched length, CENTERED below.
+  // MIN_BARLINE_PADDING. PROPORTIONAL to the last note's duration (its
+  // stretched spring length). For a MEASURE-FILLING note this is CENTERED
+  // below.
   let trailingBarlineGap = trailingSpringIdx >= 0
     ? Math.max(MIN_BARLINE_PADDING, stretchedGaps[trailingSpringIdx])
     : MIN_BARLINE_PADDING;
