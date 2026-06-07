@@ -1810,31 +1810,34 @@ describe('NotationRenderer', () => {
       expect(staffRightX - closingBarX).toBeLessThanOrEqual(15);
     });
 
-    it('centers a measure-filling whole note in its closing measure (leading ≈ trailing) while keeping the measure proportionally wide', () => {
-      // Engraving convention (Gould, "Behind Bars", Spacing): a note that
-      // FILLS its whole measure (no inter-note springs in that measure, e.g. a
-      // lone whole note) is NOT crammed to the constant barline gap — the
-      // measure stays proportionally wide (a whole note deserves ~2× a
-      // quarter's width) and the note is CENTERED within it, so the daylight
-      // before the note equals the daylight after it (the measure's internal
-      // free width split 50/50). This holds for the closing measure too.
+    it('left-aligns a measure-filling whole note at its downbeat (leading ≈ a normal first note, trailing much larger) — NOT centered', () => {
+      // Engraving convention (Gould, "Behind Bars", Spacing): a whole NOTE —
+      // unlike a whole REST — sits at its rhythmic ONSET (the downbeat). It is
+      // LEFT-ALIGNED at the same small leading daylight as the first note of
+      // any other measure (the 466a53c barline→first-note cap), with its
+      // duration's worth of space TRAILING to the closing barline. Centering
+      // is only for full-bar rests, not notes.
       //
-      // Regression (Old Hundredth, justified): the closing whole note was
-      // jammed against its opening barline (leading ~68u) and floated ~510u
-      // from the closing barline — wildly asymmetric.
+      // Regression (commit ce2731a, Old Hundredth, justified): a lone closing
+      // whole note was CENTERED in its measure — leading ≈ trailing ≈ 239u,
+      // ~4.3× the 56u leading of every other measure's first note. That is the
+      // wrong model for a NOTE. This pins the corrected LEFT-ALIGNED model.
       //
-      // Fixture: [measure of 4 quarters][measure of one whole note], justified.
+      // Fixture: [4 quarters][4 quarters][lone whole note], justified onto one
+      // system. The first two measures give us a NORMAL first-note leading to
+      // compare the whole note's leading against.
       const renderer = new NotationRenderer({
         container: document.createElement('div'),
-        width: 2200,
+        width: 2400,
       });
+      const q = (pitch) => ({ pitch, length: '1/4' });
       const svg = renderer.render({
         clef: 'treble',
         keySignature: 'C',
         timeSignature: [4, 4],
         notes: [
-          { pitch: 'C5', length: '1/4' }, { pitch: 'D5', length: '1/4' },
-          { pitch: 'E5', length: '1/4' }, { pitch: 'F5', length: '1/4' },
+          q('C5'), q('D5'), q('E5'), q('F5'),
+          q('G5'), q('F5'), q('E5'), q('D5'),
           { pitch: 'G5', length: '1/1' },
         ],
       });
@@ -1853,15 +1856,21 @@ describe('NotationRenderer', () => {
       const noteXs = Array.from(staff.querySelectorAll('g.note')).map(
         xFromTranslate,
       ).sort((a, b) => a - b);
-      expect(noteXs.length).toBe(5);
+      expect(noteXs.length).toBe(9);
       const wholeNoteX = noteXs[noteXs.length - 1];
 
-      // Interior barline (between the quarter measure and the whole-note
-      // measure): the thin auto-barline.
+      // Interior barlines (thin auto-barlines). Two for a 3-measure piece.
       const interiorBarXs = Array.from(staff.querySelectorAll('g.bar-line line'))
         .map((l) => parseFloat(l.getAttribute('x1')))
         .sort((a, b) => a - b);
+      expect(interiorBarXs.length).toBe(2);
+      // The whole note's measure opens on the LAST interior barline.
       const openingBarX = Math.max(...interiorBarXs.filter((x) => x < wholeNoteX));
+      // A NORMAL first-note leading: the first interior barline → the first
+      // note of measure 2 (a plain quarter, left-aligned at its downbeat).
+      const normalBarX = Math.min(...interiorBarXs);
+      const firstNoteAfterNormal = noteXs.find((x) => x > normalBarX + 0.5);
+      const normalLeading = firstNoteAfterNormal - HEAD_TIP_X - normalBarX;
 
       // Closing barline.
       const closingBarXs = [];
@@ -1872,21 +1881,22 @@ describe('NotationRenderer', () => {
       }
       const closingBarX = Math.max(...closingBarXs);
 
-      // Leading daylight (opening barline → notehead-left) vs trailing
-      // daylight (notehead-right → closing barline). The note is centered, so
-      // these are ≈ equal (within 15%).
       const leading = wholeNoteX - HEAD_TIP_X - openingBarX;
       const trailing = closingBarX - (wholeNoteX + HEAD_TIP_X);
       expect(leading).toBeGreaterThan(0);
       expect(trailing).toBeGreaterThan(0);
-      expect(Math.abs(leading - trailing) / Math.max(leading, trailing))
-        .toBeLessThanOrEqual(0.15);
 
-      // The measure stays proportionally WIDE: its internal free width is far
-      // larger than a tight constant barline gap (≈ MIN_BARLINE_PADDING 40u)
-      // would give. Each side's daylight clears that constant comfortably.
-      expect(leading).toBeGreaterThan(60);
-      expect(trailing).toBeGreaterThan(60);
+      // LEFT-ALIGNED: the whole note's leading daylight is the SAME small
+      // constant as a normal first note's leading (the 466a53c cap), NOT
+      // ballooned to a centered ~half-measure. Within tolerance.
+      expect(normalLeading).toBeGreaterThan(0);
+      expect(Math.abs(leading - normalLeading) / normalLeading)
+        .toBeLessThanOrEqual(0.1);
+
+      // The trailing daylight is SUBSTANTIALLY larger than the leading — the
+      // whole note's duration fills the proportional measure width out to the
+      // pinned closing barline (NOT a 50/50 centered split).
+      expect(trailing).toBeGreaterThan(3 * leading);
 
       // System still justifies to the right edge.
       const staffRightX = parseFloat(

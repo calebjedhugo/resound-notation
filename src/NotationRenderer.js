@@ -609,23 +609,6 @@ function computeSystemSpringLayout(
     }
   }
 
-  // Repeats and voltas place multiple endings over the SAME beat range, so the
-  // single-spring closing-barline model below does not cleanly conserve width
-  // for them. The across-barline trailing CAP / measure-filling CENTER only
-  // apply to plain systems; systems carrying repeat or volta markers keep the
-  // existing (uncapped, duration-proportional) trailing handled elsewhere.
-  let hasRepeatOrVolta = false;
-  for (const v of sliceVoices) {
-    for (const el of v.notes) {
-      if (!el || Array.isArray(el)) continue;
-      if (el.ending !== undefined) { hasRepeatOrVolta = true; break; }
-      if (typeof el.barline === 'string' && el.barline.includes('repeat')) {
-        hasRepeatOrVolta = true; break;
-      }
-    }
-    if (hasRepeatOrVolta) break;
-  }
-
   const sortedBeats = [...naturalBeatToX.keys()].sort((a, b) => a - b);
 
   // Interior measure boundary: a positive integer multiple of the measure
@@ -787,27 +770,6 @@ function computeSystemSpringLayout(
   }
 
   const trailingSpringIdx = sortedBeats.length - 2;
-  const trailingLeftBeat =
-    trailingSpringIdx >= 0 ? sortedBeats[trailingSpringIdx] : null;
-  // The trailing-daylight cap/centering only applies when the system ENDS on a
-  // real measure boundary (a closing barline exists). A mid-measure wrap ends
-  // at the staff terminus with no closing barline — its end-of-system spacing
-  // is owned by the END_OF_SYSTEM clamp machinery (f6d8426/9ce0b20), which we
-  // must not perturb here.
-  const systemEndsOnBarline =
-    !!sharedMeasureLength
-    && !hasRepeatOrVolta
-    && systemEndBeat > 0
-    && Math.abs((systemEndBeat / sharedMeasureLength)
-      - Math.round(systemEndBeat / sharedMeasureLength)) < 1e-6;
-  // The last measure is single-note (measure-filling) iff the trailing spring's
-  // LEFT endpoint is itself an interior measure boundary — i.e. the last note
-  // starts ON the opening barline of its measure, so there is no inter-note
-  // spring inside that measure (e.g. a lone whole note). Used below to decide
-  // CENTER (measure-filling) vs CAP (multi-note last measure).
-  const trailingIsMeasureFilling =
-    trailingLeftBeat != null && preBarlineNatural.has(trailingLeftBeat);
-
   // Redistribute the freed LEADING across-barline slack across the non-boundary
   // springs (inter-note springs AND the trailing closing-barline spring)
   // PROPORTIONAL to each spring's current stretched length — the leading-cap
@@ -835,46 +797,32 @@ function computeSystemSpringLayout(
     }
   }
 
-  // The MULTI-NOTE last measure's trailing (closing-barline) daylight is NOT
-  // capped: the barline coincides with the next downbeat, so the last note
-  // occupies real time up to it and its trailing is duration-PROPORTIONAL — a
-  // half is owed ~1.4× a quarter, a whole ~2×. The trailing spring keeps its
+  // The last measure's trailing (closing-barline) daylight is NOT capped: the
+  // barline coincides with the next downbeat, so the last note occupies real
+  // time up to it and its trailing is duration-PROPORTIONAL — a half is owed
+  // ~1.4× a quarter, a whole ~2×. The trailing spring keeps its
   // natural/stretched length (floored at MIN_BARLINE_PADDING below); on a
   // justified system the spring solver already grew it proportionally, and the
   // breaker reserves only the MIN_BARLINE_PADDING floor in naturalRightX so the
   // run still fits and justification only STRETCHES the trailing from its floor
-  // (cram-bug / trailing-clip invariants f6d8426/9ce0b20/102018a). Only the
-  // measure-FILLING lone-note case is special-cased (CENTERED, below).
+  // (cram-bug / trailing-clip invariants f6d8426/9ce0b20/102018a).
+  //
+  // A MEASURE-FILLING lone note (e.g. a single whole note, no inter-note
+  // springs in its measure) is NOT special-cased: it falls through to the same
+  // path as every other measure's first note. Per Gould "Behind Bars"
+  // (Spacing) a whole NOTE — unlike a whole REST — sits at its rhythmic onset
+  // (the downbeat), i.e. LEFT-ALIGNED at the small leading-cap daylight, with
+  // its duration's worth of space TRAILING to the barline. Centering is only
+  // for full-bar rests, not notes. So the LEADING post-pad stays at the
+  // 466a53c cap and the TRAILING fills the proportional measure width out to
+  // the pinned closing barline — never balanced/centered.
 
   // Trailing (last) spring → closing-barline pre-gap, floored at
   // MIN_BARLINE_PADDING. PROPORTIONAL to the last note's duration (its
-  // stretched spring length). For a MEASURE-FILLING note this is CENTERED
-  // below.
-  let trailingBarlineGap = trailingSpringIdx >= 0
+  // stretched spring length).
+  const trailingBarlineGap = trailingSpringIdx >= 0
     ? Math.max(MIN_BARLINE_PADDING, stretchedGaps[trailingSpringIdx])
     : MIN_BARLINE_PADDING;
-
-  // CENTER a measure-filling last note: split the closing measure's internal
-  // free width 50/50 between the leading daylight (post-pad of the opening
-  // barline) and the trailing daylight (trailingBarlineGap). The measure stays
-  // proportionally wide — we only move the note to its horizontal center, which
-  // redistributes WITHIN the already-justified width and does not change the
-  // system's right edge. (Gould "Behind Bars", Spacing: a measure-filling note
-  // is centered in its proportional space.)
-  if (
-    systemRightX != null
-    && systemEndsOnBarline
-    && trailingIsMeasureFilling
-    && postPadMap.has(trailingLeftBeat)
-  ) {
-    const leadPad = postPadMap.get(trailingLeftBeat);
-    const centered = Math.max(
-      MIN_BARLINE_PADDING,
-      0.5 * (leadPad + trailingBarlineGap),
-    );
-    postPadMap.set(trailingLeftBeat, centered);
-    trailingBarlineGap = centered;
-  }
 
   // Median of pre-pads for the legacy uniform-`barlineGap` API.
   let barlineGap = MIN_BARLINE_PADDING;
