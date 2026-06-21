@@ -9,6 +9,10 @@ import { HAIRPIN_THICKNESS } from '../lib/engravingDefaults.js';
 const HAIRPIN_HEIGHT = 12;
 const HALF_HEIGHT = HAIRPIN_HEIGHT / 2;
 
+// Exported so the renderer can fold a hairpin's vertical footprint into the
+// content bbox (the wedge opens ±HAIRPIN_HALF_HEIGHT around its center y).
+export const HAIRPIN_HALF_HEIGHT = HALF_HEIGHT;
+
 /**
  * Render a hairpin wedge.
  * @param {Object} params

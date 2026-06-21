@@ -7309,4 +7309,83 @@ describe('NotationRenderer', () => {
       expect(fY - C3_LOWEST).toBeGreaterThanOrEqual(20);
     });
   });
+
+  // Regression: the dynamics/hairpin layer must be folded into the content
+  // bbox so the grown viewBox extends below them. Before the fix the
+  // noteheads/stems and volta brackets grew the viewBox but dynamics and
+  // hairpins did NOT, so below-staff dynamics hung past the viewBox bottom
+  // and were clipped by svg.notation { overflow: hidden }. Proven on screen:
+  // the lowest .dynamic glyph bottoms out ~12 user-units past the viewBox
+  // bottom on a single-system render. jsdom getBBox() returns 0, so this is
+  // a DIFFERENTIAL test against the viewBox attribute (which jsdom exposes):
+  // the same high-register excerpt grown WITH a low dynamic + hairpin must
+  // extend its viewBox bottom strictly further down than WITHOUT them.
+  describe('viewBox grows to fit below-staff dynamics/hairpins (clip fix)', () => {
+    function viewBoxBottom(svg) {
+      const vb = svg.getAttribute('viewBox').split(/\s+/).map(Number);
+      // [minX, minY, width, height] → bottom = minY + height.
+      return vb[1] + vb[3];
+    }
+
+    it('grows the viewBox bottom when a low dynamic + hairpin are present', () => {
+      // High register (E5-F5) so the below-staff dynamic is the lowest ink
+      // — noteheads/stems alone would NOT push the bbox below DYNAMICS_Y_MIN.
+      const highNotes = [
+        { pitch: 'E5', length: '1/4' },
+        { pitch: 'F5', length: '1/4' },
+        { pitch: 'E5', length: '1/4' },
+        { pitch: 'F5', length: '1/4' },
+      ];
+
+      const withoutSvg = ctx.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: highNotes.map((n) => ({ ...n })),
+      });
+      const bottomWithout = viewBoxBottom(withoutSvg);
+
+      ctx.destroy();
+      ctx = createNotationContext();
+
+      const withSvg = ctx.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { dynamic: 'sfz' },
+          { ...highNotes[0] },
+          { hairpin: 'crescendo', start: true },
+          { ...highNotes[1] },
+          { ...highNotes[2] },
+          { hairpin: 'crescendo', stop: true },
+          { dynamic: 'ff' },
+          { ...highNotes[3] },
+        ],
+      });
+      const bottomWith = viewBoxBottom(withSvg);
+
+      // Sanity: the with-dynamics render actually emitted dynamics.
+      expect(ctx.container.querySelectorAll('.dynamic').length).toBeGreaterThan(0);
+
+      // PRIMARY PIN: the viewBox must extend further down to cover the
+      // below-staff dynamics. Without the fold, both renders share the same
+      // grown bottom (notes are identical) and this fails.
+      expect(bottomWith).toBeGreaterThan(bottomWithout);
+
+      // Expected delta ≈ the dynamic's descent below its baseline. Parse the
+      // lowest dynamic's baseline (translate-y, single voice → voiceY=0) and
+      // assert the viewBox bottom covers baseline + glyph descent.
+      const dyns = [...ctx.container.querySelectorAll('.dynamic')];
+      const baselines = dyns.map((d) => {
+        const m = /translate\(\s*[^,]+,\s*([^)]+)\)/.exec(
+          d.getAttribute('transform') || ''
+        );
+        return m ? parseFloat(m[1]) : -Infinity;
+      });
+      const lowestBaseline = Math.max(...baselines);
+      // sfz/ff descent: Bravura 'f' yMin ≈ -184 fu, SMUFL_SCALE=0.08
+      // → descent ≈ 14.7px. Use a conservative lower bound.
+      const MIN_DESCENT = 10;
+      expect(bottomWith).toBeGreaterThanOrEqual(lowestBaseline + MIN_DESCENT);
+    });
+  });
 });

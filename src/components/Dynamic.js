@@ -58,6 +58,35 @@ export function dynamicCenterYOffset(dynamic) {
 }
 
 /**
+ * Visual vertical extent (in px) of a rendered dynamic group, relative to
+ * its anchor y (the glyph baseline). `top` is negative (above the baseline),
+ * `bottom` is positive (below). Used by the renderer to fold a dynamic's
+ * footprint into the content bbox so the viewBox grows to fit it (otherwise
+ * below-staff dynamics hang past the bottom and `overflow:hidden` clips).
+ *
+ * SMuFL glyphs flip via scale(_, -SMUFL_SCALE), so relative to the baseline:
+ * visual bottom = max over letters of -bbox.yMin*SMUFL_SCALE,
+ * visual top    = min over letters of -bbox.yMax*SMUFL_SCALE.
+ *
+ * @param {string} dynamic
+ * @returns {{ top: number, bottom: number }}
+ */
+export function dynamicVerticalExtent(dynamic) {
+  const letters = [...dynamic.toLowerCase()].filter((c) => DYNAMIC_LETTERS[c]);
+  if (letters.length === 0) return { top: 0, bottom: 0 };
+  let top = Infinity;
+  let bottom = -Infinity;
+  for (const l of letters) {
+    const g = DYNAMIC_LETTERS[l];
+    const t = -g.bbox.yMax * SMUFL_SCALE;
+    const b = -g.bbox.yMin * SMUFL_SCALE;
+    if (t < top) top = t;
+    if (b > bottom) bottom = b;
+  }
+  return { top, bottom };
+}
+
+/**
  * Render a point dynamic marking. Letters lay out left-to-right and
  * the whole stack centers horizontally on local x=0.
  *

@@ -41,8 +41,9 @@ import {
   renderDynamic,
   dynamicLeftVisualOffset,
   dynamicCenterYOffset,
+  dynamicVerticalExtent,
 } from './components/Dynamic.js';
-import { renderHairpin } from './components/Hairpin.js';
+import { renderHairpin, HAIRPIN_HALF_HEIGHT } from './components/Hairpin.js';
 import { renderArticulations } from './components/Articulation.js';
 import { resolveSlurs } from './lib/slurGrouping.js';
 import { createSlurArc } from './components/Slur.js';
@@ -3054,6 +3055,15 @@ export class NotationRenderer {
             dynamicsGroup.appendChild(
               renderDynamic({ dynamic: pd.dynamic, x: pd.x, y: pdY })
             );
+            // Fold the dynamic's footprint into the content bbox. Glyphs
+            // render in staffGroup-local coords (pdY) but the bbox is
+            // tracked in absolute coords, so add voiceY. Without this the
+            // below-staff dynamics hang past the grown viewBox bottom and
+            // overflow:hidden clips them.
+            const ext = dynamicVerticalExtent(pd.dynamic);
+            const absY = voiceY + pdY;
+            if (absY + ext.top < contentMinY) contentMinY = absY + ext.top;
+            if (absY + ext.bottom > contentMaxY) contentMaxY = absY + ext.bottom;
           }
         }
 
@@ -3114,14 +3124,23 @@ export class NotationRenderer {
                 hp.endY !== undefined ? hp.endY : DYNAMICS_Y_MIN
               );
             }
+            const hairpinCenterY = baseY + centerYOffset;
             dynamicsGroup.appendChild(
               renderHairpin({
                 type: hp.type,
                 startX,
                 endX,
-                y: baseY + centerYOffset,
+                y: hairpinCenterY,
               })
             );
+            // Fold the wedge footprint into the content bbox. The wedge
+            // opens ±HAIRPIN_HALF_HEIGHT around its center; convert from
+            // staffGroup-local to absolute coords with voiceY.
+            const hpAbs = voiceY + hairpinCenterY;
+            if (hpAbs - HAIRPIN_HALF_HEIGHT < contentMinY)
+              contentMinY = hpAbs - HAIRPIN_HALF_HEIGHT;
+            if (hpAbs + HAIRPIN_HALF_HEIGHT > contentMaxY)
+              contentMaxY = hpAbs + HAIRPIN_HALF_HEIGHT;
           }
         }
 
