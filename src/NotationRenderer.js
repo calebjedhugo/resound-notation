@@ -193,6 +193,26 @@ const VOICE_HEIGHT = 200;
 const VOICE_GAP = 40;
 const GRAND_STAFF_GAP = 60;
 const STAFF_HEIGHT = 80; // 5 lines, 20px apart
+// --- Content-aware inter-staff spacing (Gould "Behind Bars",
+// staff-to-staff distance; LilyPond `staff-staff-spacing`) -------------
+// The vertical gap between one staff's bottom line and the next staff's
+// top line is no longer a fixed constant. It is:
+//   gap = max(MIN_STAFF_GAP,
+//             upperStaff.descentBelowBottomLine
+//             + lowerStaff.ascentAboveTopLine
+//             + STAFF_CLEARANCE_PADDING)
+// so the upper staff's lowest ink and the lower staff's highest ink
+// always clear by ~the padding, while empty/simple staves still sit at
+// least the floor apart.
+//
+// MIN_STAFF_GAP — floor between adjacent staff lines. 80px = 4 staff
+// spaces, giving ~8 sp top-line-to-top-line for empty staves, matching
+// LilyPond's ~8-9 sp minimum grand-staff distance. TUNABLE.
+export const MIN_STAFF_GAP = 80;
+// STAFF_CLEARANCE_PADDING — clear air (px) required between the nearest
+// ink of the two staves when content reaches into the gap. 30px = 1.5
+// staff spaces. TUNABLE.
+export const STAFF_CLEARANCE_PADDING = 30;
 // White space between independent (un-braced) staves within one system,
 // per Elaine Gould "Behind Bars" p. 488 ("Distance between staves"):
 // ~6 staff spaces (120px at 20px/space). Keeps the intra-system gap
@@ -391,6 +411,49 @@ function topExtentOf(element, clef) {
   const headTop = y - HEAD_HALF_Y;
   if (stemDown) return headTop;
   return y - STEM_LENGTH;
+}
+
+/**
+ * Per-voice intrinsic vertical skyline, used to make inter-staff spacing
+ * content-aware (Gould "Behind Bars", staff-to-staff distance; LilyPond
+ * `staff-staff-spacing`).
+ *
+ * A voice's content extent RELATIVE TO ITS OWN STAFF is independent of
+ * the staff's absolute y — it's fixed by pitches/stems (and ledgers,
+ * captured by the head/stem reach). So we can compute it BEFORE placing
+ * the staves, then stack them with content-aware gaps. We reuse the SAME
+ * geometry helpers the renderer uses for stems/noteheads
+ * (`lowestExtentOf` / `topExtentOf`), keeping placement in lockstep with
+ * rendering.
+ *
+ * In the pitchToStaffY frame the top staff line sits at y=10 and the
+ * bottom line at y=90 (= STAFF_TOP_OFFSET .. STAFF_TOP_OFFSET +
+ * STAFF_HEIGHT). Returns:
+ *   - descent: max downward reach BELOW the bottom staff line (≥0)
+ *   - ascent:  max upward reach ABOVE the top staff line (≥0)
+ *
+ * @param {Array} notes - the voice's (ottava-shifted) note elements
+ * @param {string} clef
+ * @returns {{ descent: number, ascent: number }}
+ */
+function voiceSkyline(notes, clef) {
+  const TOP_LINE = STAFF_TOP_OFFSET; // 10
+  const BOTTOM_LINE = STAFF_TOP_OFFSET + STAFF_HEIGHT; // 90
+  let lowest = BOTTOM_LINE; // most-positive y reached by ink
+  let highest = TOP_LINE; // most-negative y reached by ink
+  for (const el of notes) {
+    if (el == null) continue;
+    // Skip barline markers and bare rests (no pitch contribution).
+    if (!Array.isArray(el) && !el.pitch) continue;
+    const lo = lowestExtentOf(el, clef);
+    const hi = topExtentOf(el, clef);
+    if (Number.isFinite(lo) && lo > lowest) lowest = lo;
+    if (Number.isFinite(hi) && hi < highest) highest = hi;
+  }
+  return {
+    descent: Math.max(0, lowest - BOTTOM_LINE),
+    ascent: Math.max(0, TOP_LINE - highest),
+  };
 }
 
 /**
@@ -1090,7 +1153,39 @@ export class NotationRenderer {
     const hasBracketGroup = staffGroups.some((g) => g.type === 'bracket');
     const bracketTopMargin = hasBracketGroup ? 35 : 0;
 
-    // Compute Y positions for each voice
+    // Ottava shift, computed up-front because the rendered (shifted)
+    // pitches — not the written pitches — drive the per-voice skyline that
+    // determines content-aware inter-staff spacing below.
+    const ottavaInputs = parsed.voices.map((v, vi) => ({
+      voiceId: vi,
+      clef: v.clef || inferClef(v.notes),
+      events: buildOttavaEvents(v.notes),
+    }));
+    const ottavaSegmentsPerVoice = analyzeOttava(ottavaInputs);
+    const shiftedVoiceNotes = parsed.voices.map((v, vi) =>
+      applyOttavaShift(v.notes, ottavaSegmentsPerVoice[vi] || [])
+    );
+
+    // Per-voice intrinsic skyline (descent below own bottom line, ascent
+    // above own top line) — independent of where the staff is placed.
+    const voiceSkylines = parsed.voices.map((v, vi) =>
+      voiceSkyline(shiftedVoiceNotes[vi], v.clef || inferClef(v.notes))
+    );
+
+    // Compute Y positions for each voice. The gap between adjacent staves
+    // is CONTENT-AWARE (Gould "Behind Bars", staff-to-staff distance;
+    // LilyPond `staff-staff-spacing`): the bottom-line→top-line distance =
+    //   max(MIN_STAFF_GAP,
+    //       upperVoice.descent + lowerVoice.ascent + STAFF_CLEARANCE_PADDING)
+    // so the upper staff's lowest ink and the lower staff's highest ink
+    // always clear by ~the padding, while empty/simple staves still sit at
+    // least the floor apart. The staff-to-staff Y INCREMENT (top-line to
+    // top-line) adds STAFF_HEIGHT to that line gap.
+    //
+    // Architecture note: voiceYPositions is a single global set of Y
+    // positions shared across all systems, so this is the system-worst-
+    // case (uniform-per-pair, global) fidelity the spec calls for — every
+    // system uses the same content-aware gaps, sized to the whole piece.
     const voiceYPositions = [];
     let currentY = 0;
     for (let vi = 0; vi < voiceCount; vi += 1) {
@@ -1106,7 +1201,20 @@ export class NotationRenderer {
         const prevInBrace = voiceBraceGroup.get(prevVoice.id);
         const currInBrace = voiceBraceGroup.get(voice.id);
         const sameGroup = prevInBrace && currInBrace && prevInBrace === currInBrace;
-        const gap = sameGroup ? GRAND_STAFF_GAP + STAFF_HEIGHT : VOICE_HEIGHT + VOICE_GAP;
+        // Content-aware line gap (bottom of prev staff → top of this one).
+        const upperDescent = voiceSkylines[vi - 1].descent;
+        const lowerAscent = voiceSkylines[vi].ascent;
+        const contentLineGap = Math.max(
+          MIN_STAFF_GAP,
+          upperDescent + lowerAscent + STAFF_CLEARANCE_PADDING
+        );
+        // Same brace/bracket group: tight, content-aware grand-staff gap.
+        // Independent staves keep their wider legacy white space (which is
+        // already well clear of typical content); take the max so content
+        // can still push them apart if it ever exceeds the legacy gap.
+        const gap = sameGroup
+          ? contentLineGap + STAFF_HEIGHT
+          : Math.max(VOICE_HEIGHT + VOICE_GAP, contentLineGap + STAFF_HEIGHT);
         currentY += gap;
         voiceYPositions.push(currentY);
       }
@@ -1205,15 +1313,8 @@ export class NotationRenderer {
     // up for 8vb). The renderer then lays out the shifted pitches as if
     // they were normal in-staff notes; the bracket itself is appended
     // after note rendering. Bass voices short-circuit to no segments.
-    const ottavaInputs = parsed.voices.map((v, vi) => ({
-      voiceId: vi,
-      clef: v.clef || inferClef(v.notes),
-      events: buildOttavaEvents(v.notes),
-    }));
-    const ottavaSegmentsPerVoice = analyzeOttava(ottavaInputs);
-    const shiftedVoiceNotes = parsed.voices.map((v, vi) =>
-      applyOttavaShift(v.notes, ottavaSegmentsPerVoice[vi] || [])
-    );
+    // (ottava shift + skyline already computed above, before staff Y
+    // placement, since the content skyline drives the inter-staff gaps.)
 
     // Track the absolute SVG-space content bbox so we can grow the viewBox
     // after rendering. Starts as the default staff band; min/max get

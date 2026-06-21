@@ -4,6 +4,8 @@ import { createNotationContext } from './__tests__/helpers/testUtils.js';
 import {
   NotationRenderer,
   PROFESSIONAL_BASE_SCALE,
+  MIN_STAFF_GAP,
+  STAFF_CLEARANCE_PADDING,
 } from './NotationRenderer.js';
 
 describe('NotationRenderer', () => {
@@ -3719,6 +3721,178 @@ describe('NotationRenderer', () => {
       // Grand staff should be taller than single staff (200) but possibly
       // different from normal multi-voice height (440)
       expect(height).toBeGreaterThan(200);
+    });
+  });
+
+  describe('content-aware inter-staff spacing', () => {
+    // These tests pin the engraving requirement (Gould "Behind Bars",
+    // staff-to-staff distance; LilyPond staff-staff-spacing): the gap
+    // between adjacent staves in a system is content-aware — the upper
+    // staff's lowest ink and the lower staff's highest ink always clear
+    // by at least STAFF_CLEARANCE_PADDING, with a MIN_STAFF_GAP floor for
+    // empty/simple staves. We measure via the renderer's STRING attrs
+    // (staff translate-y, staff-line y, note translate-y, note-stem y2) —
+    // never getBBox (returns 0 in jsdom).
+
+    // The absolute y of a voice's top staff line = staff translate-y +
+    // STAFF_TOP_OFFSET (10). Bottom staff line = that + 80 (STAFF_HEIGHT).
+    const STAFF_TOP_OFFSET = 10;
+    const STAFF_HEIGHT = 80;
+
+    function staffTranslateY(staffEl) {
+      return parseFloat(
+        staffEl.getAttribute('transform').match(/translate\(0, ([^)]+)\)/)[1]
+      );
+    }
+    function topLineY(staffEl) {
+      return staffTranslateY(staffEl) + STAFF_TOP_OFFSET;
+    }
+    function bottomLineY(staffEl) {
+      return staffTranslateY(staffEl) + STAFF_TOP_OFFSET + STAFF_HEIGHT;
+    }
+
+    // Lowest ink (max absolute y) of a staff's notes: for each note, the
+    // notehead center is at staffY + note-translate-y; the stem reaches to
+    // note-translate-y + note-stem y2 (local). Take the abs max over both.
+    function inkBottomY(staffEl) {
+      const sy = staffTranslateY(staffEl);
+      let maxY = -Infinity;
+      for (const note of staffEl.querySelectorAll('.note')) {
+        const ny = parseFloat(
+          note.getAttribute('transform').match(/translate\([^,]+,\s*([^)]+)\)/)[1]
+        );
+        maxY = Math.max(maxY, sy + ny + 10); // notehead bottom ≈ center + 10
+        const stem = note.querySelector('.note-stem');
+        if (stem) {
+          const y2 = parseFloat(stem.getAttribute('y2'));
+          maxY = Math.max(maxY, sy + ny + y2);
+        }
+      }
+      return maxY;
+    }
+    // Highest ink (min absolute y) of a staff's notes.
+    function inkTopY(staffEl) {
+      const sy = staffTranslateY(staffEl);
+      let minY = Infinity;
+      for (const note of staffEl.querySelectorAll('.note')) {
+        const ny = parseFloat(
+          note.getAttribute('transform').match(/translate\([^,]+,\s*([^)]+)\)/)[1]
+        );
+        minY = Math.min(minY, sy + ny - 10); // notehead top ≈ center - 10
+        const stem = note.querySelector('.note-stem');
+        if (stem) {
+          const y1 = parseFloat(stem.getAttribute('y1'));
+          const y2 = parseFloat(stem.getAttribute('y2'));
+          minY = Math.min(minY, sy + ny + y1, sy + ny + y2);
+        }
+      }
+      return minY;
+    }
+
+    it('clears the lower staff up-stem chord from the upper staff bottom line (Satie case)', () => {
+      // Treble: simple notes. Bass: a high up-stem chord (G4/C5/E5) whose
+      // stems rise well above the bass top staff line — the Satie
+      // Gymnopédie pattern where bass chords float up toward the treble.
+      ctx.render({
+        voices: [
+          {
+            id: 'treble',
+            clef: 'treble',
+            notes: [
+              { pitch: 'G4', length: '1/4' },
+              { pitch: 'A4', length: '1/4' },
+            ],
+          },
+          {
+            id: 'bass',
+            clef: 'bass',
+            notes: [
+              [
+                { pitch: 'G4', length: '1/4' },
+                { pitch: 'C5', length: '1/4' },
+                { pitch: 'E5', length: '1/4' },
+              ],
+              { pitch: 'C4', length: '1/4' },
+            ],
+          },
+        ],
+        staffGroups: [{ type: 'brace', voiceIds: ['treble', 'bass'] }],
+      });
+      const staves = ctx.container.querySelectorAll('.staff');
+      const trebleBottom = bottomLineY(staves[0]);
+      const bassInkTop = inkTopY(staves[1]);
+      // The bass's highest ink must clear the treble's bottom line by the
+      // clearance padding.
+      expect(bassInkTop - trebleBottom).toBeGreaterThanOrEqual(
+        STAFF_CLEARANCE_PADDING
+      );
+    });
+
+    it('does not let upper down-stems overlap lower up-stems (Bach m2 case)', () => {
+      // Treble: high notes (A5/B5) → down-stems reaching DOWN past the
+      // bottom line. Bass: a high up-stem chord reaching UP. With fixed
+      // spacing these interpenetrate; content-aware spacing must keep a
+      // gap of at least the clearance padding between them.
+      ctx.render({
+        voices: [
+          {
+            id: 'treble',
+            clef: 'treble',
+            notes: [
+              { pitch: 'A5', length: '1/4' },
+              { pitch: 'B5', length: '1/4' },
+            ],
+          },
+          {
+            id: 'bass',
+            clef: 'bass',
+            notes: [
+              [
+                { pitch: 'C4', length: '1/4' },
+                { pitch: 'E4', length: '1/4' },
+                { pitch: 'G4', length: '1/4' },
+              ],
+              { pitch: 'A4', length: '1/4' },
+            ],
+          },
+        ],
+        staffGroups: [{ type: 'brace', voiceIds: ['treble', 'bass'] }],
+      });
+      const staves = ctx.container.querySelectorAll('.staff');
+      const trebleInkBottom = inkBottomY(staves[0]);
+      const bassInkTop = inkTopY(staves[1]);
+      // No interpenetration: the lower staff's highest ink sits below the
+      // upper staff's lowest ink, with clearance padding between.
+      expect(bassInkTop - trebleInkBottom).toBeGreaterThanOrEqual(
+        STAFF_CLEARANCE_PADDING
+      );
+    });
+
+    it('keeps two simple staves at the MIN_STAFF_GAP floor and not more (no runaway)', () => {
+      // Mid-staff notes on both staves → no content protrudes into the
+      // gap, so the gap is dominated by the floor. The bottom-line-to-
+      // top-line distance must equal MIN_STAFF_GAP exactly (no runaway,
+      // and not the old fixed GRAND_STAFF_GAP=60).
+      ctx.render({
+        voices: [
+          {
+            id: 'treble',
+            clef: 'treble',
+            notes: [{ pitch: 'B4', length: '1/4' }],
+          },
+          {
+            id: 'bass',
+            clef: 'bass',
+            notes: [{ pitch: 'D3', length: '1/4' }],
+          },
+        ],
+        staffGroups: [{ type: 'brace', voiceIds: ['treble', 'bass'] }],
+      });
+      const staves = ctx.container.querySelectorAll('.staff');
+      const trebleBottom = bottomLineY(staves[0]);
+      const bassTop = topLineY(staves[1]);
+      const gap = bassTop - trebleBottom;
+      expect(gap).toBe(MIN_STAFF_GAP);
     });
   });
 
