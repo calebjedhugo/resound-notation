@@ -3894,6 +3894,192 @@ describe('NotationRenderer', () => {
       const gap = bassTop - trebleBottom;
       expect(gap).toBe(MIN_STAFF_GAP);
     });
+
+    // FIX 2 — beam-aware skyline. The voiceSkyline used to estimate beamed
+    // descent from per-note head/stem extent, which undercounts the beam
+    // line itself. A treble voice whose beamed group genuinely reaches DOWN
+    // toward the lower staff (stem-down beam below the heads) must get a gap
+    // wide enough that the beam clears the lower staff's top line by the
+    // clearance padding. Measure the actual beam path bottom (DOM-classified
+    // to staff-0) vs the lower staff (staff-1) top line.
+    it('expands the inter-staff gap so a stem-down beamed group clears the lower staff (beam-aware skyline)', () => {
+      // Treble A4/C5/E5/E5: stems DOWN, beam sits below the heads and reaches
+      // to ~y=130 local (~40px below the bottom staff line). The bass carries
+      // a high up-stem chord (G3/C4/E4) whose stems rise toward the treble,
+      // so the two voices compete for the gap (content beats the MIN_STAFF_GAP
+      // floor). The OLD per-note skyline under-counted the treble's beamed
+      // descent (it never saw the beam line), so the gap was too tight and the
+      // beam came within ~20px of the bass chord. The beam-aware skyline must
+      // size the gap from the real beam line so the separation ≥ padding.
+      ctx.render({
+        voices: [
+          {
+            id: 'treble',
+            clef: 'treble',
+            timeSignature: [4, 4],
+            notes: [
+              { pitch: 'A4', length: '1/8' },
+              { pitch: 'C5', length: '1/8' },
+              { pitch: 'E5', length: '1/8' },
+              { pitch: 'E5', length: '1/8' },
+            ],
+          },
+          {
+            id: 'bass',
+            clef: 'bass',
+            timeSignature: [4, 4],
+            notes: [
+              [
+                { pitch: 'G3', length: '1/2' },
+                { pitch: 'C4', length: '1/2' },
+                { pitch: 'E4', length: '1/2' },
+              ],
+            ],
+          },
+        ],
+        staffGroups: [{ type: 'brace', voiceIds: ['treble', 'bass'] }],
+      });
+      const staves = ctx.container.querySelectorAll('.staff');
+      const trebleStaff = staves[0];
+      const bassStaff = staves[1];
+      // Lowest absolute y reached by staff-0's beam paths + stems.
+      const ty = staffTranslateY(trebleStaff);
+      let beamBottom = inkBottomY(trebleStaff);
+      for (const beam of trebleStaff.querySelectorAll('.beam')) {
+        const ys = beam.getAttribute('d').match(/-?[\d.]+/g).map(Number)
+          .filter((_, i) => i % 2 === 1);
+        beamBottom = Math.max(beamBottom, ty + Math.max(...ys));
+      }
+      const bassInkTop = inkTopY(bassStaff);
+      // The beam must clear the bass chord's highest ink by the padding.
+      expect(bassInkTop - beamBottom).toBeGreaterThanOrEqual(STAFF_CLEARANCE_PADDING);
+    });
+  });
+
+  describe('beamed-group stem direction (Gould farthest-from-middle rule)', () => {
+    // Gould "Behind Bars" (Stems): the note in a beamed group FARTHEST from
+    // the middle staff line sets the whole group's stem direction. The old
+    // rule used the group's AVERAGE pitch, which mishandles wide groups that
+    // straddle the middle line (Bach Prelude in C, m2 RH: D4 sits farther
+    // BELOW the middle line than E5 sits above → group should stem UP).
+
+    // Sign of (y2 - y1) on a beamed note's stem tells direction: stem-up
+    // means the far end is ABOVE the head (negative), stem-down below.
+    function stemIsUp(noteEl) {
+      const stem = noteEl.querySelector('.note-stem');
+      const y1 = parseFloat(stem.getAttribute('y1'));
+      const y2 = parseFloat(stem.getAttribute('y2'));
+      return y2 < y1;
+    }
+
+    it('stems a wide beamed group UP when its farthest note is below the middle line', () => {
+      // Treble C4/C5/E5/F5: C4 (y=110) sits 60px below the middle line —
+      // farther out than any of the upper notes (F5 is only 40px above) →
+      // whole group stems UP. The old AVERAGE rule (avg y = 45 ≤ 50) would
+      // (wrongly) stem the group DOWN.
+      ctx.render({
+        timeSignature: [4, 4],
+        voices: [
+          {
+            id: 'v1',
+            clef: 'treble',
+            timeSignature: [4, 4],
+            notes: [
+              { pitch: 'C4', length: '1/16' },
+              { pitch: 'C5', length: '1/16' },
+              { pitch: 'E5', length: '1/16' },
+              { pitch: 'F5', length: '1/16' },
+            ],
+          },
+        ],
+      });
+      const notes = ctx.getNotes();
+      expect(notes.length).toBe(4);
+      for (const n of notes) {
+        expect(stemIsUp(n)).toBe(true);
+      }
+    });
+
+    it('still stems a high beamed group DOWN (farthest note above the middle line)', () => {
+      ctx.render({
+        timeSignature: [4, 4],
+        voices: [
+          {
+            id: 'v1',
+            clef: 'treble',
+            timeSignature: [4, 4],
+            notes: [
+              { pitch: 'E5', length: '1/8' },
+              { pitch: 'A5', length: '1/8' },
+            ],
+          },
+        ],
+      });
+      const notes = ctx.getNotes();
+      for (const n of notes) {
+        expect(stemIsUp(n)).toBe(false);
+      }
+    });
+
+    it('does not let staff-0 RH beam ink enter the staff-1 band at shared x (Bach m2)', () => {
+      // Reduced Bach Prelude m2 RH: a wide beamed 16th group (C4..F5,
+      // straddling the middle line, farthest note C4 below) over a bass
+      // whole note. Under the OLD average rule (avg y = 45 ≤ 50) the group
+      // stems DOWN and the beam dips into the bass band; the Gould rule
+      // stems it UP so no staff-0 ink crosses into the staff-1 staff band.
+      ctx.render({
+        voices: [
+          {
+            id: 'treble',
+            clef: 'treble',
+            timeSignature: [4, 4],
+            notes: [
+              { pitch: 'C4', length: '1/16' },
+              { pitch: 'C5', length: '1/16' },
+              { pitch: 'E5', length: '1/16' },
+              { pitch: 'F5', length: '1/16' },
+            ],
+          },
+          {
+            id: 'bass',
+            clef: 'bass',
+            timeSignature: [4, 4],
+            notes: [{ pitch: 'C3', length: '1/4' }],
+          },
+        ],
+        staffGroups: [{ type: 'brace', voiceIds: ['treble', 'bass'] }],
+      });
+      const staves = ctx.container.querySelectorAll('.staff');
+      const trebleStaff = staves[0];
+      const bassStaff = staves[1];
+      const STAFF_TOP_OFFSET = 10;
+      const sy1 = parseFloat(
+        bassStaff.getAttribute('transform').match(/translate\(0, ([^)]+)\)/)[1]
+      );
+      const bassTopBand = sy1 + STAFF_TOP_OFFSET;
+      // Lowest staff-0 ink (note stems + beam paths).
+      const ty = parseFloat(
+        trebleStaff.getAttribute('transform').match(/translate\(0, ([^)]+)\)/)[1]
+      );
+      let trebleInkBottom = -Infinity;
+      for (const note of trebleStaff.querySelectorAll('.note')) {
+        const ny = parseFloat(
+          note.getAttribute('transform').match(/translate\([^,]+,\s*([^)]+)\)/)[1]
+        );
+        const stem = note.querySelector('.note-stem');
+        if (stem) {
+          const y2 = parseFloat(stem.getAttribute('y2'));
+          trebleInkBottom = Math.max(trebleInkBottom, ty + ny + y2);
+        }
+      }
+      for (const beam of trebleStaff.querySelectorAll('.beam')) {
+        const ys = beam.getAttribute('d').match(/-?[\d.]+/g).map(Number)
+          .filter((_, i) => i % 2 === 1);
+        trebleInkBottom = Math.max(trebleInkBottom, ty + Math.max(...ys));
+      }
+      // No staff-0 ink may enter the staff-1 staff band.
+      expect(trebleInkBottom).toBeLessThan(bassTopBand);
+    });
   });
 
   describe('system-start (initial) barline', () => {

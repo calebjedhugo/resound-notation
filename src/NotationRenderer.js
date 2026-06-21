@@ -27,7 +27,7 @@ import { createKeySignature, keySignatureAdvance } from './components/KeySignatu
 import { createBarLine } from './components/BarLine.js';
 import { createTimeSignature } from './components/TimeSignature.js';
 import { getKeySignature } from './lib/keySignatures.js';
-import { computeBeamGroups } from './lib/beaming.js';
+import { computeBeamGroups, beamGroupStemDown } from './lib/beaming.js';
 import {
   createBeams,
   computeBeamLine,
@@ -436,20 +436,64 @@ function topExtentOf(element, clef) {
  * @param {string} clef
  * @returns {{ descent: number, ascent: number }}
  */
-function voiceSkyline(notes, clef) {
+function voiceSkyline(notes, clef, opts = {}) {
+  const { timeSignature = null, voiceIndex, voiceCount } = opts;
   const TOP_LINE = STAFF_TOP_OFFSET; // 10
   const BOTTOM_LINE = STAFF_TOP_OFFSET + STAFF_HEIGHT; // 90
   let lowest = BOTTOM_LINE; // most-positive y reached by ink
   let highest = TOP_LINE; // most-negative y reached by ink
-  for (const el of notes) {
-    if (el == null) continue;
+
+  // Indices that belong to a beam group are handled by the beam-aware pass
+  // below (their stems follow the shared beam line, not the per-note
+  // estimate). Everything else uses the per-note head/stem extent.
+  const beamGroups = timeSignature ? computeBeamGroups(notes, timeSignature) : [];
+  const beamedIdx = new Set();
+  for (const group of beamGroups) for (const idx of group) beamedIdx.add(idx);
+
+  notes.forEach((el, i) => {
+    if (el == null) return;
+    if (beamedIdx.has(i)) return; // counted via beam line below
     // Skip barline markers and bare rests (no pitch contribution).
-    if (!Array.isArray(el) && !el.pitch) continue;
+    if (!Array.isArray(el) && !el.pitch) return;
     const lo = lowestExtentOf(el, clef);
     const hi = topExtentOf(el, clef);
     if (Number.isFinite(lo) && lo > lowest) lowest = lo;
     if (Number.isFinite(hi) && hi < highest) highest = hi;
+  });
+
+  // Beam-aware pass: for each beamed group, reuse the SAME stem-direction
+  // rule (Gould farthest-from-middle, FIX 1) and the SAME slope-capped beam
+  // geometry the renderer draws (computeBeamLine, Beam.js). The beam line's
+  // outer endpoints are the outermost stem tips / primary-beam far edge, so
+  // they bound the group's true vertical reach (heads + stems + beam) — the
+  // per-note lowestExtentOf/topExtentOf estimate misses this because it
+  // classifies each note's stem independently of the group direction.
+  for (const group of beamGroups) {
+    const yValues = group.map((idx) => {
+      const el = notes[idx];
+      return el && el.pitch ? pitchToStaffY(el.pitch, clef) : MIDDLE_LINE_Y;
+    });
+    const stemDown = beamGroupStemDown(yValues, { voiceIndex, voiceCount });
+    // x-spacing here is nominal (uniform); the beam-line ENDPOINT y values
+    // are what bound the reach, and computeBeamLine's slope cap / shift
+    // logic depends only on relative x, so uniform spacing is faithful.
+    const beamNotes = yValues.map((y, k) => ({ x: k * 70, y, beams: 1 }));
+    const line = computeBeamLine(beamNotes, stemDown);
+    const beamLo = Math.max(line.y1, line.y2);
+    const beamHi = Math.min(line.y1, line.y2);
+    if (stemDown) {
+      // Stems + beam reach DOWN; heads are at the smaller y values.
+      if (beamLo > lowest) lowest = beamLo;
+      const headTop = Math.min(...yValues) - ONE_SPACE / 2;
+      if (headTop < highest) highest = headTop;
+    } else {
+      // Stems + beam reach UP; heads are at the larger y values.
+      if (beamHi < highest) highest = beamHi;
+      const headBottom = Math.max(...yValues) + ONE_SPACE / 2;
+      if (headBottom > lowest) lowest = headBottom;
+    }
   }
+
   return {
     descent: Math.max(0, lowest - BOTTOM_LINE),
     ascent: Math.max(0, TOP_LINE - highest),
@@ -1169,7 +1213,11 @@ export class NotationRenderer {
     // Per-voice intrinsic skyline (descent below own bottom line, ascent
     // above own top line) — independent of where the staff is placed.
     const voiceSkylines = parsed.voices.map((v, vi) =>
-      voiceSkyline(shiftedVoiceNotes[vi], v.clef || inferClef(v.notes))
+      voiceSkyline(shiftedVoiceNotes[vi], v.clef || inferClef(v.notes), {
+        timeSignature: v.timeSignature || null,
+        voiceIndex: vi,
+        voiceCount: parsed.voices.length,
+      })
     );
 
     // Compute Y positions for each voice. The gap between adjacent staves
@@ -1995,14 +2043,20 @@ export class NotationRenderer {
         });
       });
 
-      // Pre-compute stem direction for each beam group
-      const beamGroupStemDown = beamGroups.map((group) => {
+      // Pre-compute stem direction for each beam group. Per Gould "Behind
+      // Bars" (Stems): the note FARTHEST from the middle staff line sets the
+      // whole group's direction (farthest below → stems up; above → down).
+      // On a symmetric tie the multi-staff convention (upper staff up, lower
+      // down) applies — see beamGroupStemDown.
+      const beamGroupStemDownArr = beamGroups.map((group) => {
         const yValues = group.map((idx) => {
           const el = voice.notes[idx];
           return el.pitch ? pitchToStaffY(el.pitch, clef) : MIDDLE_LINE_Y;
         });
-        const avgY = yValues.reduce((a, b) => a + b, 0) / yValues.length;
-        return avgY <= MIDDLE_LINE_Y;
+        return beamGroupStemDown(yValues, {
+          voiceIndex: index,
+          voiceCount: voices.length,
+        });
       });
 
       let activeBeamGroupEl = null;
@@ -2792,7 +2846,7 @@ export class NotationRenderer {
         }
 
         const target = activeBeamGroupEl || staffGroup;
-        const beamStemDown = isBeamed ? beamGroupStemDown[beamInfo.groupIndex] : undefined;
+        const beamStemDown = isBeamed ? beamGroupStemDownArr[beamInfo.groupIndex] : undefined;
 
         // Record position for tie rendering
         noteXPositions.set(i, cursorX);
@@ -2996,7 +3050,7 @@ export class NotationRenderer {
 
         // Close beam group
         if (beamInfo && beamInfo.isLast && activeBeamGroupEl) {
-          const beamStemDownClose = beamGroupStemDown[activeBeamGroupIdx];
+          const beamStemDownClose = beamGroupStemDownArr[activeBeamGroupIdx];
           // Compute slope-capped beam line and update each note's stem
           // y2 to land on it. Uses the same line createBeams will draw.
           if (activeBeamNoteData.length >= 2) {
@@ -3075,7 +3129,7 @@ export class NotationRenderer {
           const noteY = pitchToStaffY(pair.pitch, clef);
           const beamInfoStart = beamLookup.get(pair.startIndex);
           const stemDown = beamInfoStart
-            ? beamGroupStemDown[beamInfoStart.groupIndex]
+            ? beamGroupStemDownArr[beamInfoStart.groupIndex]
             : noteY <= MIDDLE_LINE_Y;
           const direction = stemDown ? 'above' : 'below';
 

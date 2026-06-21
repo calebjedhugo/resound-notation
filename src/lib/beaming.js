@@ -8,6 +8,59 @@ import { getDurationInfo, fractionToBeats } from './durationSymbols.js';
 
 const MAX_GROUP_SIZE = 4;
 
+// Middle staff line in the pitchToStaffY frame. Mirror of MIDDLE_LINE_Y in
+// NotationRenderer.js; kept here so the (pure) stem-direction rule has no
+// DOM/geometry dependency.
+const MIDDLE_LINE_Y = 50;
+
+/**
+ * Stem direction for a beamed group, per Gould "Behind Bars" (Stems):
+ * the note FARTHEST from the middle staff line sets the whole group's
+ * direction. A note below the middle line (larger y) farthest out → stems
+ * UP; a note above (smaller y) farthest out → stems DOWN. This replaces
+ * the old average-pitch rule, which mishandled wide groups straddling the
+ * middle line (e.g. Bach Prelude m2 RH: D4 is farther below than E5 is
+ * above, so the group should stem UP, not down).
+ *
+ * Tie-break (a note equidistant above and below, e.g. a symmetric group
+ * centered on the middle line): on a multi-staff system the upper staff
+ * stems UP and the lower staff stems DOWN (point away from the other
+ * staff — grand-staff convention). On a single staff, fall back to the
+ * existing high-note rule (governing y ≤ middle → stems down).
+ *
+ * @param {number[]} yValues - pitchToStaffY for each note in the group
+ * @param {{voiceIndex?: number, voiceCount?: number}} [ctx]
+ * @returns {boolean} true if stems point down
+ */
+export function beamGroupStemDown(yValues, ctx = {}) {
+  if (!yValues || yValues.length === 0) return false;
+  let governingY = yValues[0];
+  let bestDist = Math.abs(yValues[0] - MIDDLE_LINE_Y);
+  let tied = false;
+  for (let i = 1; i < yValues.length; i++) {
+    const d = Math.abs(yValues[i] - MIDDLE_LINE_Y);
+    if (d > bestDist) {
+      bestDist = d;
+      governingY = yValues[i];
+      tied = false;
+    } else if (d === bestDist && Math.sign(yValues[i] - MIDDLE_LINE_Y) !== Math.sign(governingY - MIDDLE_LINE_Y)) {
+      // Equidistant note on the opposite side of the middle line.
+      tied = true;
+    }
+  }
+  if (tied || bestDist === 0) {
+    const { voiceIndex, voiceCount } = ctx;
+    if (typeof voiceIndex === 'number' && typeof voiceCount === 'number' && voiceCount > 1) {
+      // Multi-staff: upper staff up, lower staff down.
+      return voiceIndex === voiceCount - 1;
+    }
+    // Single staff: existing high-note rule.
+    return governingY <= MIDDLE_LINE_Y;
+  }
+  // Farthest note below middle (y > middle) → stems up; above → down.
+  return governingY < MIDDLE_LINE_Y;
+}
+
 /**
  * Compute the beat length in quarter-note-beats for a time signature.
  * Detects compound time (6/8, 9/8, 12/8, 3/8) and uses compound beats.
