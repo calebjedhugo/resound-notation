@@ -12,8 +12,8 @@ SMuFL/Bravura renderer in `resound-notation`), with two deliberate differences:
    is driver-in-the-loop, not autonomous.
 2. **The fix agents observe the defect in the live browser directly** (chrome-devtools
    MCP, read-only) instead of `snap.sh` PNGs. The post-fix *visual* verify is done by the
-   main session (it owns the Vite-restart needed to see source edits); the agent's own
-   gate is `npx jest`.
+   main session (it owns the shared tab and reloads it to see source edits); the agent's
+   own gate is `npx jest`.
 
 It first stands up a **live browser tab the user also has open**, so you both see the same
 page in real time, and the DOM can be inspected for exact coordinates.
@@ -84,18 +84,17 @@ these live-variant overrides:
   a subagent closing "its own" page closed the *user's* shared tab instead — look-alike
   localhost URLs and shifting page indices make cleanup unsafe. The single shared tab is
   the only browser surface; the user is watching it, so the agent simply reuses it.)
-- **The agent MUST NOT restart Vite or do the post-edit *visual* verify.** Because of the
-  `.nosync` HMR gotcha, seeing a source edit requires a Vite restart, and a Vite restart
-  is a shared-resource action — keep it in the MAIN session. The agent's correctness gate
-  is **`npx jest`** (unaffected by HMR); its integration test pins the visual property
-  numerically. (Tested: an agent's `nohup`-backgrounded process *does* survive the agent
-  exit, so an agent *could* restart Vite — we deliberately don't, to keep one owner of the
-  dev-server lifecycle and avoid a half-restarted server if the agent errors.)
+- **The agent MUST NOT touch the dev server or do the post-edit *visual* verify.** The
+  shared tab is a shared resource — keep all browser/server actions in the MAIN session.
+  The agent's correctness gate is **`npx jest`** (it runs against `src/` directly, so it's
+  independent of the browser entirely); its integration test pins the visual property
+  numerically. Leave the live-browser confirm to the main session so there's one owner of
+  the shared tab.
 
-After the agent returns, **the MAIN session does the visual verify**: restart Vite
-(`pkill -f vite`; `rm -rf dev/node_modules/.vite`; `npm run dev` in background), reload the
-shared tab with `ignoreCache`, and re-run the overlap/position probe with the user
-watching. The agent's summary says what it intended; the live DOM shows what happened.
+After the agent returns, **the MAIN session does the visual verify**: **reload the shared
+tab** (a plain reload is enough — see Gotchas; no Vite restart or cache clear needed) and
+re-run the overlap/position probe with the user watching. The agent's summary says what it
+intended; the live DOM shows what happened.
 Report one or two sentences, then **wait for the next instruction** (back to Step 3).
 Never auto-advance to another fix.
 
@@ -140,15 +139,22 @@ new_page/close_page/restart-vite.
 Report: files touched, commit hash, one sentence on the visible change. <200 words.
 ```
 
-## Gotchas (this environment) — see memory `reference_resound_dev_debug`
+## Gotchas (this environment)
 
-- **Vite HMR does NOT reliably pick up edits to `src/*.js`.** The repo lives under a
-  `.nosync` (iCloud) folder, which breaks fsevents watching, so Vite serves a stale
-  cached transform even while logging `hmr update /main.js`. After a source edit, to see
-  it in the browser: `pkill -f vite`, `rm -rf dev/node_modules/.vite`, restart
-  `npm run dev`, then reload the tab with `ignoreCache` (or a cache-bust query param).
-  The agents run `npx jest` against `src/` directly, so they are unaffected — this only
-  bites the live-browser view.
+- **To see a `src/*.js` edit in the browser, just RELOAD the tab — no Vite restart, no
+  cache clear.** `dev/main.js` imports from `../src/*` directly, and Vite re-transforms a
+  module on request whenever its mtime changed, so a plain full reload always serves the
+  fresh source. (Verified 2026-06-21 by editing a spacing constant and reloading: the
+  rendered geometry tracked the edit, 24→64→24px across two plain reloads, with no
+  `pkill`/`rm -rf .vite`/restart.) What may be unreliable under the `.nosync` (iCloud)
+  folder is HMR *push* — a live update with no reload — because fsevents watching is flaky
+  there; and even when HMR fires, this playground constructs the renderer once and only
+  re-renders on `setSong`/the next animation frame, so a module swap wouldn't repaint on
+  its own. The fix for both is the same: do an explicit reload. (Older versions of this
+  skill said you must restart Vite + clear `.vite`; that was over-cautious — a reload is
+  enough. If you ever DO see a genuinely stale render after a reload, then fall back to
+  `pkill -f vite`; `rm -rf dev/node_modules/.vite`; `npm run dev`.) Agents run `npx jest`
+  against `src/` directly, so they're independent of the browser regardless.
 - **chrome-devtools console capture only sees logs emitted AFTER it attaches** (post
   initial page load). The renderer runs during module eval on load, so a `console.log`
   you add to the renderer won't show on first load. Trigger a re-render via an in-page
