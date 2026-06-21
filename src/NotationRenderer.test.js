@@ -999,6 +999,109 @@ describe('NotationRenderer', () => {
       expect(accLeftEdge - prevRightEdge).toBeGreaterThanOrEqual(MIN_GAP);
     });
 
+    // Per Gould "Behind Bars" (Accidentals chapter): an accidental must
+    // keep ~1/4 staff space (its minimum) of clearance from its OWN
+    // notehead. When the note carries a ledger line, that clearance also
+    // has to win past the ledger's left overhang (Bravura
+    // legerLineExtension = 0.4 sp past the notehead edge) — otherwise the
+    // accidental jams up against the ledger tip. The beamed-prior offset
+    // shrink (pull the accidental closer to its head to buy room from a
+    // close prior beamed head) must NOT be allowed to violate this when a
+    // ledger is present: a ledgered note's accidental gets the full
+    // offset so its right edge reaches the ledger's left tip and clears
+    // it. C#4 in treble (one ledger below the staff), beamed, is the
+    // canonical case (the accidentals-sweep preset's first sharp).
+    it('keeps a ledgered note\'s beamed accidental clear of its head and the ledger left tip', () => {
+      // Render into a WIDE system so justification stretches the beam —
+      // mirroring the accidentals-sweep preset, where the eighths sit
+      // ~9 staff spaces apart and the prior beamed head is far. That's
+      // the condition under which the beamed-prior shrink buys nothing
+      // and only robs the accidental of its own-head clearance. C#4 is
+      // the NON-first beam member (so the shrink would otherwise apply)
+      // and carries one ledger below the staff.
+      const wideContainer = document.createElement('div');
+      document.body.appendChild(wideContainer);
+      const wideRenderer = new NotationRenderer({ container: wideContainer, width: 1050 });
+      wideRenderer.render({
+        clef: 'treble',
+        keySignature: 'C',
+        timeSignature: [4, 4],
+        // The accidentals-sweep preset's note set: 16 beamed eighths
+        // across a wide system. C#4 (the second note, first sharp) is a
+        // non-first beam member whose prior head (C4) is stretched far
+        // away by justification.
+        notes: [
+          { pitch: 'C4', length: '1/8' },
+          { pitch: 'C#4', length: '1/8' },
+          { pitch: 'D4', length: '1/8' },
+          { pitch: 'Eb4', length: '1/8' },
+          { pitch: 'E4', length: '1/8' },
+          { pitch: 'F4', length: '1/8' },
+          { pitch: 'F#4', length: '1/8' },
+          { pitch: 'G4', length: '1/8' },
+          { pitch: 'Ab4', length: '1/8' },
+          { pitch: 'A4', length: '1/8' },
+          { pitch: 'Bb4', length: '1/8' },
+          { pitch: 'B4', length: '1/8' },
+          { pitch: 'C5', length: '1/8' },
+          { pitch: 'C#5', length: '1/8' },
+          { pitch: 'D5', length: '1/8' },
+          { pitch: 'Eb5', length: '1/8' },
+        ],
+      });
+
+      // Staff space (native px): 5 horizontal staff lines, evenly spaced.
+      const staffLineEls = [...wideContainer.querySelectorAll('.staff-lines line')]
+        .filter((l) => l.getAttribute('y1') === l.getAttribute('y2'));
+      const staffYs = [
+        ...new Set(staffLineEls.map((l) => Number(l.getAttribute('y1')))),
+      ].sort((a, b) => a - b);
+      expect(staffYs).toHaveLength(5);
+      const staffSpace = (staffYs[4] - staffYs[0]) / 4;
+
+      // The sharp on C#4.
+      const sharp = wideContainer.querySelector('.accidental.sharp');
+      expect(sharp).not.toBeNull();
+      const sharpCenterX = parseFloat(
+        sharp.getAttribute('transform').match(/translate\(([^,]+)/)[1]
+      );
+      // The C#4 notehead center (second note — the one with the sharp).
+      const noteX = parseFloat(
+        wideContainer.querySelectorAll('.note')[1].getAttribute('transform').match(/translate\(([^,]+)/)[1]
+      );
+      // The ledger line under C#4 (nearest to this note's x).
+      const ledger = [...wideContainer.querySelectorAll('.ledger-line')].sort((a, b) => {
+        const ax = Math.abs((Number(a.getAttribute('x1')) + Number(a.getAttribute('x2'))) / 2 - noteX);
+        const bx = Math.abs((Number(b.getAttribute('x1')) + Number(b.getAttribute('x2'))) / 2 - noteX);
+        return ax - bx;
+      })[0];
+      expect(ledger).toBeDefined();
+      const ledgerLeftTip = Math.min(
+        Number(ledger.getAttribute('x1')),
+        Number(ledger.getAttribute('x2'))
+      );
+
+      // Glyph half-widths as staff-space ratios so the whole test floats
+      // with the scale (Bravura at 1 sp = 20px): noteheadBlack half ≈
+      // 11.8px = 0.59 sp; sharp glyph half ≈ 9.95px = 0.4975 sp.
+      const NOTEHEAD_HALF = 0.59 * staffSpace;
+      const SHARP_HALF = 0.4975 * staffSpace;
+      const sharpRightEdge = sharpCenterX + SHARP_HALF;
+      const noteLeftEdge = noteX - NOTEHEAD_HALF;
+
+      // 1) Accidental keeps ≥ ~0.2 sp from its own notehead (Gould min).
+      const headGapSp = (noteLeftEdge - sharpRightEdge) / staffSpace;
+      expect(headGapSp).toBeGreaterThanOrEqual(0.2);
+
+      // 2) The sharp's right edge does not cross the ledger's left tip
+      //    (small epsilon absorbs sub-pixel prelude-width jitter).
+      const EPS = 0.02 * staffSpace;
+      expect(sharpRightEdge - ledgerLeftTip).toBeLessThanOrEqual(EPS);
+
+      wideRenderer.clear();
+      wideContainer.remove();
+    });
+
     // Per Gould "Behind Bars" pp. 80-85 ("Accidentals: when to use
     // them"): an accidental is printed before a note only when the
     // pitch differs from the key signature's default for that letter,

@@ -215,6 +215,16 @@ const ACCIDENTAL_OFFSET = 30;
 // minimum (~1/4 staff space). Pulling the accidental ~6px closer to
 // its own head buys ~6px of breathing room from the prior head.
 const ACCIDENTAL_OFFSET_BEAMED_PRIOR = ACCIDENTAL_OFFSET - 6;
+// Max center-to-center distance (px) from the prior beamed sibling at
+// which the beamed-prior shrink still earns its keep. Beyond this the
+// prior head is far enough that the accidental needs no help clearing it,
+// so the shrink would only cost the accidental its own-head clearance
+// (and, on a ledgered note, push the sharp into the ledger's left
+// overhang). 90px = 4.5 staff spaces: comfortably above a packed beam
+// (eighths sit ~3.5 sp apart) yet below a justified-wide beam (the
+// accidentals-sweep preset stretches to ~5 sp+), so the shrink applies
+// to exactly the tight case it was built for.
+const ACCIDENTAL_PRIOR_NEAR = 90;
 // Trailing padding (px) after the time-sig glyph before the first note.
 // Three terms add up here:
 //   ~19 — overshoot. createTimeSignature returns width = digit bbox
@@ -2496,7 +2506,14 @@ export class NotationRenderer {
             // member of a beam group — same rationale as the single-note
             // path below.
             const chordBeamInfo = beamLookup.get(i);
-            const chordAccOffset = chordBeamInfo && !chordBeamInfo.isFirst
+            const chordPriorBeamedX =
+              chordBeamInfo && !chordBeamInfo.isFirst && activeBeamNoteData.length
+                ? activeBeamNoteData[activeBeamNoteData.length - 1].x
+                : null;
+            const chordPriorIsNear =
+              chordPriorBeamedX != null &&
+              cursorX - chordPriorBeamedX <= ACCIDENTAL_PRIOR_NEAR;
+            const chordAccOffset = chordPriorIsNear
               ? ACCIDENTAL_OFFSET_BEAMED_PRIOR
               : ACCIDENTAL_OFFSET;
             const chordKeyInfo = getKeySignature(keySignature);
@@ -2714,7 +2731,26 @@ export class NotationRenderer {
             getKeySignature(keySignature)
           );
           if (accidentalType) {
-            const accOffset = isBeamed && !beamInfo.isFirst
+            // The beamed-prior shrink trades the accidental's own-head
+            // clearance for breathing room from the prior beamed head —
+            // but that trade only pays off when the prior head is
+            // actually CLOSE. When justification has stretched the beam
+            // wide (e.g. the accidentals-sweep preset's ~9-sp eighths),
+            // the prior head is far, the shrink buys nothing, and it only
+            // robs the accidental of its own-head clearance — pulling the
+            // sharp's right edge into a ledgered note's ledger-line left
+            // overhang (Bravura legerLineExtension = 0.4 sp), below
+            // Gould's ~1/4-sp minimum. Apply the shrink only when the
+            // prior beamed sibling is within reach (ACCIDENTAL_PRIOR_NEAR);
+            // otherwise use the full offset.
+            const priorBeamedX =
+              isBeamed && !beamInfo.isFirst && activeBeamNoteData.length
+                ? activeBeamNoteData[activeBeamNoteData.length - 1].x
+                : null;
+            const priorIsNear =
+              priorBeamedX != null &&
+              cursorX - priorBeamedX <= ACCIDENTAL_PRIOR_NEAR;
+            const accOffset = priorIsNear
               ? ACCIDENTAL_OFFSET_BEAMED_PRIOR
               : ACCIDENTAL_OFFSET;
             const accGroup = createAccidental(accidentalType);
