@@ -890,8 +890,23 @@ function computeSystemSpringLayout(
   const naturalRightX =
     lastBeatX + accumBarlineOffset + MIN_BARLINE_PADDING + trailingBarlineOffset;
 
+  // naturalRenderRightX = the same extent but with the PROPORTIONAL trailing
+  // (`trailingBarlineGap`, floored at MIN_BARLINE_PADDING) instead of the bare
+  // floor. This is the RENDER right edge for a RAGGED last system: the breaker
+  // reserves only `naturalRightX` (the floor) so it never wraps a piece a
+  // whole-note-width too early, but once a run is kept ragged the closing
+  // barline must sit at the last note's duration-proportional trailing (Gould
+  // "Behind Bars", Spacing: the last note keeps its rhythmic space even ragged-
+  // right — a half ending gets ~1.4× a quarter's trailing). On a JUSTIFIED
+  // system the spring solver already grows the trailing past this; only the
+  // ragged path uses it. naturalRenderRightX ≥ naturalRightX always (the gap
+  // term is floored at MIN_BARLINE_PADDING), so it never pulls the barline IN.
+  const naturalRenderRightX =
+    lastBeatX + accumBarlineOffset + trailingBarlineGap + trailingBarlineOffset;
+
   return {
     naturalRightX,
+    naturalRenderRightX,
     stretchedBeatToX,
     prePadMap,
     postPadMap,
@@ -1428,6 +1443,14 @@ export class NotationRenderer {
           sliceVoices, slicedVoiceNotes, perSystemMusicStartX, sharedMeasureLength, null
         );
         const naturalRightX = naturalLayout.naturalRightX;
+        // RAGGED RENDER edge: the proportional-trailing extent. The breaker
+        // decides breaks from naturalRightX (the floor) so it never wraps a
+        // run a whole-note-width too early, but a ragged last system must
+        // RENDER its closing barline at the last note's duration-proportional
+        // trailing (Gould "Behind Bars", Spacing). naturalRenderRightX is
+        // floored at MIN_BARLINE_PADDING, so it is always ≥ naturalRightX and
+        // never pulls the barline in below the floor.
+        const naturalRenderRightX = naturalLayout.naturalRenderRightX;
         const systemEndBeat = naturalLayout.systemEndBeat;
         const measureCountInSystem = plan.endMeasure - plan.startMeasure + 1;
 
@@ -1436,12 +1459,14 @@ export class NotationRenderer {
         // ragged at natural. Otherwise stretch out to this._width.
         const soloFinal = isLast && measureCountInSystem === 1;
         const justified = !soloFinal && naturalRightX < this._width - 1e-6;
-        const systemRightX = justified ? this._width : naturalRightX;
+        const systemRightX = justified ? this._width : naturalRenderRightX;
 
         // Lay the system out at the chosen right edge. When justified we pass
         // this._width and the inter-note springs stretch into the slack; when
-        // not, we pass naturalRightX and get the natural layout back — the
-        // SAME number the breaker floored at, by construction.
+        // ragged we keep the natural inter-note layout untouched and only push
+        // the closing barline (systemEndX) out to naturalRenderRightX — the
+        // notes stay at their natural onsets, but the final barline sits at the
+        // last note's duration-proportional trailing (floored), not the floor.
         const layout = justified
           ? computeSystemSpringLayout(
               sliceVoices, slicedVoiceNotes, perSystemMusicStartX, sharedMeasureLength, systemRightX

@@ -2093,6 +2093,95 @@ describe('NotationRenderer', () => {
         expect(totalNotes).toBe(28);
       }
     });
+
+    it('keeps the closing-barline trailing duration-proportional on a RAGGED-RIGHT last system (a half ending gets more trailing than a quarter ending)', () => {
+      // Engraving rule (Gould, "Behind Bars", Spacing): a barline coincides
+      // with the NEXT measure's downbeat, so the LAST note occupies real time
+      // up to it — its trailing daylight is PROPORTIONAL to its own duration
+      // (durationSymbols.spacing: quarter 100, half 140). This holds even when
+      // the system is RAGGED-RIGHT: a short excerpt that does NOT fill the
+      // system width is laid out at its natural extent, and the last note still
+      // keeps its rhythmic space — it is not collapsed to the floor.
+      //
+      // Regression (playground: preset single-voice-treble, one measure ending
+      // in a half note, on a wide ragged system): the closing `final` barline
+      // was drawn at the system's FLOORED natural right edge
+      // (MIN_BARLINE_PADDING + trailing notehead offset), so the onset->barline
+      // gap was a duration-INDEPENDENT ~42.8u — a quarter, half, and whole
+      // ending all rendered the identical trailing. The breaker correctly
+      // reserves only the floor (so runs don't wrap a whole-note-width too
+      // early), but the RAGGED RENDER must place the closing barline at the
+      // PROPORTIONAL trailing, floored at MIN_BARLINE_PADDING.
+      //
+      // Both fixtures are a SINGLE 8/4 measure (one staff, soloFinal/ragged)
+      // on a wide system: four quarters + one final note that is a quarter in
+      // one render, a half in the other. Pin: the half ending's trailing
+      // daylight is STRICTLY GREATER than the quarter ending's, and roughly
+      // proportional (half spacing 140 / quarter 100 = 1.4x).
+      const xFromTranslate = (el) => {
+        const m = /translate\(([-\d.]+)/.exec(el.getAttribute('transform') || '');
+        return m ? parseFloat(m[1]) : 0;
+      };
+      const HEAD_TIP_X = 11.8;
+
+      const trailingForLastLength = (lastLength) => {
+        const renderer = new NotationRenderer({
+          container: document.createElement('div'),
+          width: 2200,
+        });
+        const svg = renderer.render({
+          clef: 'treble',
+          keySignature: 'C',
+          timeSignature: [8, 4],
+          notes: [
+            { pitch: 'C4', length: '1/4' }, { pitch: 'D4', length: '1/4' },
+            { pitch: 'E4', length: '1/4' }, { pitch: 'F4', length: '1/4' },
+            { pitch: 'G4', length: lastLength },
+          ],
+        });
+        const staves = svg.querySelectorAll('g.staff');
+        expect(staves.length).toBe(1);
+        const staff = staves[0];
+
+        const noteXs = Array.from(staff.querySelectorAll('g.note'))
+          .map(xFromTranslate)
+          .sort((a, b) => a - b);
+        expect(noteXs.length).toBe(5);
+        const lastNoteX = noteXs[noteXs.length - 1];
+
+        // Closing barline must be ragged (well short of the staff right edge
+        // / system width) — confirms we exercise the soloFinal/ragged path,
+        // not justification.
+        const closingBarXs = [];
+        for (const bl of staff.querySelectorAll('.barline-final, [class*="barline-repeat"]')) {
+          const m = /translate\(([-\d.]+)/.exec(bl.getAttribute('transform') || '');
+          if (m) closingBarXs.push(parseFloat(m[1]));
+        }
+        const closingBarX = Math.max(...closingBarXs);
+        const viewBoxWidth = parseFloat(svg.getAttribute('viewBox').split(/\s+/)[2]);
+        expect(closingBarX).toBeLessThan(viewBoxWidth - 100);
+
+        return closingBarX - (lastNoteX + HEAD_TIP_X);
+      };
+
+      const quarterTrailing = trailingForLastLength('1/4');
+      const halfTrailing = trailingForLastLength('1/2');
+
+      // Both clear the floor (MIN_BARLINE_PADDING = 40).
+      expect(quarterTrailing).toBeGreaterThan(0);
+      expect(halfTrailing).toBeGreaterThan(0);
+
+      // The defect: identical (~42.8u) trailing regardless of duration. The
+      // half ending must get STRICTLY MORE trailing than the quarter ending.
+      expect(halfTrailing).toBeGreaterThan(quarterTrailing + 1);
+
+      // Roughly proportional: half (140) / quarter (100) = 1.4x. Allow a wide
+      // band so the test survives glyph-metric / floor tweaks but still
+      // forbids the flat (1.0x) regression.
+      const ratio = halfTrailing / quarterTrailing;
+      expect(ratio).toBeGreaterThan(1.2);
+      expect(ratio).toBeLessThan(1.7);
+    });
   });
 
   describe('time signature rendering', () => {
