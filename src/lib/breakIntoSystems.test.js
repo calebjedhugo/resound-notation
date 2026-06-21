@@ -242,6 +242,76 @@ describe('systemBadness', () => {
     const stretched = systemBadness(400, 480, false); // 1.20 stretch
     expect(overflow).toBeGreaterThan(stretched * 10);
   });
+
+  // LAST-SYSTEM STRETCH PENALTY. The renderer now CAPS a last/only system's
+  // inter-note stretch at LAST_SYSTEM_STRETCH_CAP = 1.5× and renders it
+  // ragged-left past that. The cost model must reflect that: a sparse,
+  // over-stretched last system is NOT free (the old `0.1 * underfill`-only
+  // branch let the optimizer strand a pathologically sparse final). The cost
+  // must rise monotonically as the last system gets sparser (more stretch /
+  // more post-cap whitespace) so the Knuth-Plass DP will pull a measure down
+  // from the previous system when that lowers total badness.
+  it('penalizes a last system that over-stretches: cost rises monotonically as it gets sparser', () => {
+    const naturalSum = 200;
+    // Increasingly wide budgets → increasingly sparse last system.
+    const b1 = systemBadness(naturalSum, 220, true); // stretch 1.10
+    const b2 = systemBadness(naturalSum, 280, true); // stretch 1.40
+    const b3 = systemBadness(naturalSum, 400, true); // stretch 2.00 (past cap)
+    const b4 = systemBadness(naturalSum, 600, true); // stretch 3.00 (past cap)
+    expect(b2).toBeGreaterThan(b1);
+    expect(b3).toBeGreaterThan(b2);
+    expect(b4).toBeGreaterThan(b3);
+    // The PAST-cap region must grow at least as fast as the below-cap region
+    // (the cap is a cliff, not a softening): a pure-linear `0.1 * underfill`
+    // stub has a CONSTANT slope and fails this. Compare equal-budget steps.
+    const belowStep = systemBadness(naturalSum, 280, true)
+      - systemBadness(naturalSum, 240, true); // +40 budget, below cap (1.2→1.4)
+    const aboveStep = systemBadness(naturalSum, 600, true)
+      - systemBadness(naturalSum, 560, true); // +40 budget, past cap (2.8→3.0)
+    expect(aboveStep).toBeGreaterThan(belowStep);
+  });
+
+  it('prices last-system over-stretch as a STRETCH cost (convex below the cap), not a flat per-unit underfill slope', () => {
+    // The old `0.1 * underfill`-only branch is LINEAR in budget (constant
+    // slope, no dependence on how stretched the music is). The new model
+    // must price stretch convexly while the last system is still justified
+    // (≤ 1.5× cap): the cost increment per equal stretch step must GROW.
+    // This distinguishes the new shape from the old linear-underfill stub.
+    const naturalSum = 200;
+    const b10 = systemBadness(naturalSum, 220, true); // stretch 1.10
+    const b125 = systemBadness(naturalSum, 250, true); // stretch 1.25
+    const b140 = systemBadness(naturalSum, 280, true); // stretch 1.40
+    const d1 = b125 - b10; // +0.15 stretch
+    const d2 = b140 - b125; // +0.15 stretch
+    expect(d2).toBeGreaterThan(d1);
+  });
+
+  it('prices a heavily over-stretched last system above a moderately-stretched interior system (the rebalance lever)', () => {
+    // The rebalance lever: a pathologically sparse last system (small natural
+    // content stretched far past the cap) must cost MORE than a moderately
+    // stretched interior system the optimizer could trade against — otherwise
+    // the DP never pulls a measure down. The old `0.1 * underfill`-only branch
+    // priced a 2.5× last system (natural 40, budget 100) at just 0.1×60 = 6,
+    // BELOW a 1.3× interior (100×0.3² = 9) — so it stranded sparse finals.
+    // The new stretch+whitespace penalty must invert that.
+    const sparseLast = systemBadness(40, 100, true); // 2.5× last, past cap
+    const moderateInterior = systemBadness(40, 52, false); // 1.3× interior
+    expect(sparseLast).toBeGreaterThan(moderateInterior);
+  });
+
+  it('keeps a last system cheaper than the same over-stretched interior system (ragged is still preferred to a justified blow-up)', () => {
+    // A last system may go ragged; an interior one must justify. So at the
+    // same stretch the last-system cost stays BELOW the interior cost — the
+    // optimizer still prefers to ragged-out a final rather than cram an
+    // interior. (Pins the engraving asymmetry while adding the new penalty.)
+    expect(systemBadness(200, 400, true)).toBeLessThan(systemBadness(200, 400, false));
+    expect(systemBadness(200, 320, true)).toBeLessThan(systemBadness(200, 320, false));
+  });
+
+  it('a perfectly-filled last system is essentially free (no spurious penalty at stretch 1.0)', () => {
+    expect(systemBadness(400, 400, true)).toBeLessThanOrEqual(systemBadness(400, 440, true));
+    expect(systemBadness(400, 400, true)).toBeLessThan(5);
+  });
 });
 
 describe('breakIntoSystemsOptimal', () => {
@@ -287,6 +357,25 @@ describe('breakIntoSystemsOptimal', () => {
     // Concretely: greedy's last system is 2 measures, optimal's >= 4.
     expect(greedyLastCount).toBe(2);
     expect(optimalLastCount).toBeGreaterThanOrEqual(4);
+  });
+
+  it('pulls a measure down from the previous system rather than strand a pathologically sparse 1-measure final', () => {
+    // REBALANCE (the user's `pullMeasuresFromPrevSystem` branch). Eleven
+    // uniform measures at a budget that fits 5 per system. WITHOUT a
+    // last-system stretch penalty the DP packs [5,5,1] — the predecessors
+    // sit at stretch 1.0 (perfectly full, cost 0) and the lone straggler is
+    // "free" under the old `0.1 * underfill`-only branch, so the optimizer
+    // has no incentive to rebalance. WITH the penalty, the sparse final is
+    // priced, and pulling one measure down to [5,4,2] (predecessor relaxes
+    // to a mild stretch, final doubles) lowers total badness. Pin: the final
+    // system is no longer a lone measure.
+    const intrinsics = Array(11).fill(100);
+    const plans = breakIntoSystemsOptimal(
+      intrinsics.length, 560, metricFor(intrinsics, () => 0),
+    );
+    const last = plans[plans.length - 1];
+    const lastCount = last.endMeasure - last.startMeasure + 1;
+    expect(lastCount).toBeGreaterThanOrEqual(2);
   });
 
   it('handles a single-measure-too-wide degenerate case without crashing', () => {

@@ -2008,6 +2008,125 @@ describe('NotationRenderer', () => {
       expect(staffRightX - closingBarX).toBeLessThanOrEqual(15);
     });
 
+    // ---------------------------------------------------------------------
+    // LAST-SYSTEM STRETCH CAP (Gould "Behind Bars", Systems; LilyPond /
+    // Dorico): a LAST (or only) system must not be justified to the full
+    // container at any density. Inter-note spring stretch is capped at
+    // LAST_SYSTEM_STRETCH_CAP = 1.5× natural; past the width that produces
+    // 1.5× the system freezes at 1.5× and goes RAGGED-LEFT (closing barline
+    // short of the right margin, whitespace after). Interior systems are
+    // unchanged — they always fully justify.
+    // ---------------------------------------------------------------------
+    describe('last-system stretch cap (ragged-left past 1.5×)', () => {
+      const xFromTranslate = (el) => {
+        const m = /translate\(([-\d.]+)/.exec(el.getAttribute('transform') || '');
+        return m ? parseFloat(m[1]) : 0;
+      };
+      // 16 eighths in 4/4 treble — the accidentals-sweep shape (2 measures).
+      const SIXTEEN_EIGHTHS = {
+        clef: 'treble',
+        keySignature: 'C',
+        timeSignature: [4, 4],
+        notes: Array.from({ length: 16 }, (_, i) => ({
+          pitch: ['C5', 'D5', 'E5', 'F5', 'G5', 'A5', 'B5', 'C6'][i % 8],
+          length: '1/8',
+        })),
+      };
+
+      // Median inter-note (within-measure) gap for a one-system render at a
+      // given internal width. Excludes the larger across-barline gaps by
+      // taking the lower-quartile of the sorted left-to-left gaps.
+      const medianInterNoteGap = (width) => {
+        const renderer = new NotationRenderer({
+          container: document.createElement('div'),
+          width,
+        });
+        const svg = renderer.render(SIXTEEN_EIGHTHS);
+        const staves = svg.querySelectorAll('g.staff');
+        // Must stay a SINGLE system for the metric to be meaningful.
+        expect(staves.length).toBe(1);
+        const noteXs = Array.from(staves[0].querySelectorAll('g.note'))
+          .map(xFromTranslate)
+          .sort((a, b) => a - b);
+        expect(noteXs.length).toBe(16);
+        const gaps = [];
+        for (let i = 1; i < noteXs.length; i += 1) gaps.push(noteXs[i] - noteXs[i - 1]);
+        const sorted = [...gaps].sort((a, b) => a - b);
+        // Lower quartile ≈ a within-measure eighth step (across-barline gaps
+        // and the cap-relaxed gaps sit in the upper half).
+        return sorted[Math.floor(sorted.length / 4)];
+      };
+
+      it('caps the last/only system inter-note stretch at 1.5× natural at a wide width (accidentals-sweep regime)', () => {
+        // Natural reference: the eighth step at the NARROWEST single-system
+        // width (just past the wrap threshold) — there the springs sit at
+        // (essentially) their intrinsic length, no slack distributed.
+        const natural = medianInterNoteGap(1400);
+        expect(natural).toBeGreaterThan(0);
+        // Sanity: matches the documented ~70 internal-unit natural eighth gap.
+        expect(natural).toBeGreaterThan(50);
+        expect(natural).toBeLessThan(90);
+
+        // The over-stretch regime: width 2848u ≈ the playground's 942px
+        // accidentals-sweep render (viewBox 2848). Today this stretches the
+        // eighth step to ≈2.3× natural; with the cap it must be ≤1.5×.
+        const wide = medianInterNoteGap(2848);
+        expect(wide / natural).toBeLessThanOrEqual(1.5 + 0.05);
+      });
+
+      it('leaves the last/only system ragged-left past the cap (closing barline short of the container, whitespace after)', () => {
+        const width = 2848;
+        const renderer = new NotationRenderer({
+          container: document.createElement('div'),
+          width,
+        });
+        const svg = renderer.render(SIXTEEN_EIGHTHS);
+        const staff = svg.querySelector('g.staff');
+
+        // Staff line terminates at the closing barline (ragged: short of the
+        // full container/viewBox right edge).
+        const staffRightX = parseFloat(
+          staff.querySelector('line.staff-line').getAttribute('x2'),
+        );
+        const vbWidth = parseFloat(svg.getAttribute('viewBox').split(/\s+/)[2]);
+
+        // Closing barline x.
+        const closingBarXs = [];
+        for (const bl of staff.querySelectorAll('.barline-final, [class*="barline-repeat"]')) {
+          const m = /translate\(([-\d.]+)/.exec(bl.getAttribute('transform') || '');
+          if (m) closingBarXs.push(parseFloat(m[1]));
+        }
+        const closingBarX = Math.max(...closingBarXs);
+
+        // Staff line ends AT the closing barline (same as today's ragged
+        // single-measure case).
+        expect(Math.abs(staffRightX - closingBarX)).toBeLessThanOrEqual(15);
+        // RAGGED: meaningful whitespace remains between the closing barline
+        // and the container right edge (not justified to fill).
+        expect(vbWidth - closingBarX).toBeGreaterThan(200);
+      });
+
+      it('is continuous: last-system stretch is non-decreasing across a width sweep and never exceeds the cap', () => {
+        // Stay within the single-system regime (≥ ~1400u for 16 eighths) so
+        // every sweep point is a last/only system whose stretch the cap
+        // governs. Below that the piece wraps to 2 systems (a different
+        // regime, not what the cap is about).
+        const natural = medianInterNoteGap(1400);
+        const widths = [1400, 1600, 1800, 2100, 2400, 2800, 3200];
+        const ratios = widths.map((w) => medianInterNoteGap(w) / natural);
+        for (let i = 1; i < ratios.length; i += 1) {
+          // Non-decreasing (no snap/discontinuity) — allow tiny float drift.
+          expect(ratios[i]).toBeGreaterThanOrEqual(ratios[i - 1] - 0.02);
+        }
+        for (const r of ratios) {
+          expect(r).toBeLessThanOrEqual(1.5 + 0.05);
+        }
+        // The widest sweep entry is firmly AT the cap (the cap is binding,
+        // not merely never reached).
+        expect(ratios[ratios.length - 1]).toBeGreaterThan(1.35);
+      });
+    });
+
     it('never lets the rightmost note overflow the viewBox across a sweep of boundary widths (trailing-edge clipping)', () => {
       // Engraving invariant (Gould, Behind Bars, ch. on spacing): every
       // rendered note must stay within its system's staff / the SVG
@@ -4968,11 +5087,14 @@ describe('NotationRenderer', () => {
       const systems = svg.querySelectorAll('g[data-system-index]');
       expect(systems.length).toBeGreaterThanOrEqual(2);
 
-      // Every system's staff line spans the full music width: from
-      // STAFF_START_X to the right side at `width`. That is the
-      // "right-justification" invariant in its honest form — the staff
-      // itself fills the available width on every system.
-      for (let si = 0; si < systems.length; si += 1) {
+      // Every NON-FINAL system's staff line spans the full music width:
+      // from STAFF_START_X to the right side at `width`. That is the
+      // "right-justification" invariant in its honest form — interior staves
+      // fill the available width. The FINAL system is EXCLUDED: a last/only
+      // system is capped at LAST_SYSTEM_STRETCH_CAP× and left ragged-left
+      // (Gould "Behind Bars", Systems), so its staff terminus sits short of
+      // `width` — pinned by the dedicated last-system-cap tests.
+      for (let si = 0; si < systems.length - 1; si += 1) {
         const sys = systems[si];
         const staffLine = sys.querySelector('.staff-line');
         const staffRightX = parseFloat(staffLine.getAttribute('x2'));
@@ -5065,17 +5187,25 @@ describe('NotationRenderer', () => {
       expect(staffRightX(systems[0]) - sys0xs[3]).toBeGreaterThan(0);
       expect(staffRightX(systems[0]) - sys0xs[3]).toBeLessThanOrEqual(70);
 
-      // Volta-pair symmetry: systems 1 and 2 are the 1st and 2nd
-      // endings of the SAME musical bar. Their staff widths and note
-      // x-positions must match within ~5px.
+      // Volta-pair onset symmetry: systems 1 and 2 are the 1st and 2nd
+      // endings of the SAME musical bar, so their shared DOWNBEAT (first
+      // note) onset must align to the same x — the left edge of the bar reads
+      // identically. (System 1 is interior and justifies to `width`; system 2
+      // is the LAST system and is capped at LAST_SYSTEM_STRETCH_CAP× and left
+      // ragged-left per Gould "Behind Bars", Systems — so its staff terminus
+      // and trailing-half position sit short of system 1's. That divergence is
+      // the intended last-system cap, NOT a layout bug; the dedicated
+      // last-system-cap tests pin it. The downbeat onset is the symmetry that
+      // survives and matters visually.)
       const sys1xs = noteXs(systems[1]);
       const sys2xs = noteXs(systems[2]);
       expect(sys1xs).toHaveLength(2);
       expect(sys2xs).toHaveLength(2);
-      expect(Math.abs(staffRightX(systems[1]) - staffRightX(systems[2]))).toBeLessThanOrEqual(5);
-      for (let i = 0; i < 2; i += 1) {
-        expect(Math.abs(sys1xs[i] - sys2xs[i])).toBeLessThanOrEqual(5);
-      }
+      // Shared first-note (downbeat) onset is identical.
+      expect(Math.abs(sys1xs[0] - sys2xs[0])).toBeLessThanOrEqual(5);
+      // The capped last system's staff terminus is short of the justified
+      // interior volta's (ragged-left), but never WIDER than it.
+      expect(staffRightX(systems[2])).toBeLessThanOrEqual(staffRightX(systems[1]) + 1);
 
       // Volta interior spacing: the single inter-note gap must NOT
       // consume all the slack ("first note + huge gap + last note").

@@ -7,10 +7,21 @@
  * distribute slack so each measure's target width is `intrinsic * stretch`
  * — uniform stretch (linear) of the music portion only.
  *
- * Last-system rule (Gould): don't justify a final system that's nearly
- * empty (1 measure) or that would stretch the music beyond ~1.5× its
- * natural width. Leave it ragged at intrinsic.
+ * Last-system rule (Gould): a final system is NOT justified to fill the
+ * container at any density. Its inter-note spring stretch is capped at
+ * LAST_SYSTEM_STRETCH_CAP = 1.5× natural; past the width that produces 1.5×
+ * the springs freeze at 1.5× and the system is left RAGGED-LEFT (closing
+ * barline short of the right margin, staff lines ending at the closing
+ * barline). A 1-measure final is just the cap firing immediately. The cap
+ * is applied by the renderer (NotationRenderer.js) — see `justifySystemSpring`
+ * and `systemBadness` below, which model the same cap so breaking and
+ * rendering agree.
  */
+// The continuous last-system inter-note stretch cap (Gould "Behind Bars",
+// Systems; LilyPond/Dorico): justify a last/only system normally until the
+// inter-note stretch reaches this multiple of natural, then freeze and go
+// ragged-left. One-line tunable; the renderer imports the same constant.
+export const LAST_SYSTEM_STRETCH_CAP = 1.5;
 
 /**
  * @typedef {Object} SystemPlan
@@ -139,12 +150,14 @@ export function justifySystem(systemPlan, combinedIntrinsics, availableMusicWidt
  * absorb more of the available stretch — matching Gould "Behind Bars"
  * (Spacing) and Lilypond's log-proportional natural-length + floor model.
  *
- * Last-system rule: if `isLast` AND the system has exactly 1 measure,
- * return natural lengths unchanged (real engraving convention — a solo
- * trailing measure doesn't justify). The earlier ">1.5 stretch" guard
- * was a band-aid for greedy breaking's pathological tiny finals; with
- * optimal break-point selection the optimizer picks balanced finals on
- * its own, so the guard is no longer needed.
+ * Last-system rule: this solver is PURE — it stretches to whatever
+ * `availableMusicWidth` it is handed. The LAST_SYSTEM_STRETCH_CAP (1.5×) is
+ * applied UPSTREAM by the renderer: for a last/only system it passes a
+ * capped right edge (cappedRightX) instead of the full container width, so
+ * the springs never stretch past 1.5× here and the system is rendered
+ * ragged-left. The `isLast && measureCount === 1` shortcut below is the same
+ * idea firing degenerately (a solo trailing measure returns natural lengths);
+ * the renderer's continuous cap GENERALIZES it to any measure count.
  *
  * @param {Array<{ natLength: number, K: number }>} springs
  * @param {number} sumFixed  sum of fixed (non-stretching) widths across the system
@@ -181,27 +194,50 @@ export function justifySystemSpring(springs, sumFixed, availableMusicWidth, opti
  *
  * Shape:
  *   - Overflow:   1000 + (natural - music)        // very bad but finite
- *   - Final ragged: 0.1 * underfill               // soft preference for full finals
- *   - Stretch 1.0..1.5: 100 * (s-1)^2             // mild, quadratic near optimum
- *   - Stretch > 1.5:    100 * (s-1)^3             // sharp, cubic past the cliff
+ *   - Interior, stretch 1.0..1.5: 100 * (s-1)^2   // mild, quadratic near optimum
+ *   - Interior, stretch > 1.5:    100 * (s-1)^3   // sharp, cubic past the cliff
+ *   - LAST, stretch ≤ cap:  30 * (s-1)^2          // soft (last may go ragged)
+ *   - LAST, stretch > cap:  30 * (cap-1)^2        // frozen-at-cap stretch cost
+ *                           + 0.15 * postCapWhitespace   // ragged whitespace
+ *
+ * The LAST-system branch RECONCILES the cost model with the renderer's
+ * 1.5× stretch cap (LAST_SYSTEM_STRETCH_CAP). Below the cap the last system
+ * justifies, so its cost is a (softened) interior-shaped stretch penalty.
+ * Past the cap the renderer freezes the springs at 1.5× and leaves the rest
+ * as ragged whitespace, so the cost is the frozen stretch cost PLUS the
+ * post-cap whitespace it can no longer absorb (musicBudget − cap·natural).
+ * This prices a sparse, over-stretched final so the Knuth-Plass DP will pull
+ * a measure down from the previous system when that lowers total badness and
+ * the predecessor has stretch headroom — while staying CHEAPER than the
+ * interior penalty at the same stretch (a final is allowed to go ragged; an
+ * interior is not). The cost is continuous and monotonically increasing in
+ * stretch (no snap at the cap).
  *
  * The 1000-base overflow penalty is finite so the optimizer can still
  * choose an overflowed plan when a single measure literally can't fit.
  *
  * Tuning constants picked by snap-eyeball on Bach Invention 1 and the
- * ottava-showcase preset; the SHAPE (quadratic near 1.0, cubic past 1.5)
- * is the load-bearing part — exact coefficients are knobs.
+ * ottava-showcase preset; the SHAPE (quadratic near 1.0, cubic past 1.5 for
+ * interiors; soft quadratic + post-cap whitespace for the last) is the
+ * load-bearing part — exact coefficients are knobs.
  */
 export function systemBadness(naturalSum, musicBudget, isLast) {
   if (musicBudget <= 0) return 1e9;
   if (naturalSum > musicBudget) {
     return 1000 + (naturalSum - musicBudget);
   }
-  if (isLast) {
-    const underfill = musicBudget - naturalSum;
-    return 0.1 * underfill;
-  }
   const stretch = musicBudget / naturalSum;
+  if (isLast) {
+    // Model the renderer's 1.5× cap + ragged-left whitespace.
+    if (stretch <= LAST_SYSTEM_STRETCH_CAP) {
+      const x = stretch - 1;
+      return 30 * x * x;
+    }
+    const capX = LAST_SYSTEM_STRETCH_CAP - 1;
+    const frozenStretchCost = 30 * capX * capX;
+    const postCapWhitespace = musicBudget - LAST_SYSTEM_STRETCH_CAP * naturalSum;
+    return frozenStretchCost + 0.15 * postCapWhitespace;
+  }
   if (stretch < 1.0) return 1000; // guarded; shouldn't reach
   const x = stretch - 1;
   if (stretch > 1.5) return 100 * x * x * x;

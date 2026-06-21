@@ -66,7 +66,7 @@ import { createBracket } from './components/Bracket.js';
 import { createSharedBarLine } from './components/SharedBarLine.js';
 import { analyzeOttava } from './lib/segmentOttava.js';
 import { createOttavaBracket } from './components/OttavaBracket.js';
-import { breakIntoSystems, breakIntoSystemsOptimal, justifySystemSpring } from './lib/breakIntoSystems.js';
+import { breakIntoSystems, breakIntoSystemsOptimal, justifySystemSpring, LAST_SYSTEM_STRETCH_CAP } from './lib/breakIntoSystems.js';
 import { sliceVoiceByMeasure } from './lib/sliceVoiceByMeasure.js';
 
 // Chromatic offsets for converting scientific pitch (C4 = MIDI 60) to MIDI.
@@ -697,11 +697,27 @@ function computeSystemSpringLayout(
   // natural too. (We then recompute naturalRightX below and the caller may
   // re-call us with a real systemRightX to justify.)
   const targetRightX = systemRightX == null ? 0 : systemRightX;
-  const stretchableBudget =
-    targetRightX - perSystemMusicStartX
-    - leadingMusicOffset
-    - trailingBarlineOffset
-    - interiorBarlineOffset;
+  const fixedOffsetSum =
+    perSystemMusicStartX
+    + leadingMusicOffset
+    + trailingBarlineOffset
+    + interiorBarlineOffset;
+  const stretchableBudget = targetRightX - fixedOffsetSum;
+
+  // LAST-SYSTEM STRETCH CAP (Gould "Behind Bars", Systems; LilyPond/Dorico).
+  // The spring solver applies a single force F to every spring, and because
+  // each spring's stretchability K ≈ its natural length, the stretch RATIO
+  // (natLength + F·K)/natLength ≈ 1 + F is UNIFORM across springs. So the
+  // median inter-note gap reaches LAST_SYSTEM_STRETCH_CAP× natural exactly at
+  // F = cap − 1. `cappedRightX` is the system right edge at that force:
+  //   stretchableBudget = sumNat + (cap−1)·sumK  →  + fixed offsets.
+  // The renderer renders a last/only system at min(container, cappedRightX):
+  // below cappedRightX it justifies normally; past it the springs freeze at
+  // the cap and the system is left RAGGED-LEFT. Continuous — no snap.
+  const sumNatForCap = allSprings.reduce((a, s) => a + s.natLength, 0);
+  const sumKForCap = allSprings.reduce((a, s) => a + s.K, 0);
+  const cappedRightX =
+    fixedOffsetSum + sumNatForCap + (LAST_SYSTEM_STRETCH_CAP - 1) * sumKForCap;
   const stretchedGaps = justifySystemSpring(
     allSprings,
     0,
@@ -917,6 +933,7 @@ function computeSystemSpringLayout(
   return {
     naturalRightX,
     naturalRenderRightX,
+    cappedRightX,
     stretchedBeatToX,
     prePadMap,
     postPadMap,
@@ -1461,27 +1478,82 @@ export class NotationRenderer {
         // floored at MIN_BARLINE_PADDING, so it is always ≥ naturalRightX and
         // never pulls the barline in below the floor.
         const naturalRenderRightX = naturalLayout.naturalRenderRightX;
+        // cappedRightX = the system right edge at which the inter-note springs
+        // reach LAST_SYSTEM_STRETCH_CAP× natural. Only a LAST/ONLY system caps;
+        // interior systems always fully justify to this._width.
+        const cappedRightX = naturalLayout.cappedRightX;
         const systemEndBeat = naturalLayout.systemEndBeat;
         const measureCountInSystem = plan.endMeasure - plan.startMeasure + 1;
 
-        // Justify (stretch to fill the width) unless this is a solo trailing
-        // final system — Gould's last-system rule leaves a 1-measure final
-        // ragged at natural. Otherwise stretch out to this._width.
+        // LAST-SYSTEM STRETCH CAP (Gould "Behind Bars", Systems; LilyPond/
+        // Dorico): a last/only system is NOT justified to the container at any
+        // density. It justifies only up to cappedRightX (springs at 1.5×);
+        // past that it freezes at the cap and goes RAGGED-LEFT. Three regimes:
+        //   • container ≤ naturalRightX  → ragged at natural (incl. a solo
+        //     1-measure final — the cap fires immediately there).
+        //   • naturalRightX < container ≤ cappedRightX → justify to container
+        //     (stretch ≤ 1.5×). This is CONTINUOUS with the next regime.
+        //   • container > cappedRightX   → justify the springs to cappedRightX
+        //     (1.5×) and render RAGGED-LEFT: staff lines + closing barline end
+        //     at cappedRightX, whitespace fills the rest of the container.
+        // Interior systems ignore the cap and justify to this._width.
         const soloFinal = isLast && measureCountInSystem === 1;
-        const justified = !soloFinal && naturalRightX < this._width - 1e-6;
-        const systemRightX = justified ? this._width : naturalRenderRightX;
+        // The right edge the SPRINGS are solved toward (the justify target).
+        let springTargetRightX;
+        // The right edge the STAFF / closing barline render at (= springs'
+        // target when justified-or-capped; the proportional-trailing natural
+        // extent when ragged at natural).
+        let systemRightX;
+        let raggedAtNatural;
+        if (isLast && naturalRightX < this._width - 1e-6) {
+          // The container is wider than natural — the last system would
+          // otherwise justify. Cap it at cappedRightX (springs at 1.5×).
+          const cappedTarget = Math.min(this._width, cappedRightX);
+          // Never pull the closing barline IN below naturalRenderRightX (the
+          // proportional-trailing ragged extent). For a sparse final whose
+          // natural render extent already exceeds cappedRightX — e.g. a solo
+          // long-note measure whose duration-proportional trailing reaches
+          // near the container — the cap would otherwise compress it; instead
+          // leave it ragged at natural (preserving the proportional trailing).
+          if (cappedTarget > naturalRenderRightX + 1e-6) {
+            // Justify the springs out to the capped target, render ragged-left
+            // (staff + closing barline end at cappedTarget, whitespace after
+            // when cappedTarget < this._width).
+            springTargetRightX = cappedTarget;
+            systemRightX = cappedTarget;
+            raggedAtNatural = false;
+          } else {
+            // Cap doesn't bind past the natural render extent: ragged at the
+            // proportional-trailing natural extent (the pre-cap behavior).
+            springTargetRightX = null;
+            systemRightX = naturalRenderRightX;
+            raggedAtNatural = true;
+          }
+        } else if (!soloFinal && naturalRightX < this._width - 1e-6) {
+          // Interior system with slack: justify fully to the container.
+          springTargetRightX = this._width;
+          systemRightX = this._width;
+          raggedAtNatural = false;
+        } else {
+          // No slack (or solo final): ragged at the proportional-trailing
+          // natural extent.
+          springTargetRightX = null;
+          systemRightX = naturalRenderRightX;
+          raggedAtNatural = true;
+        }
 
-        // Lay the system out at the chosen right edge. When justified we pass
-        // this._width and the inter-note springs stretch into the slack; when
-        // ragged we keep the natural inter-note layout untouched and only push
-        // the closing barline (systemEndX) out to naturalRenderRightX — the
-        // notes stay at their natural onsets, but the final barline sits at the
-        // last note's duration-proportional trailing (floored), not the floor.
-        const layout = justified
-          ? computeSystemSpringLayout(
-              sliceVoices, slicedVoiceNotes, perSystemMusicStartX, sharedMeasureLength, systemRightX
-            )
-          : naturalLayout;
+        // Lay the system out at the chosen right edge. When justifying (or
+        // capping) we pass springTargetRightX and the inter-note springs
+        // stretch into the slack; when ragged-at-natural we keep the natural
+        // inter-note layout untouched and only push the closing barline
+        // (systemEndX) out to naturalRenderRightX — the notes stay at their
+        // natural onsets, but the final barline sits at the last note's
+        // duration-proportional trailing (floored), not the floor.
+        const layout = raggedAtNatural
+          ? naturalLayout
+          : computeSystemSpringLayout(
+              sliceVoices, slicedVoiceNotes, perSystemMusicStartX, sharedMeasureLength, springTargetRightX
+            );
         const {
           stretchedBeatToX,
           prePadMap,
