@@ -7,6 +7,9 @@ import {
   MIN_STAFF_GAP,
   STAFF_CLEARANCE_PADDING,
 } from './NotationRenderer.js';
+import { computeBeamLine, BEAM_THICKNESS, BEAM_GAP } from './components/Beam.js';
+import { beamGroupStemDown } from './lib/beaming.js';
+import { pitchToStaffY } from './lib/notePositions.js';
 
 describe('NotationRenderer', () => {
   let ctx;
@@ -3953,6 +3956,135 @@ describe('NotationRenderer', () => {
       const bassInkTop = inkTopY(bassStaff);
       // The beam must clear the bass chord's highest ink by the padding.
       expect(bassInkTop - beamBottom).toBeGreaterThanOrEqual(STAFF_CLEARANCE_PADDING);
+    });
+
+    // viewBox content-grow must see the BEAM LINE, not just per-note stems.
+    // The viewBox top is grown from contentMinY (NotationRenderer ~L1837:
+    // grownTop = min(0, floor(contentMinY - MARGIN))). The per-note content
+    // pass estimates each head's reach as STEM_LENGTH past the head, which
+    // UNDER-COUNTS a stems-up beamed group: the shared beam line rides above
+    // the highest head's natural stem tip, so the beam can reach above the
+    // grown viewBox top and get clipped by svg.notation { overflow:hidden }.
+    // This is the Bach Prelude m2 RH defect (beam top ~5u above viewBox top).
+    // We assert the viewBox encloses the ACTUAL rendered beam line (read from
+    // the beam path `d` string attr — ground truth in jsdom; getBBox is 0),
+    // and cross-check the beam top against computeBeamLine analytically.
+    const MARGIN = 10; // matches NotationRenderer's content-grow MARGIN.
+    it('grows the viewBox top to enclose a stems-up beamed group whose beam reaches above the staff', () => {
+      // A wide beamed group whose lowest note (D4) is farthest BELOW the
+      // middle line → the whole group stems UP (Gould farthest-from-middle),
+      // and the repeated high heads (C5/E5) push the beam line well above the
+      // staff top. Mirrors Bach Prelude in C m2 RH (low note straddling far
+      // below the middle line, heads high). Pre-fix the beam top lands at
+      // ~y=-21.7 while the per-note content pass only grows the viewBox top to
+      // ~y=-10 (it credits each head STEM_LENGTH of headroom but never sees the
+      // shared beam line), so the beam is clipped by overflow:hidden.
+      const notes = [
+        { pitch: 'E4', length: '1/16' },
+        { pitch: 'C5', length: '1/16' },
+        { pitch: 'E5', length: '1/16' },
+        { pitch: 'C5', length: '1/16' },
+        { pitch: 'E5', length: '1/16' },
+        { pitch: 'C5', length: '1/16' },
+        { pitch: 'E5', length: '1/16' },
+        { pitch: 'C5', length: '1/16' },
+      ];
+      ctx.render({ voices: [{ id: 'rh', clef: 'treble', timeSignature: [2, 4], notes }] });
+      const svg = ctx.getSvg();
+      const staff = svg.querySelector('.staff');
+      const sy = staffTranslateY(staff);
+
+      // Direction sanity: the group must stem UP for this to exercise the
+      // top-clip path (beam above the heads).
+      const yValues = notes.map((n) => pitchToStaffY(n.pitch, 'treble'));
+      const stemDown = beamGroupStemDown(yValues, { voiceIndex: 0, voiceCount: 1 });
+      expect(stemDown).toBe(false);
+
+      // Highest absolute y reached by the rendered beam paths (min y in the
+      // `d` trapezoids). These are string attrs, not getBBox.
+      const beams = staff.querySelectorAll('.beam');
+      expect(beams.length).toBeGreaterThan(0);
+      let beamTopAbs = Infinity;
+      for (const beam of beams) {
+        const ys = beam
+          .getAttribute('d')
+          .match(/-?[\d.]+/g)
+          .map(Number)
+          .filter((_, i) => i % 2 === 1);
+        beamTopAbs = Math.min(beamTopAbs, sy + Math.min(...ys));
+      }
+
+      // Cross-check against computeBeamLine (the SAME geometry the renderer
+      // draws and the skyline uses), on the actual stem x-positions — proving
+      // the rendered beam top is the beam LINE, not a per-note stem estimate.
+      // The bare beam line is the anchor; the rendered ink adds the secondary
+      // (1/16) beam's offset away from the heads, bounded by one beam-stack
+      // height. No getBBox.
+      const stems = [...staff.querySelectorAll('.note .note-stem')];
+      const beamNotes = stems.map((stem, k) => {
+        const note = stem.closest('.note');
+        const x = parseFloat(
+          note.getAttribute('transform').match(/translate\(([^,]+),/)[1]
+        );
+        return { x, y: yValues[k], beams: 2 }; // 1/16 notes → 2 beam levels
+      });
+      const line = computeBeamLine(beamNotes, /* stemDown */ false);
+      const bareLineTopAbs = sy + Math.min(line.y1, line.y2);
+      const numBeams = 2;
+      const stackHeight = (numBeams - 1) * (BEAM_THICKNESS + BEAM_GAP);
+      // Rendered beam top sits at or above the bare line (stack rises away
+      // from the heads), within one stack height.
+      expect(beamTopAbs).toBeLessThanOrEqual(bareLineTopAbs + 1e-6);
+      expect(bareLineTopAbs - beamTopAbs).toBeLessThanOrEqual(stackHeight + 1);
+      // It genuinely reaches above the staff top line — this is the clip-risk
+      // regime the per-note pass under-counts.
+      const staffTopLine = sy + 10; // STAFF_TOP_OFFSET
+      expect(beamTopAbs).toBeLessThan(staffTopLine);
+
+      // The viewBox top must sit at or above the beam top by at least MARGIN
+      // (i.e. it ENCLOSES the beam + the same margin the renderer applies).
+      const vb = svg.getAttribute('viewBox').split(/\s+/).map(parseFloat);
+      const viewBoxTop = vb[1];
+      expect(viewBoxTop).toBeLessThanOrEqual(beamTopAbs - MARGIN);
+    });
+
+    it('grows the viewBox bottom to enclose a stems-down beamed group whose beam reaches below the staff', () => {
+      // High heads (farthest note ABOVE the middle line) → stems DOWN, beam
+      // below the heads, reaching toward the staff bottom. The bottom side of
+      // the content-grow must enclose this beam line too.
+      const notes = [
+        { pitch: 'C5', length: '1/16' },
+        { pitch: 'E5', length: '1/16' },
+        { pitch: 'G5', length: '1/16' },
+        { pitch: 'C6', length: '1/16' },
+        { pitch: 'G5', length: '1/16' },
+        { pitch: 'E5', length: '1/16' },
+        { pitch: 'C5', length: '1/16' },
+        { pitch: 'A4', length: '1/16' },
+      ];
+      ctx.render({ voices: [{ id: 'rh', clef: 'treble', timeSignature: [2, 4], notes }] });
+      const svg = ctx.getSvg();
+      const staff = svg.querySelector('.staff');
+      const sy = staffTranslateY(staff);
+
+      const yValues = notes.map((n) => pitchToStaffY(n.pitch, 'treble'));
+      const stemDown = beamGroupStemDown(yValues, { voiceIndex: 0, voiceCount: 1 });
+      expect(stemDown).toBe(true);
+
+      const beams = staff.querySelectorAll('.beam');
+      let beamBottomAbs = -Infinity;
+      for (const beam of beams) {
+        const ys = beam
+          .getAttribute('d')
+          .match(/-?[\d.]+/g)
+          .map(Number)
+          .filter((_, i) => i % 2 === 1);
+        beamBottomAbs = Math.max(beamBottomAbs, sy + Math.max(...ys));
+      }
+
+      const vb = svg.getAttribute('viewBox').split(/\s+/).map(parseFloat);
+      const viewBoxBottom = vb[1] + vb[3];
+      expect(viewBoxBottom).toBeGreaterThanOrEqual(beamBottomAbs + MARGIN);
     });
   });
 

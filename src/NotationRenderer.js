@@ -3393,6 +3393,63 @@ export class NotationRenderer {
         }
       }
 
+      // Beam-aware content bbox fold. The per-note pass above credits each
+      // head STEM_LENGTH of headroom but never sees the SHARED beam line: a
+      // beamed group's beam rides above the highest head (stems up) or below
+      // the lowest (stems down) by more than any single note's stem estimate,
+      // so a stems-up group whose beam reaches above the staff would be cut
+      // off by svg.notation { overflow:hidden } once the viewBox is grown from
+      // contentMinY (commit 9e5fc31 fixed this same under-count for the
+      // inter-staff skyline; 69309c4 folded the dynamics layer in the same
+      // way). Reuse the SAME geometry the renderer draws — computeBeamLine
+      // (Beam.js) on the actual note x/pitch positions and the precomputed
+      // beamGroupStemDownArr direction (Gould farthest-from-middle) — so the
+      // bbox sees exactly what is rendered. The beam line's stem-tip endpoints
+      // are the outermost edge on the head-facing side; the secondary
+      // (16th/32nd) beam levels stack one beam-stack height FARTHER from the
+      // heads, so add that on the outward side.
+      beamGroups.forEach((group, gi) => {
+        if (group.length < 2) return;
+        const stemDown = beamGroupStemDownArr[gi];
+        const beamNotes = [];
+        let maxBeams = 1;
+        for (const idx of group) {
+          const x = noteXPositions.get(idx);
+          if (x === undefined) continue;
+          const el = voice.notes[idx];
+          // Use the governing (extreme) pitch for the stem side, matching the
+          // renderer: chords stem from the farthest head in the stem dir.
+          const pitches = Array.isArray(el)
+            ? el.filter((n) => n && n.pitch).map((n) => n.pitch)
+            : (el && el.pitch ? [el.pitch] : []);
+          if (pitches.length === 0) continue;
+          const ys = pitches.map((p) => pitchToStaffY(p, clef));
+          // Stem starts at the head on the beam side: stems up → highest head
+          // (min y); stems down → lowest head (max y).
+          const noteY = stemDown ? Math.max(...ys) : Math.min(...ys);
+          const length = Array.isArray(el)
+            ? (el.find((n) => n && n.length) || {}).length
+            : el.length;
+          const info = length ? getDurationInfo(length) : { beams: 1 };
+          if (info.beams > maxBeams) maxBeams = info.beams;
+          beamNotes.push({ x, y: noteY, beams: Math.max(1, info.beams) });
+        }
+        if (beamNotes.length < 2) return;
+        const line = computeBeamLine(beamNotes, stemDown);
+        // Secondary beam levels stack one beam-stack height farther from the
+        // heads than the primary (computeBeamLine) line.
+        const stackHeight = (maxBeams - 1) * (BEAM_THICKNESS + BEAM_GAP);
+        const lineLo = Math.max(line.y1, line.y2);
+        const lineHi = Math.min(line.y1, line.y2);
+        if (stemDown) {
+          const beamBottomAbs = voiceY + lineLo + stackHeight;
+          if (beamBottomAbs > contentMaxY) contentMaxY = beamBottomAbs;
+        } else {
+          const beamTopAbs = voiceY + lineHi - stackHeight;
+          if (beamTopAbs < contentMinY) contentMinY = beamTopAbs;
+        }
+      });
+
       // Ottava brackets for this voice. Per Gould "Behind Bars" (Ottava,
       // p. 75), the bracket sits clear of the highest content within the
       // segment (or lowest, for 8vb), not at a fixed offset from the staff
