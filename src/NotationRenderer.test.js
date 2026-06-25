@@ -606,6 +606,101 @@ describe('NotationRenderer', () => {
       expect(stemY2Abs).toBeCloseTo(beamFarY, 0);
     });
 
+    // Standard engraving (Gould "Behind Bars", Stems; Ross "The Art of
+    // Music Engraving"): in a beamed group with a SLOPED beam, every stem
+    // must terminate exactly on the beam line at that stem's x — stem and
+    // beam share one geometry (same slope + intercept). A stem must never
+    // fall short of (leave a gap before) the beam, nor overshoot through
+    // it. The defect this pins: beamed stems kept the note-CONTOUR slope
+    // (each stem the same local length) instead of being projected onto
+    // the slope-capped beam line, so the outermost stem on the high side
+    // fell short while the others plunged through. Derive the beam line
+    // from the rendered beam path geometry (no hardcoded pixels) and
+    // assert every stem's far end lands on it within 0.5px.
+    //
+    // Helper: given a beam-group container, pull the primary beam's
+    // outer-edge line and every stem's absolute far end, and return the
+    // signed miss (stem far-Y − beam-line-Y at the stem x) per stem.
+    const stemMissesAgainstBeam = (groupEl) => {
+      const beam = groupEl.querySelector('.beam');
+      // Primary beam path: "M x0 y0 L x1 y1 L x1 y2 L x0 y3 Z". The first
+      // two points are the head-side (top) edge; the last two the far
+      // edge. Use the FAR edge as the line stems should reach.
+      const nums = beam.getAttribute('d').match(/-?[\d.]+/g).map(Number);
+      // points: (nums[0],nums[1]) (nums[2],nums[3]) (nums[4],nums[5]) (nums[6],nums[7])
+      const bx0 = nums[0];
+      const bx1 = nums[2];
+      // Far edge = the second pair of vertices (indices 6,7 and 4,5),
+      // which share x with the near edge. far(x0)=nums[7], far(x1)=nums[5].
+      const farY0 = nums[7];
+      const farY1 = nums[5];
+      const farYAt = (x) => (bx1 === bx0
+        ? farY0
+        : farY0 + ((farY1 - farY0) / (bx1 - bx0)) * (x - bx0));
+      const stems = [...groupEl.querySelectorAll('.note-stem')];
+      return stems.map((stem) => {
+        const noteG = stem.closest('.note');
+        const ty = parseFloat(
+          noteG.getAttribute('transform').match(/translate\([-\d.]+,\s*([-\d.]+)\)/)[1]
+        );
+        const tx = parseFloat(
+          noteG.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]
+        );
+        const stemLocalX = parseFloat(stem.getAttribute('x1'));
+        const stemAbsX = tx + stemLocalX;
+        const stemFarYAbs = ty + parseFloat(stem.getAttribute('y2'));
+        return stemFarYAbs - farYAt(stemAbsX);
+      });
+    };
+
+    it('lands every beamed stem on the sloped beam line (sextuplet, stem-down)', () => {
+      // Ascending-then-shaped sextuplet that forces a sloped beam. High
+      // notes → stem-down → beam below the heads, sloping with the contour
+      // until the cap flattens it. Each stem must reach the (single) beam.
+      ctx.render({
+        timeSignature: [4, 4],
+        notes: [
+          {
+            tuplet: [6, 4],
+            notes: [
+              { pitch: 'C5', length: '1/16' },
+              { pitch: 'D5', length: '1/16' },
+              { pitch: 'E5', length: '1/16' },
+              { pitch: 'F5', length: '1/16' },
+              { pitch: 'G5', length: '1/16' },
+              { pitch: 'A5', length: '1/16' },
+            ],
+          },
+        ],
+      });
+      const group = ctx.container.querySelector('.tuplet-group');
+      const misses = stemMissesAgainstBeam(group);
+      expect(misses.length).toBe(6);
+      for (const m of misses) {
+        expect(Math.abs(m)).toBeLessThanOrEqual(0.5);
+      }
+    });
+
+    it('lands every beamed stem on the sloped beam line (plain eighths, not tuplet)', () => {
+      // Confirms the fix is general, not tuplet-specific: a plain run of
+      // ascending eighths produces a sloped beam; every stem must touch it.
+      ctx.render({
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C5', length: '1/8' },
+          { pitch: 'E5', length: '1/8' },
+          { pitch: 'G5', length: '1/8' },
+          { pitch: 'B5', length: '1/8' },
+        ],
+      });
+      const staff = ctx.container.querySelector('.staff');
+      const misses = stemMissesAgainstBeam(staff);
+      expect(misses.length).toBe(4);
+      for (const m of misses) {
+        expect(Math.abs(m)).toBeLessThanOrEqual(0.5);
+      }
+    });
+
     // Standard engraving (Gould, Bravura): beams are ~0.5 staff space
     // thick — half the height of a notehead, so they read as a strong
     // horizontal/diagonal mark. With LINE_SPACING=20px that's ~10px;

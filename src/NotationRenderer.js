@@ -2315,7 +2315,7 @@ export class NotationRenderer {
               }
 
               tupletGroup.appendChild(noteGroup);
-              tupletNoteData.push({ x: cursorX, y: noteY, beams: info.beams });
+              tupletNoteData.push({ x: cursorX, y: noteY, beams: info.beams, noteGroup });
 
               // Ledger lines
               const ledgerGroup = createLedgerLines({ x: cursorX, y: noteY });
@@ -2345,6 +2345,28 @@ export class NotationRenderer {
           if (fullyBeamed && tupletNoteData.length >= 2) {
             const avgY = tupletYPositions.reduce((a, b) => a + b, 0) / tupletYPositions.length;
             const stemDown = avgY <= MIDDLE_LINE_Y;
+
+            // Project each stem's far end onto the slope-capped beam line —
+            // the SAME line createBeams will draw — so stem and beam share
+            // one geometry (Gould "Behind Bars", Stems; Ross). Without this
+            // the tuplet stems keep their per-note STEM_LENGTH and so ride
+            // the note CONTOUR slope, not the (capped) beam slope: the
+            // outermost stem on the high side falls short of the beam while
+            // the rest plunge through it. Mirrors the non-tuplet beam
+            // close-out below; the ledger-line lower bound from
+            // lib/stemLength.js is already baked into computeBeamLine.
+            const line = computeBeamLine(tupletNoteData, stemDown);
+            for (const noteData of tupletNoteData) {
+              if (!noteData.noteGroup) continue;
+              const stem = noteData.noteGroup.querySelector('.note-stem');
+              if (!stem) continue;
+              const stemAbsX = stemDown
+                ? noteData.x - HEAD_TIP_X
+                : noteData.x + HEAD_TIP_X;
+              const targetAbsY = beamLineYAt(line, stemAbsX);
+              // Note group is translate(x, noteY): local y2 = absY − noteY.
+              stem.setAttribute('y2', targetAbsY - noteData.y);
+            }
 
             const beamPaths = createBeams({
               notes: tupletNoteData,
