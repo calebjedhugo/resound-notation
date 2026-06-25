@@ -5,6 +5,9 @@
 
 import { createGroup, createPath } from '../lib/svgHelpers.js';
 import { smuflTip, NOTEHEAD_BLACK_GLYPH } from '../assets/glyphs.js';
+import { effectiveStemLength } from '../lib/stemLength.js';
+
+const MIDDLE_LINE_Y = 50;
 
 // Beamed notes are always 8th or shorter → black notehead. Stem attaches
 // at the SMuFL black notehead's stem-up tip vertex.
@@ -42,7 +45,17 @@ const MAX_BEAM_RISE = 20;
  * STEM_LENGTH outward.
  */
 function stemEndY(noteY, stemDown) {
-  return stemDown ? noteY - HEAD_TIP_Y + STEM_LENGTH : noteY + HEAD_TIP_Y - STEM_LENGTH;
+  // Stems are lengthened so their tip reaches at least the middle staff line
+  // for far-out ledger notes (lower bound; see lib/stemLength.js). Beamed
+  // stems honor the same bound so beam-side reach matches single-note stems.
+  const attachY = stemDown ? noteY - HEAD_TIP_Y : noteY + HEAD_TIP_Y;
+  const len = effectiveStemLength({
+    attachY,
+    stemDown,
+    baseLength: STEM_LENGTH,
+    middleLineY: MIDDLE_LINE_Y,
+  });
+  return stemDown ? attachY + len : attachY - len;
 }
 
 /**

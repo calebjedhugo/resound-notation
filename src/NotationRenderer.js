@@ -17,6 +17,7 @@ import { measureIntrinsicWidths } from './lib/measureIntrinsicWidths.js';
 import { inferClef } from './lib/clefInference.js';
 import { getDurationInfo, fractionToBeats } from './lib/durationSymbols.js';
 import { pitchToStaffY, parsePitch } from './lib/notePositions.js';
+import { effectiveStemLength } from './lib/stemLength.js';
 import { createStaffLines } from './components/Staff.js';
 import { createNote } from './components/Note.js';
 import { createClef } from './components/Clef.js';
@@ -358,13 +359,19 @@ function lowestExtentOf(element, clef) {
     const distMin = Math.abs(minY - MIDDLE_LINE_Y);
     const governingY = distMax >= distMin ? maxY : minY;
     const stemDown = governingY <= MIDDLE_LINE_Y;
-    if (stemDown) return maxY - HEAD_TIP_Y + STEM_LENGTH;
+    if (stemDown) {
+      const attachY = maxY - HEAD_TIP_Y;
+      return attachY + effectiveStemLength({ attachY, stemDown, baseLength: STEM_LENGTH, middleLineY: MIDDLE_LINE_Y });
+    }
     return maxY + 5; // notehead bottom for stem-up chord
   }
   if (!element.pitch) return 0;
   const y = pitchToStaffY(element.pitch, clef);
   const stemDown = y <= MIDDLE_LINE_Y;
-  if (stemDown) return y - HEAD_TIP_Y + STEM_LENGTH;
+  if (stemDown) {
+    const attachY = y - HEAD_TIP_Y;
+    return attachY + effectiveStemLength({ attachY, stemDown, baseLength: STEM_LENGTH, middleLineY: MIDDLE_LINE_Y });
+  }
   return y + 5;
 }
 
@@ -402,15 +409,16 @@ function topExtentOf(element, clef) {
     const stemDown = governingY <= MIDDLE_LINE_Y;
     const headTop = minY - HEAD_HALF_Y;
     if (stemDown) return headTop;
-    // Stem-up: stem rises by STEM_LENGTH from the highest notehead.
-    return minY - STEM_LENGTH;
+    // Stem-up: stem rises by the effective length (lengthened to reach the
+    // middle line for far-below ledger notes) from the highest notehead.
+    return minY - effectiveStemLength({ attachY: minY, stemDown, baseLength: STEM_LENGTH, middleLineY: MIDDLE_LINE_Y });
   }
   if (!element.pitch) return Infinity;
   const y = pitchToStaffY(element.pitch, clef);
   const stemDown = y <= MIDDLE_LINE_Y;
   const headTop = y - HEAD_HALF_Y;
   if (stemDown) return headTop;
-  return y - STEM_LENGTH;
+  return y - effectiveStemLength({ attachY: y, stemDown, baseLength: STEM_LENGTH, middleLineY: MIDDLE_LINE_Y });
 }
 
 /**
@@ -2218,7 +2226,16 @@ export class NotationRenderer {
                   const maxY = Math.max(...yPositions);
                   const stemX = stemDown ? -HEAD_TIP_X : HEAD_TIP_X;
                   const stemY1 = stemDown ? minY - HEAD_TIP_Y : maxY + HEAD_TIP_Y;
-                  const stemY2 = stemDown ? maxY - HEAD_TIP_Y + STEM_LENGTH : minY + HEAD_TIP_Y - STEM_LENGTH;
+                  // Stem tip's head end: bottom head (maxY) for stem-down,
+                  // top head (minY) for stem-up.
+                  const stemAttachY = stemDown ? maxY - HEAD_TIP_Y : minY + HEAD_TIP_Y;
+                  const stemLen = effectiveStemLength({
+                    attachY: stemAttachY,
+                    stemDown,
+                    baseLength: STEM_LENGTH,
+                    middleLineY: MIDDLE_LINE_Y,
+                  });
+                  const stemY2 = stemDown ? stemAttachY + stemLen : stemAttachY - stemLen;
                   chordGroup.appendChild(
                     createLine(stemX, stemY1, stemX, stemY2, {
                       class: 'note-stem',
@@ -2702,7 +2719,16 @@ export class NotationRenderer {
               const maxY = Math.max(...yPositions);
               const stemX = stemDown ? -HEAD_TIP_X : HEAD_TIP_X;
               const stemY1 = stemDown ? minY - HEAD_TIP_Y : maxY + HEAD_TIP_Y;
-              const stemY2 = stemDown ? maxY - HEAD_TIP_Y + STEM_LENGTH : minY + HEAD_TIP_Y - STEM_LENGTH;
+              // Stem tip's head end: bottom head (maxY) for stem-down, top
+              // head (minY) for stem-up.
+              const stemAttachY = stemDown ? maxY - HEAD_TIP_Y : minY + HEAD_TIP_Y;
+              const stemLen = effectiveStemLength({
+                attachY: stemAttachY,
+                stemDown,
+                baseLength: STEM_LENGTH,
+                middleLineY: MIDDLE_LINE_Y,
+              });
+              const stemY2 = stemDown ? stemAttachY + stemLen : stemAttachY - stemLen;
 
               chordGroup.appendChild(
                 createLine(stemX, stemY1, stemX, stemY2, {
@@ -2872,7 +2898,15 @@ export class NotationRenderer {
             const stemDown = noteY <= MIDDLE_LINE_Y;
             const stemX = stemDown ? -HEAD_TIP_X : HEAD_TIP_X;
             const stemY1 = stemDown ? -HEAD_TIP_Y : HEAD_TIP_Y;
-            const stemY2 = stemDown ? -HEAD_TIP_Y + STEM_LENGTH : HEAD_TIP_Y - STEM_LENGTH;
+            // Group is translated to noteY, so absolute attach = noteY +
+            // stemY1; lengthen the stem to reach the middle line if far out.
+            const stemLen = effectiveStemLength({
+              attachY: noteY + stemY1,
+              stemDown,
+              baseLength: STEM_LENGTH,
+              middleLineY: MIDDLE_LINE_Y,
+            });
+            const stemY2 = stemDown ? stemY1 + stemLen : stemY1 - stemLen;
 
             noteGroup.appendChild(
               createLine(stemX, stemY1, stemX, stemY2, {

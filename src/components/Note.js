@@ -15,6 +15,7 @@ import {
   FLAG_GLYPHS,
 } from '../assets/glyphs.js';
 import { beamStemExtension } from './Beam.js';
+import { effectiveStemLength } from '../lib/stemLength.js';
 
 const MIDDLE_LINE_Y = 50;
 const STEM_LENGTH = 70;
@@ -66,9 +67,19 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
     const beamExt = beamed ? beamStemExtension(info.flags) : 0;
     const stemX = stemDown ? -tip.x : tip.x;
     const stemY1 = stemDown ? -tip.y : tip.y;
+    // Ledger-line stem lengthening: extend the stem so its tip reaches at
+    // least the middle staff line (lower bound; never shortens). attachY is
+    // the stem's head end in absolute staff coords (group is translated to
+    // y), so the helper measures the reach to MIDDLE_LINE_Y correctly.
+    const baseLen = effectiveStemLength({
+      attachY: y + stemY1,
+      stemDown,
+      baseLength: STEM_LENGTH,
+      middleLineY: MIDDLE_LINE_Y,
+    });
     const stemY2 = stemDown
-      ? -tip.y + STEM_LENGTH + beamExt
-      : tip.y - STEM_LENGTH - beamExt;
+      ? stemY1 + baseLen + beamExt
+      : stemY1 - baseLen - beamExt;
 
     group.appendChild(
       createLine(stemX, stemY1, stemX, stemY2, { class: 'note-stem', stroke: 'currentColor', 'stroke-width': 2.4 })

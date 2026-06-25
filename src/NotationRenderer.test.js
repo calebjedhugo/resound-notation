@@ -143,6 +143,51 @@ describe('NotationRenderer', () => {
       expect(Math.abs(y2 - y1)).toBe(70);
     });
 
+    // Standard engraving (Gould "Behind Bars", Stems; Ross "The Art of Music
+    // Engraving"): the 3.5-space (70px) stem length is a LOWER BOUND. For a
+    // note far enough out on ledger lines, the stem must be LENGTHENED so its
+    // tip reaches AT LEAST the middle line of the staff. Treble E3 sits an
+    // octave-and-a-third below the staff (staff-y 160; bottom line at 90,
+    // middle line at 50). With a fixed 70px stem the up-stem tip lands at
+    // y≈90 — only the bottom staff line, ~2 spaces short of the middle line.
+    // The tip must reach y ≤ 50. The note group is translated to the staff
+    // y, so the stem's absolute tip is translateY + local y2.
+    it('lengthens an up-stem on a low ledger note so its tip reaches the middle staff line', () => {
+      // Explicit treble clef so E3 lands far below the staff (auto-clef would
+      // otherwise pick bass and place E3 inside the staff).
+      ctx.render({ voices: [{ clef: 'treble', notes: [{ pitch: 'E3', length: '1/4' }] }] });
+      const note = ctx.container.querySelector('.note');
+      const translateY = parseFloat(note.getAttribute('transform').match(/translate\([-\d.]+,\s*([-\d.]+)\)/)[1]);
+      const stem = note.querySelector('.note-stem');
+      const y1 = parseFloat(stem.getAttribute('y1'));
+      const y2 = parseFloat(stem.getAttribute('y2'));
+      // Stem-up: tip is the smaller (more-negative) local y.
+      const tipAbs = translateY + Math.min(y1, y2);
+      const MIDDLE_LINE_Y = 50;
+      expect(tipAbs).toBeLessThanOrEqual(MIDDLE_LINE_Y);
+      // Still a lower bound — never shortened below the 3.5-space default.
+      expect(Math.abs(y2 - y1)).toBeGreaterThanOrEqual(70);
+    });
+
+    // Mirror case: a high ledger-line note carries a stem-down whose tip must
+    // reach DOWN to the middle line. Treble A5 sits above the staff (staff-y
+    // -10; top line at 10, middle at 50); a fixed 70px down-stem tip lands at
+    // y≈60, but distant high notes need the same middle-line guarantee. C6
+    // (staff-y -30) is far enough that the bound binds.
+    it('lengthens a down-stem on a high ledger note so its tip reaches the middle staff line', () => {
+      ctx.render({ voices: [{ clef: 'treble', notes: [{ pitch: 'C6', length: '1/4' }] }] });
+      const note = ctx.container.querySelector('.note');
+      const translateY = parseFloat(note.getAttribute('transform').match(/translate\([-\d.]+,\s*([-\d.]+)\)/)[1]);
+      const stem = note.querySelector('.note-stem');
+      const y1 = parseFloat(stem.getAttribute('y1'));
+      const y2 = parseFloat(stem.getAttribute('y2'));
+      // Stem-down: tip is the larger local y.
+      const tipAbs = translateY + Math.max(y1, y2);
+      const MIDDLE_LINE_Y = 50;
+      expect(tipAbs).toBeGreaterThanOrEqual(MIDDLE_LINE_Y);
+      expect(Math.abs(y2 - y1)).toBeGreaterThanOrEqual(70);
+    });
+
     // Per Bravura/SMuFL engravingDefaults.stemThickness = 0.12 staff spaces
     // (Gould "Behind Bars", Stems). At LINE_SPACING=20 (1 space = 20px) that's
     // 2.4px. Without an explicit stroke-width the stem inherits SVG's 1px
