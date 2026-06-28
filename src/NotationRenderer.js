@@ -1663,9 +1663,19 @@ export class NotationRenderer {
         // extent when ragged at natural).
         let systemRightX;
         let raggedAtNatural;
-        if (isLast && naturalRightX < this._width - 1e-6) {
-          // The container is wider than natural — the last system would
-          // otherwise justify. Cap it at cappedRightX (springs at 1.5×).
+        if (isLast && !soloFinal && naturalRightX < this._width - 1e-6) {
+          // The container is wider than natural — the last MULTI-measure system
+          // would otherwise justify. Cap it at cappedRightX (springs at 1.5×).
+          // A solo-final (single-measure last/only) system is excluded here and
+          // falls through to the ragged-at-natural branch below: with one
+          // measure there is nowhere to redistribute justification slack across
+          // measures, so the only spring free to absorb it is the trailing
+          // (closing-barline) spring — pinning the barline to cappedTarget
+          // would balloon the last note's trailing to fill the container (a
+          // measure-ending tuplet showed ~6–11× the inter-note gap). Per Gould
+          // "Behind Bars" (Spacing) the closing barline sits at the last note's
+          // duration-proportional trailing regardless of container width, so a
+          // solo final renders RAGGED at naturalRenderRightX.
           const cappedTarget = Math.min(this._width, cappedRightX);
           // Never pull the closing barline IN below naturalRenderRightX (the
           // proportional-trailing ragged extent). For a sparse final whose

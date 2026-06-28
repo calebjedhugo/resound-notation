@@ -2153,6 +2153,125 @@ describe('NotationRenderer', () => {
       expect(staffRightX - closingBarX).toBeLessThanOrEqual(15);
     });
 
+    it('keeps the closing-barline trailing of a measure ENDING in a tuplet proportional (NOT ballooned to fill the container) on a solo-final system', () => {
+      // Engraving rule (Gould, "Behind Bars", Spacing): tuplet notes are
+      // spaced by their ACTUAL SOUNDING durations, and the closing barline
+      // sits at the last note's duration-proportional trailing — identical to
+      // any other measure. A measure ending in a sextuplet 16th should leave
+      // roughly one sextuplet-advance before the barline, NOT a giant gap.
+      //
+      // Regression: a SOLO-FINAL (single-measure last/only) system whose
+      // container is wider than its natural extent was justified by pinning
+      // the closing barline to the container right edge. With one measure there
+      // is nowhere to spread the slack ACROSS measures, so the inter-note
+      // springs stay at natural and the entire surplus lands on the trailing
+      // (closing-barline) spring — ballooning a tuplet-ending measure's
+      // trailing to ~6–11× its inter-note gap. The fix excludes solo-final
+      // systems from the multi-measure justify/cap branch so they render
+      // RAGGED at the proportional-trailing natural extent.
+      //
+      // Fixture mirrors the `tuplets` preset's measure: triplet 8ths + triplet
+      // 8ths + quintuplet 16ths + sextuplet 16ths = exactly one 4/4 bar ending
+      // on a sextuplet. Container is much wider than the bar's natural width so
+      // the (now-fixed) over-justify path would otherwise fire.
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 1400,
+      });
+      const svg = renderer.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { tuplet: [3, 2], notes: [{ pitch: 'C5', length: '1/8' }, { pitch: 'D5', length: '1/8' }, { pitch: 'E5', length: '1/8' }] },
+          { tuplet: [3, 2], notes: [{ pitch: 'F5', length: '1/8' }, { pitch: 'G5', length: '1/8' }, { pitch: 'A5', length: '1/8' }] },
+          { tuplet: [5, 4], notes: [{ pitch: 'C5', length: '1/16' }, { pitch: 'D5', length: '1/16' }, { pitch: 'E5', length: '1/16' }, { pitch: 'F5', length: '1/16' }, { pitch: 'G5', length: '1/16' }] },
+          { tuplet: [6, 4], notes: [{ pitch: 'A5', length: '1/16' }, { pitch: 'G5', length: '1/16' }, { pitch: 'F5', length: '1/16' }, { pitch: 'E5', length: '1/16' }, { pitch: 'D5', length: '1/16' }, { pitch: 'C5', length: '1/16' }] },
+        ],
+      });
+
+      const xFromTranslate = (el) => {
+        const m = /translate\(([-\d.]+)/.exec(el.getAttribute('transform') || '');
+        return m ? parseFloat(m[1]) : 0;
+      };
+
+      const staff = svg.querySelector('g.staff');
+      const noteXs = Array.from(staff.querySelectorAll('g.note'))
+        .map(xFromTranslate)
+        .sort((a, b) => a - b);
+      expect(noteXs.length).toBe(17);
+
+      const lastNoteX = noteXs[noteXs.length - 1];
+      // Inter-note gap inside the closing sextuplet (last two onsets).
+      const sextupletGap = lastNoteX - noteXs[noteXs.length - 2];
+      expect(sextupletGap).toBeGreaterThan(0);
+
+      const closingBarXs = [];
+      for (const bl of staff.querySelectorAll('.barline-final, [class*="barline-repeat"]')) {
+        const m = /translate\(([-\d.]+)/.exec(bl.getAttribute('transform') || '');
+        if (m) closingBarXs.push(parseFloat(m[1]));
+      }
+      const closingBarX = Math.max(...closingBarXs);
+
+      const trailing = closingBarX - lastNoteX;
+      // PROPORTIONAL: the trailing daylight is within a small factor of the
+      // last note's own (sounding-duration-scaled) advance — like every other
+      // measure, NOT the ~6–11× balloon the bug produced.
+      expect(trailing).toBeLessThanOrEqual(2 * sextupletGap);
+
+      // GUARD against over-correction: the trailing must still be a real,
+      // positive gap (the last note is not jammed against the barline).
+      expect(trailing).toBeGreaterThan(0);
+    });
+
+    it('keeps a normal-note-ending solo-final measure (eighth) at its existing proportional trailing (≈ one note-advance) — fix does not over-correct', () => {
+      // Guard the OTHER side: a non-tuplet solo-final measure must keep the
+      // pre-existing proportional trailing model (Gould, "Behind Bars"). A
+      // measure ending on an eighth leaves ≈ one eighth-advance of trailing —
+      // the same ~1× ratio observed before the tuplet fix. This pins that the
+      // solo-final ragged path does not flatten or balloon normal-note endings.
+      const renderer = new NotationRenderer({
+        container: document.createElement('div'),
+        width: 1400,
+      });
+      const svg = renderer.render({
+        clef: 'treble',
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C5', length: '1/8' }, { pitch: 'D5', length: '1/8' },
+          { pitch: 'E5', length: '1/8' }, { pitch: 'F5', length: '1/8' },
+          { pitch: 'G5', length: '1/8' }, { pitch: 'A5', length: '1/8' },
+          { pitch: 'B5', length: '1/8' }, { pitch: 'C6', length: '1/8' },
+        ],
+      });
+
+      const xFromTranslate = (el) => {
+        const m = /translate\(([-\d.]+)/.exec(el.getAttribute('transform') || '');
+        return m ? parseFloat(m[1]) : 0;
+      };
+      const staff = svg.querySelector('g.staff');
+      const noteXs = Array.from(staff.querySelectorAll('g.note'))
+        .map(xFromTranslate)
+        .sort((a, b) => a - b);
+      expect(noteXs.length).toBe(8);
+
+      const lastNoteX = noteXs[noteXs.length - 1];
+      const interNoteGap = lastNoteX - noteXs[noteXs.length - 2];
+      expect(interNoteGap).toBeGreaterThan(0);
+
+      const closingBarXs = [];
+      for (const bl of staff.querySelectorAll('.barline-final, [class*="barline-repeat"]')) {
+        const m = /translate\(([-\d.]+)/.exec(bl.getAttribute('transform') || '');
+        if (m) closingBarXs.push(parseFloat(m[1]));
+      }
+      const closingBarX = Math.max(...closingBarXs);
+      const trailing = closingBarX - lastNoteX;
+
+      // Proportional ~1× (allow generous band): not flattened to zero, not
+      // ballooned. The eighth ending keeps roughly one note-advance of trailing.
+      expect(trailing).toBeGreaterThan(0.4 * interNoteGap);
+      expect(trailing).toBeLessThanOrEqual(2.5 * interNoteGap);
+    });
+
     // ---------------------------------------------------------------------
     // LAST-SYSTEM STRETCH CAP (Gould "Behind Bars", Systems; LilyPond /
     // Dorico): a LAST (or only) system must not be justified to the full
