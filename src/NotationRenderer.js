@@ -2464,8 +2464,15 @@ export class NotationRenderer {
               // gap. Symmetric on the post side: HEAD_TIP_X carries us
               // from the barline through to the next note's left edge.
               cursorX += barlineGap + HEAD_TIP_X;
-              staffGroup.appendChild(createBarLine(cursorX));
-              barlineXs.push(cursorX);
+              // Route through emitAutoBarline (not createBarLine directly)
+              // so the last-system suppression + edge clamp apply: on the
+              // final system the system-end `barline-final` at systemEndX
+              // owns the closing glyph, and a tuplet that FILLS the final
+              // measure must not draw its own measure-fill bar coincident
+              // with / right of it (Gould "Behind Bars", system breaks:
+              // exactly one barline at the staff terminus). Interior
+              // tuplet barlines still emit normally.
+              emitAutoBarline(cursorX);
               cursorX += barlineGap + HEAD_TIP_X;
               cumulativeBeats -= measureLength;
             }

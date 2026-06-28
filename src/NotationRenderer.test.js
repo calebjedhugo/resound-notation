@@ -723,6 +723,109 @@ describe('NotationRenderer', () => {
       expect(thickness).toBeGreaterThanOrEqual(8);
     });
 
+    // Gould "Behind Bars" (system breaks): every system terminates with
+    // EXACTLY ONE closing barline at the staff right edge; on the final
+    // system that closing glyph IS the `barline-final`. A measure that
+    // ENDS in a tuplet must not draw its own measure-fill `.bar-line`
+    // coincident with / to the right of that final — the tuplet branch's
+    // barline emission must route through the same last-system suppression
+    // guard the single-note/chord branches use. (Latent duplicate exposed
+    // by commit ae452fd, which moved the final barline inward.)
+    it('draws no measure-fill barline at/past the final on a tuplet-ending last measure', () => {
+      // A sextuplet filling beat 4 of a 4/4 measure → the measure ENDS in
+      // a tuplet, and this is the only (final) system. Render wide so the
+      // single measure does not wrap (keeps x-coords in one system frame).
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const renderer = new NotationRenderer({ container, width: 1050 });
+      renderer.render({
+        timeSignature: [4, 4],
+        notes: [
+          { pitch: 'C4', length: '1/4' },
+          { pitch: 'C4', length: '1/4' },
+          { pitch: 'C4', length: '1/4' },
+          {
+            tuplet: [6, 4],
+            notes: [
+              { pitch: 'C4', length: '1/16' },
+              { pitch: 'D4', length: '1/16' },
+              { pitch: 'E4', length: '1/16' },
+              { pitch: 'F4', length: '1/16' },
+              { pitch: 'G4', length: '1/16' },
+              { pitch: 'A4', length: '1/16' },
+            ],
+          },
+        ],
+      });
+
+      // Staff terminus = x of the final barline group (translate(x,0)).
+      const finalGroup = container.querySelector('.barline-final');
+      expect(finalGroup).not.toBeNull();
+      const m = (finalGroup.getAttribute('transform') || '').match(
+        /translate\(\s*(-?[\d.]+)/
+      );
+      expect(m).not.toBeNull();
+      const terminusX = parseFloat(m[1]);
+
+      // No plain measure-fill `.bar-line` may sit at or past the terminus.
+      const barLineXs = [...container.querySelectorAll('.bar-line line')].map(
+        (l) => parseFloat(l.getAttribute('x1'))
+      );
+      const stragglers = barLineXs.filter((x) => x >= terminusX - 0.5);
+      expect(stragglers).toEqual([]);
+
+      renderer.clear();
+      container.remove();
+    });
+
+    // Counterpart guard: the suppression must be scoped to the LAST system's
+    // terminus only. A tuplet that fills a NON-final, interior measure (with
+    // more music after it) must STILL draw its measure barline.
+    it('still draws the measure barline for an INTERIOR tuplet-filled measure', () => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const renderer = new NotationRenderer({ container, width: 1050 });
+      renderer.render({
+        timeSignature: [4, 4],
+        notes: [
+          // Measure 1 ends in a sextuplet on beat 4.
+          { pitch: 'C4', length: '1/4' },
+          { pitch: 'C4', length: '1/4' },
+          { pitch: 'C4', length: '1/4' },
+          {
+            tuplet: [6, 4],
+            notes: [
+              { pitch: 'C4', length: '1/16' },
+              { pitch: 'D4', length: '1/16' },
+              { pitch: 'E4', length: '1/16' },
+              { pitch: 'F4', length: '1/16' },
+              { pitch: 'G4', length: '1/16' },
+              { pitch: 'A4', length: '1/16' },
+            ],
+          },
+          // Measure 2 follows → measure-1's barline is interior, not final.
+          { pitch: 'C4', length: '1/4' },
+        ],
+      });
+
+      const finalGroup = container.querySelector('.barline-final');
+      expect(finalGroup).not.toBeNull();
+      const m = (finalGroup.getAttribute('transform') || '').match(
+        /translate\(\s*(-?[\d.]+)/
+      );
+      const terminusX = parseFloat(m[1]);
+
+      // At least one interior `.bar-line` (the measure-1 boundary) must
+      // exist strictly left of the final terminus.
+      const interior = [...container.querySelectorAll('.bar-line line')]
+        .map((l) => parseFloat(l.getAttribute('x1')))
+        .filter((x) => x < terminusX - 0.5);
+      expect(interior.length).toBeGreaterThanOrEqual(1);
+
+      renderer.clear();
+      container.remove();
+    });
+
     // Multi-digit time signatures (e.g. 12/8) render one glyph per digit.
     it('renders one glyph per digit in multi-digit time signatures', () => {
       ctx.render({ timeSignature: [12, 8], notes: [{ pitch: 'C4', length: '1/4' }] });
