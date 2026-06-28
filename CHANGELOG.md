@@ -1,6 +1,29 @@
 # Changelog
 
-## 0.2.0 — Unreleased
+## 1.0.0 — 2026-06-25
+
+First stable release. The package is feature-complete for real engraving use and
+has been driving `resound-fe` in production. From this point the **public API**
+— the input JSON schema (`pitch`/`length`/`tuplet`/`voices`/…), the exported JS
+surface, and the subpath-export structure — follows semver; breaking any of
+those means a 2.0. Engraving *output* will keep being refined and such visual
+changes are **not** considered breaking.
+
+### Added
+
+- **Automatic system breaking & wrapping.** Long phrases flow onto multiple
+  justified staff systems using Knuth–Plass optimal break-point selection, with
+  visible continuation barlines and per-system right-justification.
+- **Responsive-by-default rendering.** The container owns the width; the
+  renderer re-lays-out reactively via `ResizeObserver` + `requestAnimationFrame`
+  batching (`scheduleRender`). A `scale` parameter zoom-reflows the bars.
+- **Ottava (8va/8vb) auto-engraving** — automatic high/low-passage detection,
+  bracket segmentation, dashed-line anchoring, and bass-clef 8vb support.
+- **Rhythm-proportional horizontal spacing** via a spring-model justification
+  (each note's trailing space scales with its own duration).
+- `PROFESSIONAL_BASE_SCALE` named export from `NotationRenderer.js` — the
+  internal-units → professional-pixels base, for consumers doing visual ↔ layout
+  width math.
 
 ### Changed
 
@@ -14,16 +37,23 @@
   size the SVG via CSS or the viewBox — or rasterize it stretched-to-fit — are
   visually unaffected. Only code reading the intrinsic `width`/`height`
   attributes (expecting them to equal the input `width`) sees a difference.
+- **Bravura/SMuFL conformance** — SMuFL flag glyphs for unbeamed notes, and
+  spec-accurate thicknesses for staff lines, stems, barlines, ledger lines,
+  slurs, ties, and hairpins.
+- **Extensive engraving refinements** — Gould-correct beamed stem direction,
+  ledger-line stem lengths (reach the middle line), beamed-tuplet stem
+  projection onto the beam line, content-aware inter-staff spacing, the
+  barline padding/spacing model, repeat-barline + volta geometry, and
+  dynamics/hairpin/accidental placement.
 
-### Added
+### Fixed
 
-- `PROFESSIONAL_BASE_SCALE` named export from `NotationRenderer.js` — the
-  internal-units → professional-pixels base, for consumers doing visual ↔ layout
-  width math.
+- Suppressed a duplicate closing barline when a measure ends in a tuplet.
+- Folded beams, dynamics, and hairpins into the content bounding box so the
+  `viewBox` grows to fit them (no clipping of stems-up beams or trailing edges).
 
-This release also accumulates the engraving/spacing refinements committed since
-0.1.0 (barline padding, system-wrap justification, spring-based spacing); see
-the git history for details.
+This release also accumulates the many smaller engraving/spacing refinements
+committed since 0.1.0; see the git history for the full detail.
 
 ## 0.1.0 — 2026-05-08
 
