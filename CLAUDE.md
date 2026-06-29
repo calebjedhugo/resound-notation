@@ -2,15 +2,6 @@
 
 Published SVG notation package extracted from `resound-fe/src/notation/`. See `README.md` for usage and `CHANGELOG.md` for history.
 
-## Outstanding TODOs
-
-**IMPORTANT:** Add `NPM_TOKEN` secret to the GitHub repo before the next release — without it `.github/workflows/release.yml` fails at `npm publish`.
-
-1. npmjs.com → Access Tokens → Classic → **Automation** type. (Regular tokens require an OTP at publish time, which CI can't provide.)
-2. github.com/calebjedhugo/resound-notation → Settings → Secrets and variables → Actions → New secret named `NPM_TOKEN`.
-
-The 0.1.0 release was published manually with `npm publish --access public --otp=<code>`. Subsequent releases should go through the tag-push workflow.
-
 ## Architecture
 
 - `src/NotationRenderer.js` — top-level renderer. ~43 kB; the meatiest file.
@@ -28,12 +19,25 @@ npm run build       # babel CLI src→dist (per-file ESM) + tsc emit-only for .d
 
 ### Release
 
+**Publish manually** (this is the supported path — 0.1.0, 0.2.0, and 1.0.0 all shipped this way):
+
 ```bash
-npm version patch   # bumps package.json + creates commit + creates v* tag
+npm version patch        # bumps package.json + creates commit + v* tag
 git push --follow-tags
+
+npm run build            # CI does this too; build dist/ before publishing
+npm login                # if `npm whoami` errors (E401), the local session expired
+npm publish --access public --otp=<6-digit-code>   # OTP from your authenticator app
+
+npm view resound-notation version   # confirm it landed
 ```
 
-Tag push triggers `.github/workflows/release.yml` once `NPM_TOKEN` is configured.
+A non-logged-in publish fails with a misleading `E404 Not Found` on the `PUT` (npm
+disguises auth failures as 404 for existing packages) — run `npm login` and retry.
+
+There is a `.github/workflows/release.yml` that publishes on `v*` tag push using the
+`NPM_TOKEN` repo secret, but releases have been done by hand; treat the manual flow
+above as canonical.
 
 ## Gotchas
 
