@@ -679,6 +679,56 @@ function accidentalGlyphForPitch(pitchAccidental, pitchLetter, keyInfo) {
 }
 
 /**
+ * Like `accidentalGlyphForPitch`, but honours in-measure accidental memory
+ * per standard engraving: an accidental is drawn only when the pitch's
+ * alteration differs from what is currently in effect for that exact
+ * letter+octave — which starts as the key signature and is updated by any
+ * earlier accidental in the same measure. A repeated same-alteration note in
+ * the measure draws nothing; a note returning to the key state draws a natural
+ * (or the key's own accidental) to cancel. `memory` is a Map keyed by
+ * `letter+octave` -> the alteration last shown, reset per measure by the
+ * caller (see `measureAccidentalMemory`).
+ *
+ * @param {string} pitchAccidental - "" | "#" | "b"
+ * @param {string} pitchLetter - "A".."G"
+ * @param {number} octave
+ * @param {{ type: 'sharp'|'flat'|'none', accidentals: string[] }} keyInfo
+ * @param {Map<string,string>} memory
+ * @returns {'sharp'|'flat'|'natural'|null}
+ */
+function accidentalGlyphWithMemory(pitchAccidental, pitchLetter, octave, keyInfo, memory) {
+  const key = `${pitchLetter}${octave}`;
+  let inEffect;
+  if (memory.has(key)) {
+    inEffect = memory.get(key);
+  } else {
+    const keyAlters =
+      keyInfo && keyInfo.type !== 'none' && keyInfo.accidentals.includes(pitchLetter);
+    inEffect = keyAlters ? (keyInfo.type === 'sharp' ? '#' : 'b') : '';
+  }
+  if (pitchAccidental === inEffect) return null;
+  memory.set(key, pitchAccidental);
+  if (pitchAccidental === '') return 'natural';
+  return ACCIDENTAL_TYPE_MAP[pitchAccidental] || null;
+}
+
+/**
+ * Return the accidental-memory Map for the measure containing `beat`, clearing
+ * it whenever the measure changes so accidentals reset at every barline.
+ * Unmetered voices (`measureLength` null) reset at every distinct beat, so each
+ * note re-shows its accidental. `state` is a per-voice `{ memory, marker }`
+ * carried across the note loop.
+ */
+function measureAccidentalMemory(beat, measureLength, state) {
+  const marker = measureLength ? Math.floor((beat + 1e-6) / measureLength) : beat;
+  if (marker !== state.marker) {
+    state.memory.clear();
+    state.marker = marker;
+  }
+  return state.memory;
+}
+
+/**
  * SHARED NATURAL-WIDTH METRIC + per-system spring layout.
  *
  * THE single source of truth for "how wide is a run of measures laid out as
@@ -2085,6 +2135,9 @@ export class NotationRenderer {
       const noteXPositions = new Map();
       let beatPosition = 0;
 
+      // In-measure accidental memory for this voice, reset at each barline.
+      const accidentalState = { memory: new Map(), marker: null };
+
       // Marker tracking for post-processing
       const pendingDynamics = [];
       const hairpinStarts = [];
@@ -2810,9 +2863,20 @@ export class NotationRenderer {
               ? ACCIDENTAL_OFFSET_BEAMED_PRIOR
               : ACCIDENTAL_OFFSET;
             const chordKeyInfo = getKeySignature(keySignature);
+            const chordAccMemory = measureAccidentalMemory(
+              currentBeatChord,
+              measureLength,
+              accidentalState
+            );
             for (let j = 0; j < chordNotes.length; j += 1) {
-              const { accidental, noteName } = parsePitch(chordNotes[j].pitch);
-              const accidentalType = accidentalGlyphForPitch(accidental, noteName, chordKeyInfo);
+              const { accidental, noteName, octave } = parsePitch(chordNotes[j].pitch);
+              const accidentalType = accidentalGlyphWithMemory(
+                accidental,
+                noteName,
+                octave,
+                chordKeyInfo,
+                chordAccMemory
+              );
               if (accidentalType) {
                 const accGroup = createAccidental(accidentalType);
                 accGroup.setAttribute(
@@ -3025,11 +3089,13 @@ export class NotationRenderer {
           // a beamed sibling — no clef/barline/rest buffer between the
           // two heads — so the visible gap reads tightest. Bump the
           // offset there to keep ~1.5 staff spaces of breathing room.
-          const { accidental, noteName } = parsePitch(element.pitch);
-          const accidentalType = accidentalGlyphForPitch(
+          const { accidental, noteName, octave } = parsePitch(element.pitch);
+          const accidentalType = accidentalGlyphWithMemory(
             accidental,
             noteName,
-            getKeySignature(keySignature)
+            octave,
+            getKeySignature(keySignature),
+            measureAccidentalMemory(currentBeat, measureLength, accidentalState)
           );
           if (accidentalType) {
             // The beamed-prior shrink trades the accidental's own-head
