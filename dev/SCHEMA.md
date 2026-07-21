@@ -96,7 +96,7 @@ Rules (see `SPEC-multi-voice-staff.md`; dev preset: `close-score-hymn`):
 | `tie` | `'start' \| 'continue' \| 'stop'` | Spans across rests/barlines; matches by pitch |
 | `slur` | `'start' \| 'stop'` | Stack-based; nesting allowed |
 | `grace` | `{pitch, type:'acciaccatura'\|'appoggiatura'}` or array | Drawn before the host note |
-| `lyric` | string | Plain text below the note (`Hel-`, `lo`, etc.). Implicit melismata when subsequent notes lack a lyric |
+| `lyric` | string or array of strings/nulls | Plain text below the note (`Hel-`, `lo`, etc.). Implicit melismata when subsequent notes lack a lyric. An **array stacks hymnal verses** (`['A-', 'Twas', 'Through']` = verses 1-3; `null` = no syllable for that verse → per-verse melisma). Verse lines stack 26 units apart; verse numbers (`1.`, `2.`, …) render at each system's first syllable when a voice has >1 verse; inter-staff/system spacing reserves room for the block. A bare string = verse 1 (unchanged). |
 
 ## Tuplet wrapper
 
@@ -123,7 +123,6 @@ Inside notes you may have notes / rests / chords. **No nested tuplets.** Bracket
 - **Trills, mordents, turns, ornaments** — not articulations; no separate element type.
 - **8va / 8vb** — no element.
 - **Pedal markings** — no element.
-- **Multiple verses of lyrics** — `lyric` is a single string per note.
 - **System breaks / page breaks** — single SVG row, scrolls horizontally.
 
 ## Defaults / inference

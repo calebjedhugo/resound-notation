@@ -4,6 +4,19 @@
 
 ### Added
 
+- **Multi-verse lyrics (hymnal-style stacked verses)** —
+  SPEC-multi-verse-lyrics.md. `lyric` now also accepts an array of
+  strings/nulls, one entry per verse (`['A-', 'Twas', 'Through']`); `null`
+  means no syllable for that verse on that note. Verse lines stack below
+  the staff 26 units apart (verse 1 at the legacy position); each verse
+  computes its own melisma underscores independently; verse numbers
+  ("1.", "2.", …) render as separate end-anchored text elements at each
+  system's first syllable of every verse (multi-verse voices only, so note
+  spacing never shifts); inter-staff skylines, the inter-system gap, and
+  the viewBox all reserve room for the verse block — including below a
+  shared (close score) staff. Bare-string lyric input renders
+  pixel-identically to before.
+
 - **Two voices per staff (close score)** — SPEC-multi-voice-staff.md. A
   Level-3 voice may declare an optional `staff` key; voices with the same
   value render on ONE shared staff (the SATB hymnal layout: soprano+alto on

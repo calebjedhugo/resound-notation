@@ -62,7 +62,13 @@ import { renderNavigationMarker } from './components/NavigationMarker.js';
 import { renderTempoMarking, renderTempoChange } from './components/TempoMarking.js';
 import { renderExpressionText } from './components/ExpressionText.js';
 import { renderRehearsalMark } from './components/RehearsalMark.js';
-import { renderLyric, renderMelisma } from './components/Lyric.js';
+import {
+  renderLyric,
+  renderMelisma,
+  renderVerseNumber,
+  LYRIC_BASE_Y,
+  VERSE_LINE_HEIGHT,
+} from './components/Lyric.js';
 import { createBrace, getBraceWidth } from './components/Brace.js';
 import { createBracket } from './components/Bracket.js';
 import { createSharedBarLine } from './components/SharedBarLine.js';
@@ -448,7 +454,13 @@ function topExtentOf(element, clef, forcedStemDown) {
  * @returns {{ descent: number, ascent: number }}
  */
 function voiceSkyline(notes, clef, opts = {}) {
-  const { timeSignature = null, voiceIndex, voiceCount, forcedStemDown } = opts;
+  const {
+    timeSignature = null,
+    voiceIndex,
+    voiceCount,
+    forcedStemDown,
+    lyricVerseCount = 0,
+  } = opts;
   const TOP_LINE = STAFF_TOP_OFFSET; // 10
   const BOTTOM_LINE = STAFF_TOP_OFFSET + STAFF_HEIGHT; // 90
   let lowest = BOTTOM_LINE; // most-positive y reached by ink
@@ -507,6 +519,13 @@ function voiceSkyline(notes, clef, opts = {}) {
       if (headBottom > lowest) lowest = headBottom;
     }
   }
+
+  // Multi-verse lyric block (SPEC-multi-verse-lyrics.md rule 3): the
+  // reserved space below the staff grows with the verse count so following
+  // staves don't collide with the block. Single-verse voices contribute
+  // nothing (legacy layout never reserved lyric room — rule 5).
+  const lyricBottom = lyricBlockBottom(lyricVerseCount);
+  if (lyricBottom > lowest) lowest = lyricBottom;
 
   return {
     descent: Math.max(0, lowest - BOTTOM_LINE),
@@ -633,6 +652,50 @@ function chordGlyphFor(info) {
   if (info.name === 'whole') return NOTEHEAD_WHOLE_GLYPH;
   if (info.name === 'half') return NOTEHEAD_HALF_GLYPH;
   return NOTEHEAD_BLACK_GLYPH;
+}
+
+// --- Multi-verse lyrics — SPEC-multi-verse-lyrics.md ----------------------
+// Descender allowance (px) below a lyric line's baseline when reserving
+// vertical room for the verse block (11px text → ~3px descender + air).
+const LYRIC_BLOCK_DESCENT_PAD = 8;
+
+/**
+ * The syllable a `lyric` value contributes to verse `v` (0-based), or null
+ * when that verse has no syllable on this note (melisma / verse ended).
+ * A bare string is verse 1 (spec: mixed usage allowed).
+ */
+function lyricSyllableForVerse(lyric, v) {
+  if (lyric === undefined || lyric === null) return null;
+  if (Array.isArray(lyric)) {
+    const s = lyric[v];
+    return s === undefined || s === null ? null : s;
+  }
+  return v === 0 ? lyric : null;
+}
+
+/**
+ * Number of lyric verses a voice carries: max over its notes of the lyric
+ * array length (a bare string counts as 1 verse). 0 = no lyrics.
+ */
+function maxLyricVerseCount(notes) {
+  let n = 0;
+  for (const el of notes || []) {
+    if (!el || Array.isArray(el)) continue; // chords carry no lyric
+    if (el.lyric === undefined) continue;
+    n = Math.max(n, Array.isArray(el.lyric) ? el.lyric.length : 1);
+  }
+  return n;
+}
+
+/**
+ * Bottom edge (staff-local y) of a voice's lyric verse block, or 0 when the
+ * voice has fewer than 2 verses. Single-verse voices contribute nothing so
+ * legacy output stays pixel-identical (spec rule 5) — today's layout never
+ * reserved room for a single lyric line.
+ */
+function lyricBlockBottom(verseCount) {
+  if (!(verseCount > 1)) return 0;
+  return LYRIC_BASE_Y + (verseCount - 1) * VERSE_LINE_HEIGHT + LYRIC_BLOCK_DESCENT_PAD;
 }
 
 // --- Two voices per staff (close score) — SPEC-multi-voice-staff.md -------
@@ -1487,12 +1550,18 @@ export class NotationRenderer {
 
     // Per-voice intrinsic skyline (descent below own bottom line, ascent
     // above own top line) — independent of where the staff is placed.
+    // Per-voice lyric verse counts (multi-verse lyric support): drives the
+    // skyline's verse-block reservation, the per-system lyric rendering,
+    // and the inter-system advance below.
+    const voiceVerseCounts = parsed.voices.map((v) => maxLyricVerseCount(v.notes));
+
     const voiceSkylines = parsed.voices.map((v, vi) =>
       voiceSkyline(shiftedVoiceNotes[vi], voiceEffectiveClef[vi], {
         timeSignature: v.timeSignature || null,
         voiceIndex: vi,
         voiceCount: parsed.voices.length,
         forcedStemDown: voiceForcedStemDown[vi],
+        lyricVerseCount: voiceVerseCounts[vi],
       })
     );
 
@@ -1864,6 +1933,7 @@ export class NotationRenderer {
         braceGroups,
         systemIndex: 0,
         staffModel,
+        voiceVerseCounts,
       });
     } else {
       for (let si = 0; si < systemPlans.length; si += 1) {
@@ -2119,6 +2189,7 @@ export class NotationRenderer {
           prePadMap,
           postPadMap,
           staffModel,
+          voiceVerseCounts,
         });
 
         // Advance Y for the next system. Use effectiveVoiceYPositions so
@@ -2128,7 +2199,24 @@ export class NotationRenderer {
         const systemBandBottom = Math.max(...effectiveVoiceYPositions) + STAFF_TOP_OFFSET + STAFF_HEIGHT + 40;
         const systemBottom = systemBandBottom + systemYOffset;
         lastSystemBottomY = systemBottom;
-        systemYOffset += (systemBandBottom - systemBandTop) + SYSTEM_GAP;
+        // Multi-verse lyric block below the BOTTOM staff eats into the
+        // inter-system gap; grow the advance by its reach past the band's
+        // trailing margin so the next system never collides (spec rule 3).
+        // Zero for single-verse/no-lyric input (legacy spacing unchanged).
+        let bottomStaffLyricExcess = 0;
+        if (staffCount > 0) {
+          const bottomStaff = staffModel.staves[staffCount - 1];
+          const bottomVerseCount = Math.max(
+            0,
+            ...bottomStaff.voiceIndices.map((vi) => voiceVerseCounts[vi])
+          );
+          bottomStaffLyricExcess = Math.max(
+            0,
+            lyricBlockBottom(bottomVerseCount) - (STAFF_TOP_OFFSET + STAFF_HEIGHT + 40)
+          );
+        }
+        systemYOffset +=
+          (systemBandBottom - systemBandTop) + SYSTEM_GAP + bottomStaffLyricExcess;
       }
     }
 
@@ -2232,6 +2320,7 @@ export class NotationRenderer {
     prePadMap = null,
     postPadMap = null,
     staffModel = null,
+    voiceVerseCounts = null,
   }) {
     let contentMinY = systemContext.contentMinY;
     let contentMaxY = systemContext.contentMaxY;
@@ -3591,9 +3680,10 @@ export class NotationRenderer {
             target.appendChild(ledgerGroup);
           }
 
-          // Lyric tracking
+          // Lyric tracking. `lyric` is a string (verse 1) or an array of
+          // strings/nulls, one entry per verse (multi-verse lyrics).
           if (element.lyric !== undefined) {
-            lyricData.push({ text: element.lyric, x: renderedX, noteIndex: i });
+            lyricData.push({ lyric: element.lyric, x: renderedX, noteIndex: i });
           }
 
           elementBeats = fractionToBeats(element.length);
@@ -3915,35 +4005,88 @@ export class NotationRenderer {
         staffGroup.appendChild(endingsGroup);
       }
 
-      // Lyrics rendering pass
+      // Lyrics rendering pass. Each verse line renders independently
+      // (own syllables, own melismas — SPEC-multi-verse-lyrics.md); verse
+      // 1 of bare-string input reproduces the legacy single-verse output
+      // exactly. Verse numbers render at the first lyric-bearing note of
+      // each verse on every system, but only for multi-verse voices (a
+      // single verse stays pixel-identical to today).
       if (lyricData.length > 0) {
         const lyricsGroup = createGroup('lyrics-layer');
+        // Multi-verse mode is decided from the WHOLE voice (via render()'s
+        // voiceVerseCounts) so a continuation system whose slice happens to
+        // hold only verse-1 syllables still numbers its lines.
+        const wholeVoiceVerses = voiceVerseCounts ? voiceVerseCounts[index] : 0;
+        const multiVerse = wholeVoiceVerses > 1;
+        const sliceVerseCount = Math.max(
+          1,
+          ...lyricData.map((ld) => (Array.isArray(ld.lyric) ? ld.lyric.length : 1))
+        );
 
-        for (let li = 0; li < lyricData.length; li += 1) {
-          const ld = lyricData[li];
-          lyricsGroup.appendChild(renderLyric({ text: ld.text, x: ld.x }));
-
-          // Detect melisma: if this lyric's note is followed by notes without lyrics
-          // before the next note with a lyric (or end of piece)
-          const nextLyricData = lyricData[li + 1];
-          const nextLyricNoteIndex = nextLyricData ? nextLyricData.noteIndex : voice.notes.length;
-
-          // Check if there are notes without lyrics between this note and the next lyric
-          let melismaEndX = null;
-          for (let mi = ld.noteIndex + 1; mi < nextLyricNoteIndex; mi += 1) {
-            const mel = voice.notes[mi];
-            if (mel && mel.pitch && mel.lyric === undefined) {
-              const mx = noteXPositions.get(mi);
-              if (mx !== undefined) melismaEndX = mx;
-            }
+        for (let v = 0; v < sliceVerseCount; v += 1) {
+          const verseEntries = [];
+          for (const ld of lyricData) {
+            const text = lyricSyllableForVerse(ld.lyric, v);
+            if (text !== null) verseEntries.push({ ...ld, text });
           }
 
-          if (melismaEndX !== null) {
-            lyricsGroup.appendChild(renderMelisma({ startX: ld.x + 10, endX: melismaEndX }));
+          for (let li = 0; li < verseEntries.length; li += 1) {
+            const ld = verseEntries[li];
+
+            // Verse number at the system's first syllable of this verse.
+            // End-anchored left of the (center-anchored) syllable; the
+            // half-width estimate is ~3px/char at font-size 11.
+            if (multiVerse && li === 0) {
+              const halfWidthEstimate = String(ld.text).length * 3;
+              lyricsGroup.appendChild(
+                renderVerseNumber({
+                  number: v + 1,
+                  x: ld.x - halfWidthEstimate - 4,
+                  verseIndex: v,
+                })
+              );
+            }
+
+            lyricsGroup.appendChild(
+              renderLyric({ text: ld.text, x: ld.x, verseIndex: v })
+            );
+
+            // Melisma for THIS verse: pitched notes after this syllable's
+            // note and before the verse's next syllable that carry no
+            // syllable for this verse extend the underscore.
+            const nextEntry = verseEntries[li + 1];
+            const nextNoteIndex = nextEntry ? nextEntry.noteIndex : voice.notes.length;
+            let melismaEndX = null;
+            for (let mi = ld.noteIndex + 1; mi < nextNoteIndex; mi += 1) {
+              const mel = voice.notes[mi];
+              if (
+                mel &&
+                !Array.isArray(mel) &&
+                mel.pitch &&
+                lyricSyllableForVerse(mel.lyric, v) === null
+              ) {
+                const mx = noteXPositions.get(mi);
+                if (mx !== undefined) melismaEndX = mx;
+              }
+            }
+
+            if (melismaEndX !== null) {
+              lyricsGroup.appendChild(
+                renderMelisma({ startX: ld.x + 10, endX: melismaEndX, verseIndex: v })
+              );
+            }
           }
         }
 
         staffGroup.appendChild(lyricsGroup);
+
+        // Fold the verse block into the content bbox so the grown viewBox
+        // never clips lower verse lines. Single-verse input contributes
+        // nothing (its line always sits inside the legacy band).
+        const blockBottom = lyricBlockBottom(sliceVerseCount);
+        if (blockBottom > 0 && voiceY + blockBottom > contentMaxY) {
+          contentMaxY = voiceY + blockBottom;
+        }
       }
 
       // Content bbox tracking: scan the (shifted) voice for min/max pitch
