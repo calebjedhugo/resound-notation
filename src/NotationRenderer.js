@@ -345,7 +345,7 @@ const ONE_SPACE = 20; // LINE_SPACING — one staff space in px.
  * Ledger lines below add a small ~5px bonus but the notehead bottom already
  * captures most of the visual extent, so we keep this simple.
  */
-function lowestExtentOf(element, clef) {
+function lowestExtentOf(element, clef, forcedStemDown) {
   if (element == null) return 0;
   if (Array.isArray(element)) {
     const ys = element
@@ -354,11 +354,13 @@ function lowestExtentOf(element, clef) {
     if (ys.length === 0) return 0;
     const maxY = Math.max(...ys);
     const minY = Math.min(...ys);
-    // Renderer picks stem direction from the note furthest from middle line.
+    // Renderer picks stem direction from the note furthest from middle line
+    // (unless a shared-staff voice forces the direction).
     const distMax = Math.abs(maxY - MIDDLE_LINE_Y);
     const distMin = Math.abs(minY - MIDDLE_LINE_Y);
     const governingY = distMax >= distMin ? maxY : minY;
-    const stemDown = governingY <= MIDDLE_LINE_Y;
+    const stemDown =
+      forcedStemDown !== undefined ? forcedStemDown : governingY <= MIDDLE_LINE_Y;
     if (stemDown) {
       const attachY = maxY - HEAD_TIP_Y;
       return attachY + effectiveStemLength({ attachY, stemDown, baseLength: STEM_LENGTH, middleLineY: MIDDLE_LINE_Y });
@@ -367,7 +369,7 @@ function lowestExtentOf(element, clef) {
   }
   if (!element.pitch) return 0;
   const y = pitchToStaffY(element.pitch, clef);
-  const stemDown = y <= MIDDLE_LINE_Y;
+  const stemDown = forcedStemDown !== undefined ? forcedStemDown : y <= MIDDLE_LINE_Y;
   if (stemDown) {
     const attachY = y - HEAD_TIP_Y;
     return attachY + effectiveStemLength({ attachY, stemDown, baseLength: STEM_LENGTH, middleLineY: MIDDLE_LINE_Y });
@@ -389,7 +391,7 @@ function lowestExtentOf(element, clef) {
  *     stem geometry emitted at lines ~1864 / ~2005).
  * Rests / unknown shapes return +Infinity (no contribution).
  */
-function topExtentOf(element, clef) {
+function topExtentOf(element, clef, forcedStemDown) {
   // Notehead vertical half-height: a Bravura black notehead is ~1
   // staff space tall, so its top edge sits ONE_SPACE/2 above the
   // note's translate-y center. Using ONE_SPACE keeps this in lockstep
@@ -406,7 +408,8 @@ function topExtentOf(element, clef) {
     const distMax = Math.abs(maxY - MIDDLE_LINE_Y);
     const distMin = Math.abs(minY - MIDDLE_LINE_Y);
     const governingY = distMax >= distMin ? maxY : minY;
-    const stemDown = governingY <= MIDDLE_LINE_Y;
+    const stemDown =
+      forcedStemDown !== undefined ? forcedStemDown : governingY <= MIDDLE_LINE_Y;
     const headTop = minY - HEAD_HALF_Y;
     if (stemDown) return headTop;
     // Stem-up: stem rises by the effective length (lengthened to reach the
@@ -415,7 +418,7 @@ function topExtentOf(element, clef) {
   }
   if (!element.pitch) return Infinity;
   const y = pitchToStaffY(element.pitch, clef);
-  const stemDown = y <= MIDDLE_LINE_Y;
+  const stemDown = forcedStemDown !== undefined ? forcedStemDown : y <= MIDDLE_LINE_Y;
   const headTop = y - HEAD_HALF_Y;
   if (stemDown) return headTop;
   return y - effectiveStemLength({ attachY: y, stemDown, baseLength: STEM_LENGTH, middleLineY: MIDDLE_LINE_Y });
@@ -445,7 +448,7 @@ function topExtentOf(element, clef) {
  * @returns {{ descent: number, ascent: number }}
  */
 function voiceSkyline(notes, clef, opts = {}) {
-  const { timeSignature = null, voiceIndex, voiceCount } = opts;
+  const { timeSignature = null, voiceIndex, voiceCount, forcedStemDown } = opts;
   const TOP_LINE = STAFF_TOP_OFFSET; // 10
   const BOTTOM_LINE = STAFF_TOP_OFFSET + STAFF_HEIGHT; // 90
   let lowest = BOTTOM_LINE; // most-positive y reached by ink
@@ -463,8 +466,8 @@ function voiceSkyline(notes, clef, opts = {}) {
     if (beamedIdx.has(i)) return; // counted via beam line below
     // Skip barline markers and bare rests (no pitch contribution).
     if (!Array.isArray(el) && !el.pitch) return;
-    const lo = lowestExtentOf(el, clef);
-    const hi = topExtentOf(el, clef);
+    const lo = lowestExtentOf(el, clef, forcedStemDown);
+    const hi = topExtentOf(el, clef, forcedStemDown);
     if (Number.isFinite(lo) && lo > lowest) lowest = lo;
     if (Number.isFinite(hi) && hi < highest) highest = hi;
   });
@@ -481,7 +484,10 @@ function voiceSkyline(notes, clef, opts = {}) {
       const el = notes[idx];
       return el && el.pitch ? pitchToStaffY(el.pitch, clef) : MIDDLE_LINE_Y;
     });
-    const stemDown = beamGroupStemDown(yValues, { voiceIndex, voiceCount });
+    const stemDown =
+      forcedStemDown !== undefined
+        ? forcedStemDown
+        : beamGroupStemDown(yValues, { voiceIndex, voiceCount });
     // x-spacing here is nominal (uniform); the beam-line ENDPOINT y values
     // are what bound the reach, and computeBeamLine's slope cap / shift
     // logic depends only on relative x, so uniform spacing is faithful.
@@ -627,6 +633,195 @@ function chordGlyphFor(info) {
   if (info.name === 'whole') return NOTEHEAD_WHOLE_GLYPH;
   if (info.name === 'half') return NOTEHEAD_HALF_GLYPH;
   return NOTEHEAD_BLACK_GLYPH;
+}
+
+// --- Two voices per staff (close score) — SPEC-multi-voice-staff.md -------
+// Rightward shift applied to the down-stem (second) voice's notehead when
+// it collides with the up-stem voice at the same beat: a unison or second
+// (diatonic distance ≤ 1 → staff-Y distance ≤ 10px), or a voice crossing
+// (the lower voice's head ABOVE the upper voice's). ~One notehead width.
+const SHARED_STAFF_COLLISION_OFFSET = 22;
+
+/** Stable float key for beat-position maps used by shared-staff logic. */
+const sharedBeatKey = (beat) => beat.toFixed(4);
+
+/**
+ * Build the staff model for shared-staff (close score) rendering, and
+ * validate the shared-staff constraints from SPEC-multi-voice-staff.md:
+ *   - at most 2 voices per `staff` value (throw otherwise),
+ *   - voices sharing a staff must agree on the clef (first voice's
+ *     resolved clef wins when the second omits it; a declared mismatch
+ *     throws),
+ *   - voices sharing a staff must have equal total duration.
+ *
+ * Voices WITHOUT a `staff` key each get their own staff (exactly today's
+ * behavior), so with no `staff` keys the model is a 1:1 voice→staff map.
+ *
+ * @param {Array} voices - parsed (canonical) voices
+ * @returns {{
+ *   staves: Array<{key: string, voiceIndices: number[], clef: string|undefined}>,
+ *   voiceStaffIndex: number[],
+ *   voiceSlot: number[],
+ *   staffCount: number,
+ *   hasSharedStaves: boolean,
+ * }}
+ */
+function buildStaffModel(voices) {
+  const staves = [];
+  const keyToStaff = new Map();
+  const voiceStaffIndex = new Array(voices.length);
+  const voiceSlot = new Array(voices.length);
+  let hasSharedStaves = false;
+
+  voices.forEach((voice, vi) => {
+    const hasKey = voice.staff !== undefined && voice.staff !== null;
+    let staff;
+    if (hasKey && keyToStaff.has(voice.staff)) {
+      staff = keyToStaff.get(voice.staff);
+    } else {
+      staff = {
+        key: hasKey ? voice.staff : `voice-${vi}`,
+        index: staves.length,
+        voiceIndices: [],
+        clef: undefined,
+      };
+      staves.push(staff);
+      if (hasKey) keyToStaff.set(voice.staff, staff);
+    }
+    voiceStaffIndex[vi] = staff.index;
+    voiceSlot[vi] = staff.voiceIndices.length;
+    staff.voiceIndices.push(vi);
+  });
+
+  for (const staff of staves) {
+    if (staff.voiceIndices.length > 2) {
+      throw new Error(
+        `Staff "${staff.key}" is declared by ${staff.voiceIndices.length} voices; `
+        + 'at most 2 voices may share a staff.'
+      );
+    }
+    if (staff.voiceIndices.length !== 2) continue;
+    hasSharedStaves = true;
+    const [ai, bi] = staff.voiceIndices;
+    const a = voices[ai];
+    const b = voices[bi];
+    // First declared voice's resolved clef wins; a declared mismatch throws.
+    const resolvedClef = a.clef || inferClef(a.notes);
+    if (b.clef && b.clef !== resolvedClef) {
+      throw new Error(
+        `Voices "${a.id}" and "${b.id}" share staff "${staff.key}" but have `
+        + `different clefs ("${resolvedClef}" vs "${b.clef}").`
+      );
+    }
+    staff.clef = resolvedClef;
+    // Equal total duration — shared-staff voices are implicitly
+    // barline-synchronized (same rule as brace groups).
+    const totalBeats = (notes) => {
+      let end = 0;
+      for (const ev of collectVoiceEvents(notes)) {
+        if (ev.endBeat > end) end = ev.endBeat;
+      }
+      return end;
+    };
+    const da = totalBeats(a.notes);
+    const db = totalBeats(b.notes);
+    if (Math.abs(da - db) > 1e-6) {
+      throw new Error(
+        `Voices "${a.id}" and "${b.id}" share staff "${staff.key}" but have `
+        + `unequal total durations (${da} vs ${db} beats).`
+      );
+    }
+  }
+
+  return {
+    staves,
+    voiceStaffIndex,
+    voiceSlot,
+    staffCount: staves.length,
+    hasSharedStaves,
+  };
+}
+
+/**
+ * Walk one voice's (system-sliced, ottava-shifted) notes and collect the
+ * cross-voice information shared-staff rendering needs about the PARTNER
+ * voice:
+ *   - onsets: beatKey → { minY, maxY } staff-Y extremes of the pitched
+ *     event starting at that beat (collision rule 4),
+ *   - rests: beatKey → duration in beats for top-level rests (rest
+ *     dedupe/shift rule 5). Rests inside tuplets are not collected — the
+ *     tuplet render path keeps its legacy placement.
+ *
+ * @param {Array} voiceNotes
+ * @param {string} clef
+ * @returns {{ onsets: Map<string, {minY:number, maxY:number}>, rests: Map<string, number> }}
+ */
+function collectSharedStaffEvents(voiceNotes, clef) {
+  const onsets = new Map();
+  const rests = new Map();
+  let beat = 0;
+  const addOnset = (b, ys) => {
+    if (ys.length === 0) return;
+    onsets.set(sharedBeatKey(b), { minY: Math.min(...ys), maxY: Math.max(...ys) });
+  };
+
+  for (const element of voiceNotes) {
+    if (!element) continue;
+    if (Array.isArray(element)) {
+      const first = element.find((n) => n && n.length);
+      if (!first) continue;
+      const dur = fractionToBeats(first.length) * (first.dotted ? 1.5 : 1);
+      addOnset(
+        beat,
+        element.filter((n) => n && n.pitch).map((n) => pitchToStaffY(n.pitch, clef))
+      );
+      beat += dur;
+      continue;
+    }
+    if (element.tuplet !== undefined && element.notes) {
+      const [actual, normal] = element.tuplet;
+      for (const tEl of element.notes) {
+        let length;
+        let dotted;
+        let ys = [];
+        if (Array.isArray(tEl)) {
+          const f = tEl.find((n) => n && n.length);
+          if (!f) continue;
+          length = f.length;
+          dotted = f.dotted;
+          ys = tEl
+            .filter((n) => n && n.pitch)
+            .map((n) => pitchToStaffY(n.pitch, clef));
+        } else if (tEl && tEl.length) {
+          length = tEl.length;
+          dotted = tEl.dotted;
+          if (tEl.pitch) ys = [pitchToStaffY(tEl.pitch, clef)];
+        } else {
+          continue;
+        }
+        const dur = fractionToBeats(length) * (dotted ? 1.5 : 1) * (normal / actual);
+        addOnset(beat, ys);
+        beat += dur;
+      }
+      continue;
+    }
+    if (getMarkerType(element) !== null) continue;
+    if (element.position !== undefined && element.length) {
+      // Percussion — occupies time but contributes no collision pitch.
+      beat += fractionToBeats(element.length) * (element.dotted ? 1.5 : 1);
+      continue;
+    }
+    if (!element.length) continue;
+    const dur = fractionToBeats(element.length) * (element.dotted ? 1.5 : 1);
+    if (element.pitch) {
+      addOnset(beat, [pitchToStaffY(element.pitch, clef)]);
+    } else {
+      rests.set(sharedBeatKey(beat), dur);
+    }
+    beat += dur;
+  }
+
+  return { onsets, rests };
 }
 
 /**
@@ -1236,6 +1431,28 @@ export class NotationRenderer {
     const voiceCount = parsed.voices.length;
     const staffGroups = parsed.staffGroups || [];
 
+    // Two-voices-per-staff (close score) model. Validates shared-staff
+    // constraints (≤2 voices, clef agreement, equal duration) and maps
+    // each voice to its staff. With no `staff` keys this is a 1:1 map and
+    // every downstream computation reduces to the legacy per-voice path.
+    const staffModel = buildStaffModel(parsed.voices);
+    const staffCount = staffModel.staffCount;
+    // Per-voice resolved clef (shared staves use the staff's clef so an
+    // omitted second-voice clef can't infer differently) and forced stem
+    // direction (first voice on a shared staff up, second down).
+    const voiceEffectiveClef = parsed.voices.map((v, vi) => {
+      const staff = staffModel.staves[staffModel.voiceStaffIndex[vi]];
+      return staff.voiceIndices.length === 2
+        ? staff.clef
+        : v.clef || inferClef(v.notes);
+    });
+    const voiceForcedStemDown = parsed.voices.map((v, vi) => {
+      const staff = staffModel.staves[staffModel.voiceStaffIndex[vi]];
+      return staff.voiceIndices.length === 2
+        ? staffModel.voiceSlot[vi] === 1
+        : undefined;
+    });
+
     // Build group lookup: voiceId -> group info. Both brace and bracket
     // groups participate in same-group tight spacing and shared barlines.
     const braceGroups = staffGroups.filter(
@@ -1260,7 +1477,7 @@ export class NotationRenderer {
     // determines content-aware inter-staff spacing below.
     const ottavaInputs = parsed.voices.map((v, vi) => ({
       voiceId: vi,
-      clef: v.clef || inferClef(v.notes),
+      clef: voiceEffectiveClef[vi],
       events: buildOttavaEvents(v.notes),
     }));
     const ottavaSegmentsPerVoice = analyzeOttava(ottavaInputs);
@@ -1271,10 +1488,11 @@ export class NotationRenderer {
     // Per-voice intrinsic skyline (descent below own bottom line, ascent
     // above own top line) — independent of where the staff is placed.
     const voiceSkylines = parsed.voices.map((v, vi) =>
-      voiceSkyline(shiftedVoiceNotes[vi], v.clef || inferClef(v.notes), {
+      voiceSkyline(shiftedVoiceNotes[vi], voiceEffectiveClef[vi], {
         timeSignature: v.timeSignature || null,
         voiceIndex: vi,
         voiceCount: parsed.voices.length,
+        forcedStemDown: voiceForcedStemDown[vi],
       })
     );
 
@@ -1292,24 +1510,42 @@ export class NotationRenderer {
     // positions shared across all systems, so this is the system-worst-
     // case (uniform-per-pair, global) fidelity the spec calls for — every
     // system uses the same content-aware gaps, sized to the whole piece.
-    const voiceYPositions = [];
-    let currentY = 0;
-    for (let vi = 0; vi < voiceCount; vi += 1) {
-      const voice = parsed.voices[vi];
-      const voiceHeight = voiceCount > 1 ? VOICE_HEIGHT : this._height;
-      const yOffset = voiceHeight / 2 - STAFF_CENTER_Y;
+    // Y positions are computed per STAFF (not per voice): with shared
+    // staves the two member voices sit at the same Y, and a staff's
+    // skyline/brace membership is the merge of its member voices. With
+    // one voice per staff this is exactly the legacy per-voice loop.
+    const staffSkylines = staffModel.staves.map((staff) => ({
+      descent: Math.max(
+        ...staff.voiceIndices.map((vi) => voiceSkylines[vi].descent)
+      ),
+      ascent: Math.max(
+        ...staff.voiceIndices.map((vi) => voiceSkylines[vi].ascent)
+      ),
+    }));
+    const staffBraceGroupArr = staffModel.staves.map((staff) => {
+      for (const vi of staff.voiceIndices) {
+        const g = voiceBraceGroup.get(parsed.voices[vi].id);
+        if (g) return g;
+      }
+      return undefined;
+    });
 
-      if (vi === 0) {
-        voiceYPositions.push(yOffset + bracketTopMargin);
+    const staffYPositions = [];
+    let currentY = 0;
+    for (let si = 0; si < staffCount; si += 1) {
+      const staffBandHeight = staffCount > 1 ? VOICE_HEIGHT : this._height;
+      const yOffset = staffBandHeight / 2 - STAFF_CENTER_Y;
+
+      if (si === 0) {
+        staffYPositions.push(yOffset + bracketTopMargin);
         currentY = yOffset + bracketTopMargin;
       } else {
-        const prevVoice = parsed.voices[vi - 1];
-        const prevInBrace = voiceBraceGroup.get(prevVoice.id);
-        const currInBrace = voiceBraceGroup.get(voice.id);
+        const prevInBrace = staffBraceGroupArr[si - 1];
+        const currInBrace = staffBraceGroupArr[si];
         const sameGroup = prevInBrace && currInBrace && prevInBrace === currInBrace;
         // Content-aware line gap (bottom of prev staff → top of this one).
-        const upperDescent = voiceSkylines[vi - 1].descent;
-        const lowerAscent = voiceSkylines[vi].ascent;
+        const upperDescent = staffSkylines[si - 1].descent;
+        const lowerAscent = staffSkylines[si].ascent;
         const contentLineGap = Math.max(
           MIN_STAFF_GAP,
           upperDescent + lowerAscent + STAFF_CLEARANCE_PADDING
@@ -1322,23 +1558,26 @@ export class NotationRenderer {
           ? contentLineGap + STAFF_HEIGHT
           : Math.max(VOICE_HEIGHT + VOICE_GAP, contentLineGap + STAFF_HEIGHT);
         currentY += gap;
-        voiceYPositions.push(currentY);
+        staffYPositions.push(currentY);
       }
     }
+    const voiceYPositions = parsed.voices.map(
+      (v, vi) => staffYPositions[staffModel.voiceStaffIndex[vi]]
+    );
 
     const hasBraceGroups = braceGroups.length > 0;
     let totalHeight; // mutable: multi-system rendering grows this below.
-    if (voiceCount <= 1) {
+    if (staffCount <= 1) {
       totalHeight = this._height;
     } else if (hasBraceGroups) {
       // Dynamic height for grouped staves. The trailing 40 covers
       // descenders and bracket bottom hooks.
-      const lastVoiceBottom =
-        voiceYPositions[voiceCount - 1] + STAFF_TOP_OFFSET + STAFF_HEIGHT + 40;
-      totalHeight = lastVoiceBottom;
+      const lastStaffBottom =
+        staffYPositions[staffCount - 1] + STAFF_TOP_OFFSET + STAFF_HEIGHT + 40;
+      totalHeight = lastStaffBottom;
     } else {
       // Legacy formula for independent staves
-      totalHeight = voiceCount * VOICE_HEIGHT + (voiceCount - 1) * VOICE_GAP;
+      totalHeight = staffCount * VOICE_HEIGHT + (staffCount - 1) * VOICE_GAP;
     }
 
     // Extend the viewBox to the left when a bracket OR brace is present so
@@ -1582,13 +1821,16 @@ export class NotationRenderer {
     // there's only one system.
     const multiSystem = systemPlans.length > 1;
     let effectiveVoiceYPositions = voiceYPositions;
-    if (multiSystem && !hasBraceGroups && voiceCount > 1) {
-      effectiveVoiceYPositions = [];
+    if (multiSystem && !hasBraceGroups && staffCount > 1) {
+      const effectiveStaffYPositions = [];
       let y = bracketTopMargin;
-      for (let vi = 0; vi < voiceCount; vi += 1) {
-        effectiveVoiceYPositions.push(y);
+      for (let si = 0; si < staffCount; si += 1) {
+        effectiveStaffYPositions.push(y);
         y += STAFF_HEIGHT + INDEPENDENT_STAFF_WHITE_SPACE;
       }
+      effectiveVoiceYPositions = parsed.voices.map(
+        (v, vi) => effectiveStaffYPositions[staffModel.voiceStaffIndex[vi]]
+      );
     }
 
     // Voice-level slicing prep: shared time-sig drives measure length used
@@ -1621,6 +1863,7 @@ export class NotationRenderer {
         systemContext,
         braceGroups,
         systemIndex: 0,
+        staffModel,
       });
     } else {
       for (let si = 0; si < systemPlans.length; si += 1) {
@@ -1875,13 +2118,14 @@ export class NotationRenderer {
           systemEndBeat,
           prePadMap,
           postPadMap,
+          staffModel,
         });
 
         // Advance Y for the next system. Use effectiveVoiceYPositions so
         // the per-system band height matches the rendered staves (matters
         // when multiSystem tightens the intra-system voice gap).
-        const systemBandTop = effectiveVoiceYPositions[0];
-        const systemBandBottom = effectiveVoiceYPositions[voiceCount - 1] + STAFF_TOP_OFFSET + STAFF_HEIGHT + 40;
+        const systemBandTop = Math.min(...effectiveVoiceYPositions);
+        const systemBandBottom = Math.max(...effectiveVoiceYPositions) + STAFF_TOP_OFFSET + STAFF_HEIGHT + 40;
         const systemBottom = systemBandBottom + systemYOffset;
         lastSystemBottomY = systemBottom;
         systemYOffset += (systemBandBottom - systemBandTop) + SYSTEM_GAP;
@@ -1987,9 +2231,32 @@ export class NotationRenderer {
     systemEndBeat = null,
     prePadMap = null,
     postPadMap = null,
+    staffModel = null,
   }) {
     let contentMinY = systemContext.contentMinY;
     let contentMaxY = systemContext.contentMaxY;
+
+    // Shared-staff (close score) prep — SPEC-multi-voice-staff.md. For each
+    // staff hosting two voices, precompute the PARTNER voice's onset/rest
+    // events (collision rule 4 / rest rule 5) from this system's sliced
+    // notes, and set up a per-staff merged accidental store (rule 6).
+    const sharedPartnerEvents = new Map(); // voiceIndex -> partner events
+    const staffAccidentalStores = new Map(); // staffIndex -> Map(marker -> memory)
+    if (staffModel && staffModel.hasSharedStaves) {
+      for (const staff of staffModel.staves) {
+        if (staff.voiceIndices.length !== 2) continue;
+        const [ui, li] = staff.voiceIndices;
+        sharedPartnerEvents.set(
+          ui,
+          collectSharedStaffEvents(shiftedVoiceNotes[li], staff.clef)
+        );
+        sharedPartnerEvents.set(
+          li,
+          collectSharedStaffEvents(shiftedVoiceNotes[ui], staff.clef)
+        );
+        staffAccidentalStores.set(staff.index, new Map());
+      }
+    }
 
     // Shared barline beats — the set of beat positions where EVERY voice
     // in this system has a measure boundary. Used to gate barlineOffset:
@@ -2031,10 +2298,26 @@ export class NotationRenderer {
       // staff under the bracket. The original voice.notes is preserved on
       // the model for downstream consumers (playback, serialization).
       voice = { ...voice, notes: shiftedVoiceNotes[index] };
-      const clef = voice.clef || inferClef(voice.notes);
+
+      // Shared-staff context for this voice. On a shared staff the first
+      // declared voice ("slot 0") stems up and owns the staff furniture;
+      // the second ("slot 1") stems down and draws no furniture.
+      const staffIdx = staffModel ? staffModel.voiceStaffIndex[index] : index;
+      const staffDef = staffModel ? staffModel.staves[staffIdx] : null;
+      const isSharedStaff = !!(staffDef && staffDef.voiceIndices.length === 2);
+      const voiceSlot = isSharedStaff ? staffDef.voiceIndices.indexOf(index) : 0;
+      const forcedStemDown = isSharedStaff ? voiceSlot === 1 : undefined;
+      const partnerEvents = isSharedStaff ? sharedPartnerEvents.get(index) : null;
+
+      const clef = isSharedStaff ? staffDef.clef : voice.clef || inferClef(voice.notes);
       const voiceY = voiceYPositions[index];
 
-      const staffGroup = createGroup(`staff staff-${index}`, {
+      // DOM contract (SPEC-multi-voice-staff.md): each voice keeps its own
+      // data-voice-id group. On a DEDICATED staff that group also carries
+      // the staff furniture (legacy layout, unchanged). On a SHARED staff
+      // the furniture lives in a separate per-staff `data-staff-id` group
+      // so per-voice CSS `color` doesn't tint the shared staff lines.
+      const staffGroup = createGroup(isSharedStaff ? 'voice' : `staff staff-${index}`, {
         'data-voice-id': voice.id,
         'data-clef': clef,
         'data-system-index': String(systemIndex),
@@ -2043,40 +2326,64 @@ export class NotationRenderer {
         transform: `translate(0, ${voiceY})`,
       });
 
+      // Furniture target: same group as the voice content on a dedicated
+      // staff; a per-staff group created by slot 0 on a shared staff;
+      // null for slot 1 (its staff's furniture is already drawn).
+      let furnitureGroup = staffGroup;
+      if (isSharedStaff) {
+        if (voiceSlot === 0) {
+          furnitureGroup = createGroup(`staff staff-${staffIdx}`, {
+            'data-staff-id': String(staffDef.key),
+            'data-clef': clef,
+            'data-system-index': String(systemIndex),
+            'data-start-measure': String(startMeasure),
+            'data-end-measure': String(endMeasure),
+            transform: `translate(0, ${voiceY})`,
+          });
+          this._svg.appendChild(furnitureGroup);
+        } else {
+          furnitureGroup = null;
+        }
+      }
+
       // Staff lines — stop at the system's right edge (barline x), not
       // the full SVG width. Per-system the right edge is `systemEndX`.
       const staffLineWidth = systemEndX !== undefined ? systemEndX : this._width;
-      const lines = createStaffLines(staffLineWidth);
-      lines.setAttribute('transform', `translate(0, ${STAFF_TOP_OFFSET})`);
-      staffGroup.appendChild(lines);
+      if (furnitureGroup) {
+        const lines = createStaffLines(staffLineWidth);
+        lines.setAttribute('transform', `translate(0, ${STAFF_TOP_OFFSET})`);
+        furnitureGroup.appendChild(lines);
 
-      // Clef
-      const clefGroup = createClef(clef);
-      clefGroup.setAttribute('transform', `translate(${STAFF_START_X}, 0)`);
-      staffGroup.appendChild(clefGroup);
+        // Clef
+        const clefGroup = createClef(clef);
+        clefGroup.setAttribute('transform', `translate(${STAFF_START_X}, 0)`);
+        furnitureGroup.appendChild(clefGroup);
+      }
 
       let cursorX = STAFF_START_X + CLEF_WIDTH;
 
       // Key signature
       const keySignature = voice.keySignature || 'C';
-      const keySigGroup = createKeySignature(keySignature, clef);
-      if (keySigGroup) {
-        keySigGroup.setAttribute('transform', `translate(${cursorX}, 0)`);
-        staffGroup.appendChild(keySigGroup);
-        const keyInfo = getKeySignature(keySignature);
-        cursorX += keySignatureAdvance(keyInfo.count);
+      if (furnitureGroup) {
+        const keySigGroup = createKeySignature(keySignature, clef);
+        if (keySigGroup) {
+          keySigGroup.setAttribute('transform', `translate(${cursorX}, 0)`);
+          furnitureGroup.appendChild(keySigGroup);
+          const keyInfo = getKeySignature(keySignature);
+          cursorX += keySignatureAdvance(keyInfo.count);
+        }
       }
 
       // Time signature — first system only. Subsequent systems use the
       // same measure cadence (passed via measureLength) but omit the
       // redundant glyph.
       const timeSignature = voice.timeSignature;
-      if (timeSignature && renderTimeSignature) {
+      if (timeSignature && renderTimeSignature && furnitureGroup) {
         const { element: timeSigGroup, width: tsWidth } = createTimeSignature(timeSignature);
         // createTimeSignature centers digits on local x=0; offset by half
         // its width so the left edge sits at cursorX.
         timeSigGroup.setAttribute('transform', `translate(${cursorX + tsWidth / 2}, 0)`);
-        staffGroup.appendChild(timeSigGroup);
+        furnitureGroup.appendChild(timeSigGroup);
         cursorX += tsWidth + TIME_SIG_PADDING;
       }
 
@@ -2117,6 +2424,9 @@ export class NotationRenderer {
       // On a symmetric tie the multi-staff convention (upper staff up, lower
       // down) applies — see beamGroupStemDown.
       const beamGroupStemDownArr = beamGroups.map((group) => {
+        // Shared staff: beams follow the voice's forced direction (spec
+        // rule 1) — the middle-line rule is overridden.
+        if (forcedStemDown !== undefined) return forcedStemDown;
         const yValues = group.map((idx) => {
           const el = voice.notes[idx];
           return el.pitch ? pitchToStaffY(el.pitch, clef) : MIDDLE_LINE_Y;
@@ -2137,6 +2447,29 @@ export class NotationRenderer {
 
       // In-measure accidental memory for this voice, reset at each barline.
       const accidentalState = { memory: new Map(), marker: null };
+
+      // Shared staff: accidental memory is per STAFF, merged across its
+      // voices (spec rule 6) — a printed accidental applies to the staff.
+      // The voices render sequentially (not beat-interleaved), so the
+      // shared store keeps every measure's memory Map alive keyed by
+      // measure marker instead of clearing on marker change.
+      const staffAccStore = isSharedStaff
+        ? staffAccidentalStores.get(staffIdx)
+        : null;
+      const accidentalMemoryFor = (beat) => {
+        if (!staffAccStore) {
+          return measureAccidentalMemory(beat, measureLength, accidentalState);
+        }
+        const marker = measureLength
+          ? Math.floor((beat + 1e-6) / measureLength)
+          : beat;
+        let mem = staffAccStore.get(marker);
+        if (!mem) {
+          mem = new Map();
+          staffAccStore.set(marker, mem);
+        }
+        return mem;
+      };
 
       // Marker tracking for post-processing
       const pendingDynamics = [];
@@ -2200,7 +2533,10 @@ export class NotationRenderer {
           }
         }
         const el = createBarLine(clampedX);
-        staffGroup.appendChild(el);
+        // Shared staff: barlines are furniture, drawn once (slot 0). Slot 1
+        // still runs the full accounting (barlineXs, barlineOffset) so its
+        // notes share the same x grid — it just emits no duplicate glyph.
+        if (furnitureGroup) furnitureGroup.appendChild(el);
         barlineXs.push(clampedX);
         pendingAutoBarline = { el, x: clampedX };
         return clampedX;
@@ -2270,7 +2606,10 @@ export class NotationRenderer {
                 const yPositions = chordNotes.map((n) => pitchToStaffY(n.pitch, clef));
                 const distances = yPositions.map((y) => Math.abs(y - MIDDLE_LINE_Y));
                 const maxDistIdx = distances.indexOf(Math.max(...distances));
-                const stemDown = yPositions[maxDistIdx] <= MIDDLE_LINE_Y;
+                const stemDown =
+                  forcedStemDown !== undefined
+                    ? forcedStemDown
+                    : yPositions[maxDistIdx] <= MIDDLE_LINE_Y;
 
                 const chordGroup = createGroup(`chord note ${info.cssClass}`, {
                   transform: `translate(${cursorX}, 0)`,
@@ -2363,13 +2702,16 @@ export class NotationRenderer {
                 x: cursorX,
                 clef,
                 beamed: allBeamable && !hasRest,
-                stemDown: undefined,
+                stemDown: forcedStemDown,
               });
               noteGroup.setAttribute('data-beat', String(beatPosition));
 
               // Articulations
               if (tEl.articulation) {
-                const noteStemDown = noteY <= MIDDLE_LINE_Y;
+                const noteStemDown =
+                  forcedStemDown !== undefined
+                    ? forcedStemDown
+                    : noteY <= MIDDLE_LINE_Y;
                 const artGroup = renderArticulations({
                   articulation: tEl.articulation,
                   stemDown: noteStemDown,
@@ -2407,7 +2749,8 @@ export class NotationRenderer {
           // Beam tuplet notes as a single group if fully beamable
           if (fullyBeamed && tupletNoteData.length >= 2) {
             const avgY = tupletYPositions.reduce((a, b) => a + b, 0) / tupletYPositions.length;
-            const stemDown = avgY <= MIDDLE_LINE_Y;
+            const stemDown =
+              forcedStemDown !== undefined ? forcedStemDown : avgY <= MIDDLE_LINE_Y;
 
             // Project each stem's far end onto the slope-capped beam line —
             // the SAME line createBeams will draw — so stem and beam share
@@ -2443,7 +2786,8 @@ export class NotationRenderer {
             tupletYPositions.length > 0
               ? tupletYPositions.reduce((a, b) => a + b, 0) / tupletYPositions.length
               : MIDDLE_LINE_Y;
-          const stemsDown = avgY <= MIDDLE_LINE_Y;
+          const stemsDown =
+            forcedStemDown !== undefined ? forcedStemDown : avgY <= MIDDLE_LINE_Y;
           // For fully-beamed tuplets the number sits adjacent to the
           // beam stack. Push the bracketY further from the primary beam
           // by the additional thickness contributed by secondary beams
@@ -2608,7 +2952,9 @@ export class NotationRenderer {
             (type === 'repeat-end' || type === 'repeat-both') &&
             pendingAutoBarline !== null;
           if (replaceAutoBarline) {
-            staffGroup.removeChild(pendingAutoBarline.el);
+            if (pendingAutoBarline.el.parentNode) {
+              pendingAutoBarline.el.parentNode.removeChild(pendingAutoBarline.el);
+            }
             const idx = barlineXs.lastIndexOf(pendingAutoBarline.x);
             if (idx !== -1) barlineXs.splice(idx, 1);
             const minClearX = lastNoteRightEdge + REPEAT_BARLINE_DOT_EDGE_OFFSET +
@@ -2623,7 +2969,9 @@ export class NotationRenderer {
                 : BAR_LINE_PADDING;
             cursorX += prePad;
           }
-          staffGroup.appendChild(renderRepeatBarline({ type, x: cursorX }));
+          if (furnitureGroup) {
+            furnitureGroup.appendChild(renderRepeatBarline({ type, x: cursorX }));
+          }
           // Post-advance to next note's CENTER. The right side of the
           // barline has dots (repeat-start / repeat-both) or just the
           // thick stroke (repeat-end). In both cases the next notehead
@@ -2786,16 +3134,31 @@ export class NotationRenderer {
               staffGroup.appendChild(graceResult.element);
             }
 
-            // Stem direction: note furthest from middle line
+            // Stem direction: note furthest from middle line (shared
+            // staff: the voice's forced direction overrides).
             const distances = yPositions.map((y) => Math.abs(y - MIDDLE_LINE_Y));
             const maxDistIdx = distances.indexOf(Math.max(...distances));
-            const stemDown = yPositions[maxDistIdx] <= MIDDLE_LINE_Y;
-
-            const chordGroup = createGroup(`chord note ${info.cssClass}`, {
-              transform: `translate(${cursorX}, 0)`,
-            });
+            const stemDown =
+              forcedStemDown !== undefined
+                ? forcedStemDown
+                : yPositions[maxDistIdx] <= MIDDLE_LINE_Y;
 
             const currentBeatChord = beatPosition;
+
+            // Shared-staff collision (spec rule 4): shift the down-stem
+            // voice's heads right when the upper voice sounds a unison or
+            // second at this beat, or when the voices cross.
+            let chordRenderX = cursorX;
+            if (isSharedStaff && voiceSlot === 1 && partnerEvents) {
+              const up = partnerEvents.onsets.get(sharedBeatKey(currentBeatChord));
+              if (up && Math.min(...yPositions) - up.maxY <= 10.5) {
+                chordRenderX += SHARED_STAFF_COLLISION_OFFSET;
+              }
+            }
+
+            const chordGroup = createGroup(`chord note ${info.cssClass}`, {
+              transform: `translate(${chordRenderX}, 0)`,
+            });
             chordGroup.setAttribute('data-beat', String(currentBeatChord));
 
             // Note heads
@@ -2863,11 +3226,7 @@ export class NotationRenderer {
               ? ACCIDENTAL_OFFSET_BEAMED_PRIOR
               : ACCIDENTAL_OFFSET;
             const chordKeyInfo = getKeySignature(keySignature);
-            const chordAccMemory = measureAccidentalMemory(
-              currentBeatChord,
-              measureLength,
-              accidentalState
-            );
+            const chordAccMemory = accidentalMemoryFor(currentBeatChord);
             for (let j = 0; j < chordNotes.length; j += 1) {
               const { accidental, noteName, octave } = parsePitch(chordNotes[j].pitch);
               const accidentalType = accidentalGlyphWithMemory(
@@ -2889,14 +3248,14 @@ export class NotationRenderer {
 
             // Ledger lines for each note (on staffGroup with absolute coords)
             for (const noteY of yPositions) {
-              const ledgerGroup = createLedgerLines({ x: cursorX, y: noteY });
+              const ledgerGroup = createLedgerLines({ x: chordRenderX, y: noteY });
               if (ledgerGroup) {
                 staffGroup.appendChild(ledgerGroup);
               }
             }
 
             // Record positions for ties
-            noteXPositions.set(i, cursorX);
+            noteXPositions.set(i, chordRenderX);
 
             // Store note data for playback
             const chordBeats = fractionToBeats(chordLength) * (chordNotes[0].dotted ? 1.5 : 1);
@@ -2904,7 +3263,7 @@ export class NotationRenderer {
               element: chordGroup,
               beat: currentBeatChord,
               duration: chordBeats,
-              x: cursorX,
+              x: chordRenderX,
               voiceId: voice.id,
             });
 
@@ -2916,7 +3275,7 @@ export class NotationRenderer {
 
             // Record the chord's rightmost notehead edge so a
             // coincident repeat-end barline can verify dot clearance.
-            lastNoteRightEdge = cursorX + HEAD_TIP_X;
+            lastNoteRightEdge = chordRenderX + HEAD_TIP_X;
 
             // Bar line insertion for chords (shared layout: barline x =
             // beatToX(measureEndBeat) + accumulated barlineOffset + padding).
@@ -2975,13 +3334,21 @@ export class NotationRenderer {
         }
 
         const target = activeBeamGroupEl || staffGroup;
-        const beamStemDown = isBeamed ? beamGroupStemDownArr[beamInfo.groupIndex] : undefined;
+        // Stem direction: beam group's shared direction when beamed;
+        // otherwise the shared-staff forced direction (or auto when
+        // undefined — the legacy per-note middle-line rule in createNote).
+        const beamStemDown = isBeamed
+          ? beamGroupStemDownArr[beamInfo.groupIndex]
+          : forcedStemDown;
 
         // Record position for tie rendering
         noteXPositions.set(i, cursorX);
 
         const currentBeat = beatPosition;
         let elementBeats = 0;
+        // Actual rendered x of this element (differs from cursorX only for
+        // a shared-staff collision-shifted down-voice note).
+        let renderedX = cursorX;
 
         if (element.position !== undefined) {
           // Percussion note (position-based, X notehead)
@@ -2998,7 +3365,8 @@ export class NotationRenderer {
 
           // Stem — anchored at the head's long-axis tip.
           if (info.hasStem) {
-            const stemDown = noteY <= MIDDLE_LINE_Y;
+            const stemDown =
+              forcedStemDown !== undefined ? forcedStemDown : noteY <= MIDDLE_LINE_Y;
             const stemX = stemDown ? -HEAD_TIP_X : HEAD_TIP_X;
             const stemY1 = stemDown ? -HEAD_TIP_Y : HEAD_TIP_Y;
             // Group is translated to noteY, so absolute attach = noteY +
@@ -3043,27 +3411,68 @@ export class NotationRenderer {
             const restX = (restInfo.name === 'whole' || restInfo.name === 'half')
               ? (cursorX + slotEndX) / 2
               : cursorX;
-            const restGroup = createRest({ length: element.length, x: restX });
-            restGroup.setAttribute('data-beat', String(currentBeat));
 
-            // Fermata on rest
-            if (element.articulation) {
-              const artGroup = renderArticulations({
-                articulation: element.articulation,
-                stemDown: false,
-                isRest: true,
-              });
-              if (artGroup) {
-                artGroup.setAttribute('transform', `translate(${cursorX}, ${MIDDLE_LINE_Y})`);
-                staffGroup.appendChild(artGroup);
+            // Shared-staff rests (spec rule 5): up-voice rests shift up
+            // one staff space, down-voice rests shift down one. When BOTH
+            // voices rest at the same beat with the same duration, ONE
+            // centered rest is drawn (by the up voice; the down voice
+            // skips its duplicate).
+            let restShiftY = 0;
+            let skipSharedRest = false;
+            if (isSharedStaff && partnerEvents) {
+              const partnerDur = partnerEvents.rests.get(sharedBeatKey(currentBeat));
+              const samePartnerRest =
+                partnerDur !== undefined && Math.abs(partnerDur - elemBeats) < 1e-6;
+              if (samePartnerRest) {
+                if (voiceSlot === 1) skipSharedRest = true;
+              } else {
+                restShiftY = voiceSlot === 0 ? -ONE_SPACE : ONE_SPACE;
               }
             }
 
-            target.appendChild(restGroup);
+            if (!skipSharedRest) {
+              const restGroup = createRest({ length: element.length, x: restX });
+              if (restShiftY !== 0) {
+                restGroup.setAttribute(
+                  'transform',
+                  `translate(${restX}, ${restShiftY})`
+                );
+              }
+              restGroup.setAttribute('data-beat', String(currentBeat));
+
+              // Fermata on rest
+              if (element.articulation) {
+                const artGroup = renderArticulations({
+                  articulation: element.articulation,
+                  stemDown: false,
+                  isRest: true,
+                });
+                if (artGroup) {
+                  artGroup.setAttribute('transform', `translate(${cursorX}, ${MIDDLE_LINE_Y})`);
+                  staffGroup.appendChild(artGroup);
+                }
+              }
+
+              target.appendChild(restGroup);
+            }
             elementBeats = elemBeats;
           }
         } else {
           const noteY = pitchToStaffY(element.pitch, clef);
+
+          // Shared-staff collision (spec rule 4): the down-stem voice's
+          // head shifts right one notehead width when the upper voice
+          // sounds a unison or second (staff-Y distance ≤ 10px) at this
+          // beat, or when the voices cross (this head ABOVE the upper
+          // voice's). The shift is render-only: cursor and beat→x grid
+          // are untouched, so alignment of later notes is preserved.
+          let collisionShift = 0;
+          if (isSharedStaff && voiceSlot === 1 && partnerEvents) {
+            const up = partnerEvents.onsets.get(sharedBeatKey(currentBeat));
+            if (up && noteY - up.maxY <= 10.5) {
+              collisionShift = SHARED_STAFF_COLLISION_OFFSET;
+            }
+          }
 
           // Grace notes (render before the main note). Graces render
           // LEFTWARD from the principal at GRACE_SPACING intervals, so push
@@ -3095,7 +3504,7 @@ export class NotationRenderer {
             noteName,
             octave,
             getKeySignature(keySignature),
-            measureAccidentalMemory(currentBeat, measureLength, accidentalState)
+            accidentalMemoryFor(currentBeat)
           );
           if (accidentalType) {
             // The beamed-prior shrink trades the accidental's own-head
@@ -3128,10 +3537,16 @@ export class NotationRenderer {
             target.appendChild(accGroup);
           }
 
+          renderedX = cursorX + collisionShift;
+          if (collisionShift !== 0) {
+            // Ties/slurs must anchor on the shifted head.
+            noteXPositions.set(i, renderedX);
+          }
+
           const noteGroup = createNote({
             pitch: element.pitch,
             length: element.length,
-            x: cursorX,
+            x: renderedX,
             clef,
             beamed: isBeamed,
             stemDown: beamStemDown,
@@ -3155,7 +3570,7 @@ export class NotationRenderer {
             element: noteGroup,
             beat: currentBeat,
             duration: fractionToBeats(element.length) * (element.dotted ? 1.5 : 1),
-            x: cursorX,
+            x: renderedX,
             voiceId: voice.id,
           });
 
@@ -3163,7 +3578,7 @@ export class NotationRenderer {
           if (isBeamed) {
             const info = getDurationInfo(element.length);
             activeBeamNoteData.push({
-              x: cursorX,
+              x: renderedX,
               y: noteY,
               beams: info.beams,
               noteGroup,
@@ -3171,14 +3586,14 @@ export class NotationRenderer {
           }
 
           // Ledger lines for notes outside the staff
-          const ledgerGroup = createLedgerLines({ x: cursorX, y: noteY });
+          const ledgerGroup = createLedgerLines({ x: renderedX, y: noteY });
           if (ledgerGroup) {
             target.appendChild(ledgerGroup);
           }
 
           // Lyric tracking
           if (element.lyric !== undefined) {
-            lyricData.push({ text: element.lyric, x: cursorX, noteIndex: i });
+            lyricData.push({ text: element.lyric, x: renderedX, noteIndex: i });
           }
 
           elementBeats = fractionToBeats(element.length);
@@ -3220,7 +3635,7 @@ export class NotationRenderer {
         // Record the just-rendered note's rightmost edge so a coincident
         // repeat-end barline can verify dot clearance (see pendingAutoBarline).
         if (elementBeats > 0) {
-          lastNoteRightEdge = cursorX + HEAD_TIP_X;
+          lastNoteRightEdge = renderedX + HEAD_TIP_X;
         }
 
         // Bar line insertion (shared layout). See chord-path branch
@@ -3270,7 +3685,15 @@ export class NotationRenderer {
           const stemDown = beamInfoStart
             ? beamGroupStemDownArr[beamInfoStart.groupIndex]
             : noteY <= MIDDLE_LINE_Y;
-          const direction = stemDown ? 'above' : 'below';
+          // Shared staff (spec rule 7): up-voice ties curve above,
+          // down-voice ties below.
+          const direction = isSharedStaff
+            ? voiceSlot === 0
+              ? 'above'
+              : 'below'
+            : stemDown
+              ? 'above'
+              : 'below';
 
           tiesGroup.appendChild(
             createTieArc({
@@ -3316,8 +3739,15 @@ export class NotationRenderer {
             if (y <= MIDDLE_LINE_Y) stemsDown += 1;
             else stemsUp += 1;
           }
-          // Slur curves away from stems (opposite side)
-          const direction = stemsDown >= stemsUp ? 'above' : 'below';
+          // Slur curves away from stems (opposite side). Shared staff
+          // (spec rule 7): up-voice slurs above, down-voice below.
+          const direction = isSharedStaff
+            ? voiceSlot === 0
+              ? 'above'
+              : 'below'
+            : stemsDown >= stemsUp
+              ? 'above'
+              : 'below';
 
           slursGroup.appendChild(
             createSlurArc({
@@ -3679,8 +4109,8 @@ export class NotationRenderer {
       const voiceInBraceGroup = braceGroups.some((g) =>
         g.voiceIds.includes(voice.id)
       );
-      if (isLastSystem && systemEndX !== undefined && !voiceInBraceGroup) {
-        staffGroup.appendChild(
+      if (isLastSystem && systemEndX !== undefined && !voiceInBraceGroup && furnitureGroup) {
+        furnitureGroup.appendChild(
           renderRepeatBarline({ type: 'final', x: systemEndX })
         );
       }
@@ -3793,8 +4223,9 @@ export class NotationRenderer {
       if (beat >= d.beat && beat < d.beat + d.duration) {
         d.element.classList.add('note-active');
 
-        // Add cursor line
-        const staff = d.element.closest('.staff') || this._svg;
+        // Add cursor line. Shared-staff voices live in a `.voice` group
+        // (their staff furniture is a sibling `.staff` group).
+        const staff = d.element.closest('.voice, .staff') || this._svg;
         staff.appendChild(
           createLine(d.x, 10, d.x, 90, {
             class: 'playback-cursor',

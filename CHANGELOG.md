@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Two voices per staff (close score)** — SPEC-multi-voice-staff.md. A
+  Level-3 voice may declare an optional `staff` key; voices with the same
+  value render on ONE shared staff (the SATB hymnal layout: soprano+alto on
+  one treble staff, tenor+bass on one bass staff). Engraving rules: first
+  declared voice stems always up, second always down (beams follow); staff
+  furniture (lines, clef, key/time signature, barlines) draws once per staff
+  in its own `data-staff-id` group outside the per-voice `data-voice-id`
+  groups; both voices share the beat→x spacing grid; same-beat
+  unisons/seconds and voice crossings shift the down-stem voice's notehead
+  right one notehead width; up/down-voice rests shift up/down one staff
+  space with same-beat same-duration rests deduped to one centered rest;
+  in-measure accidental memory merges per staff; up-voice ties/slurs curve
+  above and down-voice below. Validation: >2 voices per staff, clef
+  mismatches, and unequal total durations throw. Inputs without `staff`
+  keys render byte-identically to 1.0.0. New dev preset `close-score-hymn`.
+
 ## 1.0.0 — 2026-06-25
 
 First stable release. The package is feature-complete for real engraving use and

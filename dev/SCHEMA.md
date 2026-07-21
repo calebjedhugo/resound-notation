@@ -14,12 +14,51 @@ The renderer accepts three shapes. `parseNoteData()` normalizes them.
      keySignature, timeSignature,        // top-level defaults
      staffGroups: [{ type: 'brace', voiceIds: [...] }],  // optional grand-staff brace
      voices: [
-       { id, clef, keySignature?, timeSignature?, notes: [...] }
+       { id, clef, keySignature?, timeSignature?, staff?, notes: [...] }
      ]
    }
    ```
 
 `staffGroups` only supports `type: 'brace'` today. The brace draws a curly brace at the left edge plus shared barlines spanning grouped voices.
+
+## `staff` — two voices per staff (close score)
+
+A Level-3 voice may declare an optional `staff` key. Voices with the same
+`staff` value render on ONE shared staff (SATB hymn close score):
+
+```js
+{
+  timeSignature: [4, 4],
+  keySignature: 'D',
+  voices: [
+    { id: 'soprano', staff: 'upper', clef: 'treble', notes: [...] },
+    { id: 'alto',    staff: 'upper', clef: 'treble', notes: [...] },
+    { id: 'tenor',   staff: 'lower', clef: 'bass',   notes: [...] },
+    { id: 'bass',    staff: 'lower', clef: 'bass',   notes: [...] },
+  ],
+  staffGroups: [{ type: 'brace', voiceIds: ['soprano', 'alto', 'tenor', 'bass'] }],
+}
+```
+
+Rules (see `SPEC-multi-voice-staff.md`; dev preset: `close-score-hymn`):
+
+- No `staff` key → one voice per staff (legacy behavior, unchanged).
+- **Max 2 voices** per `staff` value — more throws.
+- Voices sharing a staff must declare the **same clef** (or omit; the first
+  voice's resolved clef wins). A declared mismatch throws.
+- Voices sharing a staff must have **equal total duration** — throws otherwise.
+- The FIRST declared voice is the upper voice: **stems always up**; the
+  second voice's stems always down (overrides the middle-line rule; beams too).
+- Staff furniture (lines, clef, key/time sig, barlines) draws once per staff
+  in its own `data-staff-id` group; each voice keeps its own
+  `data-voice-id` group (notes/rests with `data-beat`), so per-voice CSS
+  `color` doesn't tint the shared staff.
+- Same-beat unisons/seconds (and voice crossings) shift the down-stem
+  voice's notehead right by ~one notehead width.
+- Up-voice rests shift up one space, down-voice rests down one; a same-beat
+  same-duration rest in both voices draws ONE centered rest.
+- In-measure accidental memory merges across the staff's voices.
+- Up-voice ties/slurs curve above; down-voice below.
 
 ## Element types in `notes[]` (canonical detection order, see SPEC.md)
 

@@ -43,6 +43,10 @@ export function parseNoteData(input) {
         keySignature: voice.keySignature !== undefined ? voice.keySignature : topKeySignature,
         timeSignature: voice.timeSignature !== undefined ? voice.timeSignature : topTimeSignature,
         notes: voice.notes,
+        // Optional shared-staff key (SPEC-multi-voice-staff.md): voices with
+        // the same `staff` value render on one staff. Only added when
+        // present so voices without it keep their exact legacy shape.
+        ...(voice.staff !== undefined ? { staff: voice.staff } : {}),
       })),
     };
 
