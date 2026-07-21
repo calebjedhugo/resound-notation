@@ -2019,6 +2019,29 @@ export class NotationRenderer {
         //     at cappedRightX, whitespace fills the rest of the container.
         // Interior systems ignore the cap and justify to this._width.
         const soloFinal = isLast && measureCountInSystem === 1;
+        // PAGE CLAMP (final-system overflow fix). A ragged system renders
+        // its closing barline at naturalRenderRightX — the last note's
+        // duration-PROPORTIONAL trailing — but the breaker reserved only
+        // the MIN_BARLINE_PADDING floor when deciding the run fits. A
+        // final long note (whole / dotted-whole) could therefore push the
+        // ragged render extent PAST the container: singHarmony2 hymns
+        // (o-holy-night, crown-him-with-many-crowns, …) rendered last
+        // systems up to 16% overfull while every other system justified to
+        // exactly the page width. Ragged may be NARROWER than the page
+        // (traditional ragged-right) but never wider: clamp the ragged
+        // render edge to the container. The clamp only shortens trailing
+        // whitespace after the last note — note positions are untouched,
+        // and the trailing gap stays ≥ MIN_BARLINE_PADDING because the
+        // breaker guarantees naturalRightX (which reserves exactly that
+        // floor) ≤ container for every kept run. A DEGENERATE system whose
+        // minimum extent already exceeds the container (naturalRightX >
+        // width — a single measure that cannot fit; breaker warns and
+        // renders it solo) keeps its full proportional extent as before:
+        // clamping it would compress below natural (the cram-bug class).
+        const raggedRenderEdge =
+          naturalRightX <= this._width + 1e-6
+            ? Math.min(naturalRenderRightX, this._width)
+            : naturalRenderRightX;
         // The right edge the SPRINGS are solved toward (the justify target).
         let springTargetRightX;
         // The right edge the STAFF / closing barline render at (= springs'
@@ -2055,9 +2078,10 @@ export class NotationRenderer {
             raggedAtNatural = false;
           } else {
             // Cap doesn't bind past the natural render extent: ragged at the
-            // proportional-trailing natural extent (the pre-cap behavior).
+            // proportional-trailing natural extent (the pre-cap behavior),
+            // page-clamped so the system never overflows the container.
             springTargetRightX = null;
-            systemRightX = naturalRenderRightX;
+            systemRightX = raggedRenderEdge;
             raggedAtNatural = true;
           }
         } else if (!soloFinal && naturalRightX < this._width - 1e-6) {
@@ -2067,9 +2091,10 @@ export class NotationRenderer {
           raggedAtNatural = false;
         } else {
           // No slack (or solo final): ragged at the proportional-trailing
-          // natural extent.
+          // natural extent, page-clamped (degenerate overfull systems keep
+          // their natural extent — see raggedRenderEdge above).
           springTargetRightX = null;
-          systemRightX = naturalRenderRightX;
+          systemRightX = raggedRenderEdge;
           raggedAtNatural = true;
         }
 

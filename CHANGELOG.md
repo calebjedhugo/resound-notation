@@ -17,6 +17,21 @@
   shared (close score) staff. Bare-string lyric input renders
   pixel-identically to before.
 
+### Fixed
+
+- **Final systems could render WIDER than the page.** A ragged last system
+  placed its closing barline at the last note's duration-proportional
+  trailing (`naturalRenderRightX`), but the system breaker only reserved
+  the minimum trailing floor — so a piece ending on a long note
+  (whole/dotted-whole) overflowed the container by up to ~16%
+  (singHarmony2 repro: o-holy-night rendered its last system at 2287
+  units in a 1971-unit page). The ragged render edge is now clamped to
+  the container: ragged-right may be narrower than the page, never wider.
+  Note positions are untouched, the trailing gap keeps its
+  MIN_BARLINE_PADDING floor, and a degenerate single measure that cannot
+  fit still renders at its natural (overfull) extent rather than being
+  compressed.
+
 - **Two voices per staff (close score)** — SPEC-multi-voice-staff.md. A
   Level-3 voice may declare an optional `staff` key; voices with the same
   value render on ONE shared staff (the SATB hymnal layout: soprano+alto on
