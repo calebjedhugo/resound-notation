@@ -20,13 +20,19 @@
  * generator and the committed jest harness build the identical battery.
  */
 
-/** Deep-clone a song, dropping every `lyric` field. */
+/**
+ * Deep-clone a song, dropping every `lyric`, `tie`, and `slur` field.
+ * Ties/slurs are stripped because the battery must stay valid across
+ * JOB 3, which changes long tie/slur geometry by design (see header).
+ */
 export function stripLyrics(song) {
   const clone = JSON.parse(JSON.stringify(song));
   const strip = (notes) => {
     for (const el of notes || []) {
       if (!el || Array.isArray(el)) continue;
       if (el.lyric !== undefined) delete el.lyric;
+      if (el.tie !== undefined) delete el.tie;
+      if (el.slur !== undefined) delete el.slur;
       if (el.notes) strip(el.notes);
     }
   };

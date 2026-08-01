@@ -48,6 +48,29 @@ describe('tie rendering', () => {
     ]);
     expect(ctx.getTies()).toHaveLength(0);
   });
+
+  it('flattens a cross-barline tie to the arc-height cap (JOB 3)', () => {
+    // Two tied whole notes span a barline — a long tie. Engraving practice
+    // (SPEC-lyric-spacing.md JOB 3) keeps long ties SHALLOW: arc height
+    // grows sub-linearly and caps at 14.
+    ctx.render({
+      timeSignature: [4, 4],
+      notes: [
+        { pitch: 'C4', length: '1/1', tie: 'start' },
+        { pitch: 'C4', length: '1/1', tie: 'stop' },
+      ],
+    });
+    const tie = ctx.getTies()[0];
+    const nums = tie.getAttribute('d').match(/-?[\d.]+/g).map(Number);
+    const startX = nums[0];
+    const startY = nums[1];
+    const endX = nums[6];
+    const span = Math.abs(endX - startX);
+    expect(span).toBeGreaterThan(102); // past the cap onset — a LONG tie
+    const arcHeight = Math.abs(nums[3] - startY);
+    expect(arcHeight).toBeLessThanOrEqual(14 + 1e-9);
+    expect(arcHeight).toBeCloseTo(14, 6);
+  });
 });
 
 describe('createTieArc (geometry)', () => {
@@ -80,5 +103,67 @@ describe('createTieArc (geometry)', () => {
     const shortNums = short.getAttribute('d').match(/-?[\d.]+/g).map(Number);
     const longNums = long.getAttribute('d').match(/-?[\d.]+/g).map(Number);
     expect(longNums[3] - 50).toBeGreaterThan(shortNums[3] - 50);
+  });
+});
+
+describe('long-tie flattening (SPEC-lyric-spacing.md JOB 3)', () => {
+  const arcHeightAt = (span) => {
+    const path = createTieArc({
+      x1: 100,
+      y1: 50,
+      x2: 100 + span,
+      y2: 50,
+      direction: 'below',
+    });
+    const nums = path.getAttribute('d').match(/-?[\d.]+/g).map(Number);
+    return nums[3] - 63; // outer cp1 y minus startY (below => positive)
+  };
+
+  it('short ties render byte-identical to the pre-change output (pinned paths)', () => {
+    // Exact 'd' strings captured from commit 13957b7 (pre-JOB-3 Tie.js).
+    // Spans <= 40px — "a couple of noteheads apart" (~1.7 notehead widths)
+    // — sit in the 8px floor region of both the old and new formulas, so
+    // the constants are chosen to reproduce them exactly.
+    const pin = (span, expected) => {
+      const path = createTieArc({
+        x1: 100,
+        y1: 50,
+        x2: 100 + span,
+        y2: 50,
+        direction: 'below',
+      });
+      expect(path.getAttribute('d')).toBe(expected);
+    };
+    pin(
+      20,
+      'M 100 63 C 106.6 71 113.4 71 120 63 C 113.4 65.13333333333333 106.6 65.13333333333333 100 63 Z'
+    );
+    pin(
+      30,
+      'M 100 63 C 109.9 71 120.1 71 130 63 C 120.1 65.13333333333333 109.9 65.13333333333333 100 63 Z'
+    );
+    pin(
+      40,
+      'M 100 63 C 113.2 71 126.8 71 140 63 C 126.8 65.13333333333333 113.2 65.13333333333333 100 63 Z'
+    );
+  });
+
+  it('caps long-tie arc height at 14', () => {
+    expect(arcHeightAt(150)).toBeCloseTo(14, 9);
+    expect(arcHeightAt(300)).toBeCloseTo(14, 9);
+    expect(arcHeightAt(1000)).toBeCloseTo(14, 9);
+  });
+
+  it('grows monotonically but sub-linearly between floor and cap', () => {
+    const spans = [40, 50, 60, 70, 80, 90, 100];
+    const heights = spans.map(arcHeightAt);
+    for (let i = 1; i < heights.length; i += 1) {
+      expect(heights[i]).toBeGreaterThanOrEqual(heights[i - 1] - 1e-9);
+    }
+    // Sub-linear: doubling the span from the floor edge grows the height
+    // by ~2^0.6 (≈1.52), well under 2x — and under the old linear 0.2*span.
+    expect(arcHeightAt(80)).toBeLessThan(2 * arcHeightAt(40) - 1);
+    expect(arcHeightAt(80)).toBeCloseTo(8 * Math.pow(2, 0.6), 6);
+    expect(arcHeightAt(80)).toBeLessThan(0.2 * 80); // flatter than before
   });
 });

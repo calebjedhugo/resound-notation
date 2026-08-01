@@ -17,9 +17,19 @@ import { SLUR_MIDPOINT_THICKNESS } from '../lib/engravingDefaults.js';
 // head edge — engraver's convention is that slurs HOVER just clear of
 // the notehead, never touching it.
 const NOTEHEAD_OFFSET = 14;
+// Long-slur flattening (SPEC-lyric-spacing.md JOB 3). Same sub-linear
+// clamp family as ties, with a slightly larger cap:
+//   arcHeight = clamp(BASE_HEIGHT, K * span^ARC_EXPONENT, MAX_ARC_HEIGHT)
+// The old formula (min(15 + 0.15 * span, 40)) reached 18 already at a
+// 20px span, so its short-span geometry CANNOT be preserved exactly under
+// an 18px cap; instead spans <= 40px (~1.7 notehead widths) sit at the
+// 15px floor (the old formula's minimum), the power branch rises from
+// there, and the cap engages at (18/K)^(1/0.6) ≈ 54px.
 const BASE_HEIGHT = 15;
-const SPAN_FACTOR = 0.15;
-const MAX_ARC_HEIGHT = 40;
+const MAX_ARC_HEIGHT = 18;
+const ARC_EXPONENT = 0.6;
+const SHORT_SPAN_REF = 40; // px — floor region, mirroring Tie.js
+const ARC_K = BASE_HEIGHT / Math.pow(SHORT_SPAN_REF, ARC_EXPONENT);
 // Control-point offset between outer and inner Bezier curves. The actual
 // rendered apex thickness is ~3/4 of this value (a symmetric cubic Bezier's
 // apex sits at 0.75 × control-Y offset), so we derive THICKNESS from the
@@ -45,7 +55,10 @@ export function createSlurArc({ x1, y1, x2, y2, direction, depth = 0 }) {
   const endY = y2 + NOTEHEAD_OFFSET * dir;
 
   const horizontalDistance = Math.abs(x2 - x1);
-  let arcHeight = Math.min(BASE_HEIGHT + horizontalDistance * SPAN_FACTOR, MAX_ARC_HEIGHT);
+  let arcHeight = Math.min(
+    MAX_ARC_HEIGHT,
+    Math.max(BASE_HEIGHT, ARC_K * Math.pow(horizontalDistance, ARC_EXPONENT))
+  );
 
   // Inner slurs get a tighter curve
   if (depth > 0) {

@@ -1,6 +1,47 @@
 /** @jest-environment jsdom */
 
 import { createNotationContext } from '../__tests__/helpers/testUtils.js';
+import { createSlurArc } from './Slur.js';
+
+describe('long-slur flattening (SPEC-lyric-spacing.md JOB 3)', () => {
+  const arcHeightAt = (span, depth = 0) => {
+    const path = createSlurArc({
+      x1: 100,
+      y1: 50,
+      x2: 100 + span,
+      y2: 50,
+      direction: 'above',
+      depth,
+    });
+    const nums = path.getAttribute('d').match(/-?[\d.]+/g).map(Number);
+    return 36 - nums[3]; // startY (50-14) minus outer cp1 y (above => positive)
+  };
+
+  it('caps long-slur arc height at 18 (slightly above the tie cap)', () => {
+    expect(arcHeightAt(150)).toBeCloseTo(18, 9);
+    expect(arcHeightAt(300)).toBeCloseTo(18, 9);
+    expect(arcHeightAt(1000)).toBeCloseTo(18, 9);
+  });
+
+  it('short slurs sit at the 15px floor', () => {
+    expect(arcHeightAt(20)).toBeCloseTo(15, 9);
+    expect(arcHeightAt(40)).toBeCloseTo(15, 9);
+  });
+
+  it('grows monotonically but sub-linearly between floor and cap', () => {
+    const spans = [40, 44, 48, 52, 56];
+    const heights = spans.map((s) => arcHeightAt(s));
+    for (let i = 1; i < heights.length; i += 1) {
+      expect(heights[i]).toBeGreaterThanOrEqual(heights[i - 1] - 1e-9);
+    }
+    expect(arcHeightAt(48)).toBeCloseTo(15 * Math.pow(48 / 40, 0.6), 6);
+    expect(arcHeightAt(48)).toBeLessThan(15 + 0.15 * 48); // flatter than before
+  });
+
+  it('inner (nested) slurs keep the 0.6 tightening factor', () => {
+    expect(arcHeightAt(300, 1)).toBeCloseTo(18 * 0.6, 9);
+  });
+});
 
 describe('slur rendering', () => {
   let ctx;
