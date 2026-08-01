@@ -68,7 +68,15 @@ import {
   renderVerseNumber,
   LYRIC_BASE_Y,
   VERSE_LINE_HEIGHT,
+  estimateLyricWidth,
 } from './components/Lyric.js';
+import {
+  applyLyricSpacing,
+  verseNumberLeadReservation,
+  lyricSyllableForVerse,
+  maxLyricVerseCount,
+  VERSE_NUMBER_GAP,
+} from './lib/lyricSpacing.js';
 import { createBrace, getBraceWidth } from './components/Brace.js';
 import { createBracket } from './components/Bracket.js';
 import { createSharedBarLine } from './components/SharedBarLine.js';
@@ -659,33 +667,9 @@ function chordGlyphFor(info) {
 // vertical room for the verse block (11px text → ~3px descender + air).
 const LYRIC_BLOCK_DESCENT_PAD = 8;
 
-/**
- * The syllable a `lyric` value contributes to verse `v` (0-based), or null
- * when that verse has no syllable on this note (melisma / verse ended).
- * A bare string is verse 1 (spec: mixed usage allowed).
- */
-function lyricSyllableForVerse(lyric, v) {
-  if (lyric === undefined || lyric === null) return null;
-  if (Array.isArray(lyric)) {
-    const s = lyric[v];
-    return s === undefined || s === null ? null : s;
-  }
-  return v === 0 ? lyric : null;
-}
-
-/**
- * Number of lyric verses a voice carries: max over its notes of the lyric
- * array length (a bare string counts as 1 verse). 0 = no lyrics.
- */
-function maxLyricVerseCount(notes) {
-  let n = 0;
-  for (const el of notes || []) {
-    if (!el || Array.isArray(el)) continue; // chords carry no lyric
-    if (el.lyric === undefined) continue;
-    n = Math.max(n, Array.isArray(el.lyric) ? el.lyric.length : 1);
-  }
-  return n;
-}
+// lyricSyllableForVerse / maxLyricVerseCount moved to lib/lyricSpacing.js
+// (imported above) so the spacing pass and the renderer share one
+// definition of "which verse does this syllable belong to".
 
 /**
  * Bottom edge (staff-local y) of a voice's lyric verse block, or 0 when the
@@ -1031,9 +1015,17 @@ function computeSystemSpringLayout(
   perSystemMusicStartX,
   sharedMeasureLength,
   systemRightX = null,
+  opts = {},
 ) {
   // Natural beat→x for this system (no stretch).
   const naturalBeatToX = computeBeatLayout(sliceVoices, perSystemMusicStartX);
+
+  // Syllable-width-aware minima (SPEC-lyric-spacing.md JOB 1): widen the
+  // NATURAL map so consecutive same-verse syllables never crowd. Applied
+  // here — the single shared metric — so the breaker sees wider measures
+  // and justification (which only stretches from natural) preserves the
+  // minima. No-op (map untouched) for lyric-free input.
+  applyLyricSpacing(naturalBeatToX, sliceVoices);
 
   // Last beat across all voices (system end).
   let systemEndBeat = 0;
@@ -1088,6 +1080,17 @@ function computeSystemSpringLayout(
       }
     }
   }
+
+  // Verse-number leading reservation (SPEC-lyric-spacing.md JOB 1): when the
+  // system opens on a lyric-bearing note of a multi-verse voice, shift the
+  // music start right so the end-anchored verse numbers clear the prelude
+  // block. Rides the same leading-offset mechanism as leading repeat
+  // barlines, so it flows into fixedOffsetSum / naturalRightX and the
+  // breaker accounts for it. Zero for lyric-free / single-verse input.
+  leadingMusicOffset += verseNumberLeadReservation(
+    sliceVoices,
+    opts.voiceVerseCounts || null
+  );
 
   // Per-boundary natural pre/post (last-note duration before the bar, first-
   // note duration after) for duration-proportional gap splits.
@@ -1865,7 +1868,8 @@ export class NotationRenderer {
       const sliceVoices = parsed.voices.map((v, vi) => ({ ...v, notes: slicedNotes[vi] }));
       const startX = musicStartXForSystem(systemIndex);
       const { naturalRightX } = computeSystemSpringLayout(
-        sliceVoices, slicedNotes, startX, sharedMeasureLength, null
+        sliceVoices, slicedNotes, startX, sharedMeasureLength, null,
+        { voiceVerseCounts }
       );
       return naturalRightX;
     };
@@ -1988,7 +1992,8 @@ export class NotationRenderer {
         // justification can only STRETCH from here — never compress below
         // natural — so the last note always keeps its proportional trailing.
         const naturalLayout = computeSystemSpringLayout(
-          sliceVoices, slicedVoiceNotes, perSystemMusicStartX, sharedMeasureLength, null
+          sliceVoices, slicedVoiceNotes, perSystemMusicStartX, sharedMeasureLength, null,
+          { voiceVerseCounts }
         );
         const naturalRightX = naturalLayout.naturalRightX;
         // RAGGED RENDER edge: the proportional-trailing extent. The breaker
@@ -2108,7 +2113,8 @@ export class NotationRenderer {
         const layout = raggedAtNatural
           ? naturalLayout
           : computeSystemSpringLayout(
-              sliceVoices, slicedVoiceNotes, perSystemMusicStartX, sharedMeasureLength, springTargetRightX
+              sliceVoices, slicedVoiceNotes, perSystemMusicStartX, sharedMeasureLength, springTargetRightX,
+              { voiceVerseCounts }
             );
         const {
           stretchedBeatToX,
@@ -2508,7 +2514,17 @@ export class NotationRenderer {
       // Jump to shared music-start X. From here on, note positions are
       // looked up in the shared beatToX map (with cumulative barline
       // padding applied per voice as it crosses measure boundaries).
-      cursorX = musicStartX;
+      // Verse-number leading reservation (SPEC-lyric-spacing.md JOB 1):
+      // computeSystemSpringLayout anchored the beat map past this same pad
+      // (via leadingMusicOffset), so the cursor must start there too or the
+      // first note would render left of its mapped x. Zero for lyric-free /
+      // single-verse systems.
+      const lyricLeadPad = verseNumberLeadReservation(
+        voices,
+        voiceVerseCounts || null
+      );
+      const musicCursorStartX = musicStartX + lyricLeadPad;
+      cursorX = musicCursorStartX;
       let barlineOffset = 0;
       const xForBeat = (beat) => {
         const base = beatToX.get(beat);
@@ -3038,7 +3054,7 @@ export class NotationRenderer {
           // its thick stroke's left face then sits ~1 staff space past
           // the prelude's rightmost visible element (Gould "Behind Bars",
           // Repeats: tight-but-clear clearance).
-          const atMusicStart = cursorX === musicStartX;
+          const atMusicStart = cursorX === musicCursorStartX;
           // Distance from a repeat barline's translate x to the CENTER
           // of the next/prev notehead so the head's left/right edge clears
           // the dot's visible edge by REPEAT_BARLINE_INNER_PAD. The dot
@@ -4060,13 +4076,15 @@ export class NotationRenderer {
 
             // Verse number at the system's first syllable of this verse.
             // End-anchored left of the (center-anchored) syllable; the
-            // half-width estimate is ~3px/char at font-size 11.
+            // half-width comes from the shared font-size-driven estimator
+            // (SPEC-lyric-spacing.md JOB 1) so placement and the leading
+            // reservation in lib/lyricSpacing.js agree.
             if (multiVerse && li === 0) {
-              const halfWidthEstimate = String(ld.text).length * 3;
+              const halfWidthEstimate = estimateLyricWidth(ld.text) / 2;
               lyricsGroup.appendChild(
                 renderVerseNumber({
                   number: v + 1,
-                  x: ld.x - halfWidthEstimate - 4,
+                  x: ld.x - halfWidthEstimate - VERSE_NUMBER_GAP,
                   verseIndex: v,
                 })
               );

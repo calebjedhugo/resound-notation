@@ -9,6 +9,28 @@ import { createGroup, createText, createLine } from '../lib/svgHelpers.js';
 const LYRIC_Y = 115;
 const MELISMA_Y = 120;
 
+// Engraving defaults for lyric text (SPEC-lyric-spacing.md JOB 2 raises
+// these; every width heuristic must READ them, never hardcode).
+export const LYRIC_FONT_SIZE = 11;
+export const VERSE_NUMBER_FONT_SIZE = 10;
+
+// Width-estimation heuristic (SPEC-lyric-spacing.md JOB 1). jsdom offers no
+// text metrics (getComputedTextLength / getBBox return 0), so syllable
+// widths are ESTIMATED from character count: the average advance of the
+// default serif at lyric sizes is ~0.5 em per character (mixed-case Latin
+// text; digits and '.' in verse numbers land close to the same average).
+export const LYRIC_CHAR_WIDTH_RATIO = 0.5;
+
+/**
+ * Estimated rendered width (px) of a lyric string at a given font size.
+ * @param {string} text
+ * @param {number} [fontSize=LYRIC_FONT_SIZE]
+ * @returns {number}
+ */
+export function estimateLyricWidth(text, fontSize = LYRIC_FONT_SIZE) {
+  return String(text).length * LYRIC_CHAR_WIDTH_RATIO * fontSize;
+}
+
 // Vertical distance between stacked verse lines (SPEC-multi-verse-lyrics.md
 // rule 1: verse 1 at the legacy position, each additional verse one
 // line-height lower).
@@ -33,7 +55,7 @@ export function renderLyric({ text, x, verseIndex = 0 }) {
   group.appendChild(
     createText(text, 0, 0, {
       'text-anchor': 'middle',
-      'font-size': '11',
+      'font-size': String(LYRIC_FONT_SIZE),
       fill: 'currentColor',
     })
   );
@@ -75,7 +97,7 @@ export function renderVerseNumber({ number, x, verseIndex = 0 }) {
   group.appendChild(
     createText(`${number}.`, 0, 0, {
       'text-anchor': 'end',
-      'font-size': '10',
+      'font-size': String(VERSE_NUMBER_FONT_SIZE),
       fill: 'currentColor',
     })
   );
