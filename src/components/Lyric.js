@@ -11,8 +11,8 @@ const MELISMA_Y = 120;
 
 // Engraving defaults for lyric text (SPEC-lyric-spacing.md JOB 2 raises
 // these; every width heuristic must READ them, never hardcode).
-export const LYRIC_FONT_SIZE = 11;
-export const VERSE_NUMBER_FONT_SIZE = 10;
+export const LYRIC_FONT_SIZE = 15;
+export const VERSE_NUMBER_FONT_SIZE = 13;
 
 // Width-estimation heuristic (SPEC-lyric-spacing.md JOB 1). jsdom offers no
 // text metrics (getComputedTextLength / getBBox return 0), so syllable
@@ -34,7 +34,7 @@ export function estimateLyricWidth(text, fontSize = LYRIC_FONT_SIZE) {
 // Vertical distance between stacked verse lines (SPEC-multi-verse-lyrics.md
 // rule 1: verse 1 at the legacy position, each additional verse one
 // line-height lower).
-export const VERSE_LINE_HEIGHT = 26;
+export const VERSE_LINE_HEIGHT = 30;
 // Verse-1 lyric baseline, exported so the renderer's spacing skyline can
 // reserve room for the whole verse block below a staff.
 export const LYRIC_BASE_Y = LYRIC_Y;

@@ -14,7 +14,9 @@ import { NotationRenderer } from './NotationRenderer.js';
 
 const LYRIC_BASE_Y = 115;
 const MELISMA_BASE_Y = 120;
-const VERSE_LINE = 26;
+// SPEC-lyric-spacing.md JOB 2: verse line height raised 26 -> 30 with the
+// larger lyric font (deliberate design change, not test-fudging).
+const VERSE_LINE = 30;
 
 function parseTranslate(el) {
   const m = /translate\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)/.exec(

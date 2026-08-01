@@ -664,7 +664,7 @@ function chordGlyphFor(info) {
 
 // --- Multi-verse lyrics — SPEC-multi-verse-lyrics.md ----------------------
 // Descender allowance (px) below a lyric line's baseline when reserving
-// vertical room for the verse block (11px text → ~3px descender + air).
+// vertical room for the verse block (15px text → ~4px descender + air).
 const LYRIC_BLOCK_DESCENT_PAD = 8;
 
 // lyricSyllableForVerse / maxLyricVerseCount moved to lib/lyricSpacing.js
