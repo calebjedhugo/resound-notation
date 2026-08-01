@@ -8,6 +8,10 @@ import { createGroup, createText, createLine } from '../lib/svgHelpers.js';
 
 const LYRIC_Y = 115;
 const MELISMA_Y = 120;
+// Melisma underscores hang this far below their verse line's baseline
+// (the legacy MELISMA_Y - LYRIC_Y relationship, kept when the baseline
+// shifts to clear staff content - JOB 4).
+const MELISMA_DROP = MELISMA_Y - LYRIC_Y;
 
 // Engraving defaults for lyric text (SPEC-lyric-spacing.md JOB 2 raises
 // these; every width heuristic must READ them, never hardcode).
@@ -45,11 +49,13 @@ export const LYRIC_BASE_Y = LYRIC_Y;
  * @param {string} params.text - Lyric text
  * @param {number} params.x - Horizontal position (note center)
  * @param {number} [params.verseIndex=0] - 0-based verse line (0 = legacy y)
+ * @param {number} [params.baseY=115] - verse-1 baseline; raised past the
+ *   legacy y when staff content descends into the lyric band (JOB 4)
  * @returns {SVGGElement}
  */
-export function renderLyric({ text, x, verseIndex = 0 }) {
+export function renderLyric({ text, x, verseIndex = 0, baseY = LYRIC_Y }) {
   const group = createGroup('lyric', {
-    transform: `translate(${x}, ${LYRIC_Y + verseIndex * VERSE_LINE_HEIGHT})`,
+    transform: `translate(${x}, ${baseY + verseIndex * VERSE_LINE_HEIGHT})`,
   });
 
   group.appendChild(
@@ -69,10 +75,11 @@ export function renderLyric({ text, x, verseIndex = 0 }) {
  * @param {number} params.startX - Start X position
  * @param {number} params.endX - End X position
  * @param {number} [params.verseIndex=0] - 0-based verse line (0 = legacy y)
+ * @param {number} [params.baseY=115] - verse-1 baseline (see renderLyric)
  * @returns {SVGLineElement}
  */
-export function renderMelisma({ startX, endX, verseIndex = 0 }) {
-  const y = MELISMA_Y + verseIndex * VERSE_LINE_HEIGHT;
+export function renderMelisma({ startX, endX, verseIndex = 0, baseY = LYRIC_Y }) {
+  const y = baseY + MELISMA_DROP + verseIndex * VERSE_LINE_HEIGHT;
   return createLine(startX, y, endX, y, {
     class: 'lyric-melisma',
     stroke: 'currentColor',
@@ -88,11 +95,12 @@ export function renderMelisma({ startX, endX, verseIndex = 0 }) {
  * @param {number} params.number - 1-based verse number
  * @param {number} params.x - Right edge of the number text
  * @param {number} [params.verseIndex=0] - 0-based verse line
+ * @param {number} [params.baseY=115] - verse-1 baseline (see renderLyric)
  * @returns {SVGGElement}
  */
-export function renderVerseNumber({ number, x, verseIndex = 0 }) {
+export function renderVerseNumber({ number, x, verseIndex = 0, baseY = LYRIC_Y }) {
   const group = createGroup('lyric-verse-number', {
-    transform: `translate(${x}, ${LYRIC_Y + verseIndex * VERSE_LINE_HEIGHT})`,
+    transform: `translate(${x}, ${baseY + verseIndex * VERSE_LINE_HEIGHT})`,
   });
   group.appendChild(
     createText(`${number}.`, 0, 0, {

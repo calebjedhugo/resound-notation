@@ -467,7 +467,6 @@ function voiceSkyline(notes, clef, opts = {}) {
     voiceIndex,
     voiceCount,
     forcedStemDown,
-    lyricVerseCount = 0,
   } = opts;
   const TOP_LINE = STAFF_TOP_OFFSET; // 10
   const BOTTOM_LINE = STAFF_TOP_OFFSET + STAFF_HEIGHT; // 90
@@ -528,13 +527,11 @@ function voiceSkyline(notes, clef, opts = {}) {
     }
   }
 
-  // Multi-verse lyric block (SPEC-multi-verse-lyrics.md rule 3): the
-  // reserved space below the staff grows with the verse count so following
-  // staves don't collide with the block. Single-verse voices contribute
-  // nothing (legacy layout never reserved lyric room — rule 5).
-  const lyricBottom = lyricBlockBottom(lyricVerseCount);
-  if (lyricBottom > lowest) lowest = lyricBottom;
-
+  // CONTENT-ONLY skyline (JOB 4): the lyric verse block is folded in at
+  // the STAFF level (see staffSkylines in render()) because the block's
+  // baseline depends on the lowest content across ALL voices sharing the
+  // staff — a down-stem partner voice pushes the lyric-bearing voice's
+  // text down.
   return {
     descent: Math.max(0, lowest - BOTTOM_LINE),
     ascent: Math.max(0, TOP_LINE - highest),
@@ -671,15 +668,32 @@ const LYRIC_BLOCK_DESCENT_PAD = 8;
 // (imported above) so the spacing pass and the renderer share one
 // definition of "which verse does this syllable belong to".
 
+// Clear air (px) required between a staff's lowest content ink (down-stem
+// tips, beams, low noteheads/ledgers) and the lyric baseline (JOB 4).
+const LYRIC_BASELINE_CLEARANCE = 8;
+
 /**
- * Bottom edge (staff-local y) of a voice's lyric verse block, or 0 when the
- * voice has fewer than 2 verses. Single-verse voices contribute nothing so
- * legacy output stays pixel-identical (spec rule 5) — today's layout never
- * reserved room for a single lyric line.
+ * Per-staff lyric baseline (JOB 4): the legacy LYRIC_BASE_Y, pushed down
+ * when the staff's content descends into the lyric band so down-stem
+ * voices (alto on a shared treble staff) never overlap the text.
+ * @param {number} contentLowestY - staff-local lowest ink y (>= bottom line)
  */
-function lyricBlockBottom(verseCount) {
-  if (!(verseCount > 1)) return 0;
-  return LYRIC_BASE_Y + (verseCount - 1) * VERSE_LINE_HEIGHT + LYRIC_BLOCK_DESCENT_PAD;
+function lyricBaselineFor(contentLowestY) {
+  return Math.max(LYRIC_BASE_Y, contentLowestY + LYRIC_BASELINE_CLEARANCE);
+}
+
+/**
+ * Bottom edge (staff-local y) of a staff's lyric verse block below the
+ * given baseline, or 0 when nothing needs reserving. A single verse at
+ * the LEGACY baseline contributes nothing so legacy output stays
+ * pixel-identical (SPEC-multi-verse-lyrics.md rule 5) — but a SHIFTED
+ * single verse (JOB 4) must reserve room, since it now reaches below
+ * where the legacy layout put it.
+ */
+function lyricBlockBottomAt(baseY, verseCount) {
+  if (!(verseCount > 0)) return 0;
+  if (verseCount === 1 && baseY <= LYRIC_BASE_Y) return 0; // legacy layout
+  return baseY + (verseCount - 1) * VERSE_LINE_HEIGHT + LYRIC_BLOCK_DESCENT_PAD;
 }
 
 // --- Two voices per staff (close score) — SPEC-multi-voice-staff.md -------
@@ -1564,7 +1578,6 @@ export class NotationRenderer {
         voiceIndex: vi,
         voiceCount: parsed.voices.length,
         forcedStemDown: voiceForcedStemDown[vi],
-        lyricVerseCount: voiceVerseCounts[vi],
       })
     );
 
@@ -1586,14 +1599,32 @@ export class NotationRenderer {
     // staves the two member voices sit at the same Y, and a staff's
     // skyline/brace membership is the merge of its member voices. With
     // one voice per staff this is exactly the legacy per-voice loop.
-    const staffSkylines = staffModel.staves.map((staff) => ({
-      descent: Math.max(
+    const staffSkylines = staffModel.staves.map((staff) => {
+      const contentDescent = Math.max(
         ...staff.voiceIndices.map((vi) => voiceSkylines[vi].descent)
-      ),
-      ascent: Math.max(
+      );
+      const ascent = Math.max(
         ...staff.voiceIndices.map((vi) => voiceSkylines[vi].ascent)
-      ),
-    }));
+      );
+      // Lyric verse block, folded at STAFF level (JOB 4): its baseline
+      // clears the lowest content of ALL voices on the staff, and the
+      // reservation below the staff follows the (possibly shifted) block.
+      const verseCount = Math.max(
+        0,
+        ...staff.voiceIndices.map((vi) => voiceVerseCounts[vi])
+      );
+      const baseY = lyricBaselineFor(
+        STAFF_TOP_OFFSET + STAFF_HEIGHT + contentDescent
+      );
+      const blockBottom = lyricBlockBottomAt(baseY, verseCount);
+      return {
+        ascent,
+        descent: Math.max(
+          contentDescent,
+          blockBottom - (STAFF_TOP_OFFSET + STAFF_HEIGHT)
+        ),
+      };
+    });
     const staffBraceGroupArr = staffModel.staves.map((staff) => {
       for (const vi of staff.voiceIndices) {
         const g = voiceBraceGroup.get(parsed.voices[vi].id);
@@ -2241,9 +2272,18 @@ export class NotationRenderer {
             0,
             ...bottomStaff.voiceIndices.map((vi) => voiceVerseCounts[vi])
           );
+          // Baseline may be shifted below deep content (JOB 4) — the
+          // inter-system advance must clear the SHIFTED block.
+          const bottomContentDescent = Math.max(
+            ...bottomStaff.voiceIndices.map((vi) => voiceSkylines[vi].descent)
+          );
+          const bottomBaseY = lyricBaselineFor(
+            STAFF_TOP_OFFSET + STAFF_HEIGHT + bottomContentDescent
+          );
           bottomStaffLyricExcess = Math.max(
             0,
-            lyricBlockBottom(bottomVerseCount) - (STAFF_TOP_OFFSET + STAFF_HEIGHT + 40)
+            lyricBlockBottomAt(bottomBaseY, bottomVerseCount)
+              - (STAFF_TOP_OFFSET + STAFF_HEIGHT + 40)
           );
         }
         systemYOffset +=
@@ -2412,6 +2452,34 @@ export class NotationRenderer {
           if (voiceBarlineBeatSets.every((s) => s.has(b))) acc.add(b);
           return acc;
         }, new Set());
+
+    // Per-staff lyric baseline for THIS system (JOB 4): the lowest content
+    // extent across the staff's voices (down-stem tips, beams, low heads —
+    // the same content-only voiceSkyline geometry used for staff placement)
+    // pushes the lyric block down past the legacy LYRIC_BASE_Y so text
+    // never collides with ink. Computed per system so a system with
+    // shallow content keeps the legacy baseline.
+    const staffLyricBaseYByStaff = new Map();
+    voices.forEach((voice, vi) => {
+      const sIdx = staffModel ? staffModel.voiceStaffIndex[vi] : vi;
+      const sDef = staffModel ? staffModel.staves[sIdx] : null;
+      const shared = !!(sDef && sDef.voiceIndices.length === 2);
+      const vClef = shared
+        ? sDef.clef
+        : voice.clef || inferClef(shiftedVoiceNotes[vi]);
+      const sk = voiceSkyline(shiftedVoiceNotes[vi], vClef, {
+        timeSignature: voice.timeSignature || null,
+        voiceIndex: vi,
+        voiceCount: voices.length,
+        forcedStemDown: shared ? sDef.voiceIndices.indexOf(vi) === 1 : undefined,
+      });
+      const lowest = STAFF_TOP_OFFSET + STAFF_HEIGHT + sk.descent;
+      const prev = staffLyricBaseYByStaff.get(sIdx);
+      const baseY = lyricBaselineFor(lowest);
+      if (prev === undefined || baseY > prev) {
+        staffLyricBaseYByStaff.set(sIdx, baseY);
+      }
+    });
 
     voices.forEach((voice, index) => {
       // Render against the octave-shifted notes so the heads sit near the
@@ -4054,6 +4122,12 @@ export class NotationRenderer {
       // single verse stays pixel-identical to today).
       if (lyricData.length > 0) {
         const lyricsGroup = createGroup('lyrics-layer');
+        // Staff-level baseline for this system (JOB 4) — legacy
+        // LYRIC_BASE_Y unless the staff's content descends into the band.
+        const lyricBaseY =
+          staffLyricBaseYByStaff.get(staffIdx) !== undefined
+            ? staffLyricBaseYByStaff.get(staffIdx)
+            : LYRIC_BASE_Y;
         // Multi-verse mode is decided from the WHOLE voice (via render()'s
         // voiceVerseCounts) so a continuation system whose slice happens to
         // hold only verse-1 syllables still numbers its lines.
@@ -4086,12 +4160,13 @@ export class NotationRenderer {
                   number: v + 1,
                   x: ld.x - halfWidthEstimate - VERSE_NUMBER_GAP,
                   verseIndex: v,
+                  baseY: lyricBaseY,
                 })
               );
             }
 
             lyricsGroup.appendChild(
-              renderLyric({ text: ld.text, x: ld.x, verseIndex: v })
+              renderLyric({ text: ld.text, x: ld.x, verseIndex: v, baseY: lyricBaseY })
             );
 
             // Melisma for THIS verse: pitched notes after this syllable's
@@ -4115,7 +4190,12 @@ export class NotationRenderer {
 
             if (melismaEndX !== null) {
               lyricsGroup.appendChild(
-                renderMelisma({ startX: ld.x + 10, endX: melismaEndX, verseIndex: v })
+                renderMelisma({
+                  startX: ld.x + 10,
+                  endX: melismaEndX,
+                  verseIndex: v,
+                  baseY: lyricBaseY,
+                })
               );
             }
           }
@@ -4124,9 +4204,10 @@ export class NotationRenderer {
         staffGroup.appendChild(lyricsGroup);
 
         // Fold the verse block into the content bbox so the grown viewBox
-        // never clips lower verse lines. Single-verse input contributes
-        // nothing (its line always sits inside the legacy band).
-        const blockBottom = lyricBlockBottom(sliceVerseCount);
+        // never clips lower verse lines. A single verse at the LEGACY
+        // baseline contributes nothing (its line always sits inside the
+        // legacy band); a SHIFTED block (JOB 4) always folds.
+        const blockBottom = lyricBlockBottomAt(lyricBaseY, sliceVerseCount);
         if (blockBottom > 0 && voiceY + blockBottom > contentMaxY) {
           contentMaxY = voiceY + blockBottom;
         }
