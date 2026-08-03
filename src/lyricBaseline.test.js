@@ -98,14 +98,16 @@ describe('lyric baseline clears staff content (JOB 4)', () => {
   });
 
   it('a staff whose content stays inside the staff keeps the exact legacy baseline', () => {
-    // Stem-up notes (G4/A4) and a high stem-down note (D5, stem bottom
-    // y=100) never reach past LYRIC_BASE_Y - clearance; nothing may move.
+    // Stem-up notes (F4/G4/A4, stem bottom y=80) never reach past the
+    // staff's own bottom line (y=90), let alone LYRIC_BASE_Y - clearance
+    // (JOB 5 raised the clearance to 36px so it now takes more headroom
+    // below the staff to trigger a shift than JOB 4's D5 case did).
     const { container, cleanup } = renderSong({
       timeSignature: [4, 4],
       notes: [
-        { pitch: 'G4', length: '1/4', lyric: 'A-' },
-        { pitch: 'A4', length: '1/4', lyric: 'maz-' },
-        { pitch: 'D5', length: '1/4', lyric: 'ing' },
+        { pitch: 'F4', length: '1/4', lyric: 'A-' },
+        { pitch: 'G4', length: '1/4', lyric: 'maz-' },
+        { pitch: 'A4', length: '1/4', lyric: 'ing' },
         { pitch: 'G4', length: '1/4', lyric: 'grace' },
       ],
     });

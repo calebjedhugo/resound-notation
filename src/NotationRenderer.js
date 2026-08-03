@@ -67,6 +67,8 @@ import {
   renderMelisma,
   renderVerseNumber,
   LYRIC_BASE_Y,
+  LYRIC_FONT_SIZE,
+  LYRIC_ASCENDER_RATIO,
   VERSE_LINE_HEIGHT,
   estimateLyricWidth,
 } from './components/Lyric.js';
@@ -661,16 +663,28 @@ function chordGlyphFor(info) {
 
 // --- Multi-verse lyrics — SPEC-multi-verse-lyrics.md ----------------------
 // Descender allowance (px) below a lyric line's baseline when reserving
-// vertical room for the verse block (15px text → ~4px descender + air).
-const LYRIC_BLOCK_DESCENT_PAD = 8;
+// vertical room for the verse block. JOB 2 sized this for a 15px font
+// (~4px descender + air = 8); JOB 5 (SPEC-lyric-engraving-scale.md) raises
+// LYRIC_FONT_SIZE to 39px, so this is scaled by the same ratio (8 x 39/15
+// = 20.8) rather than left stale at the old font's proportions.
+const LYRIC_BLOCK_DESCENT_PAD = Math.round(8 * (LYRIC_FONT_SIZE / 15));
 
 // lyricSyllableForVerse / maxLyricVerseCount moved to lib/lyricSpacing.js
 // (imported above) so the spacing pass and the renderer share one
 // definition of "which verse does this syllable belong to".
 
 // Clear air (px) required between a staff's lowest content ink (down-stem
-// tips, beams, low noteheads/ledgers) and the lyric baseline (JOB 4).
-const LYRIC_BASELINE_CLEARANCE = 8;
+// tips, beams, low noteheads/ledgers) and the RENDERED lyric glyphs — not
+// just the baseline (JOB 4). The flat 8px JOB 4 value only budgeted air
+// beyond the baseline; it happened to clear the legacy 15px font's small
+// ascenders by coincidence. JOB 5 (SPEC-lyric-engraving-scale.md) raises
+// the font to 39px real-hymnal proportions, so the clearance now explicitly
+// reserves the measured ascender reach (LYRIC_ASCENDER_RATIO x
+// LYRIC_FONT_SIZE = 0.71 x 39 ≈ 28px) plus the original 8px of breathing
+// room, so ascenders themselves — not just the baseline — clear the ink.
+const LYRIC_BASELINE_AIR_GAP = 8;
+const LYRIC_BASELINE_CLEARANCE =
+  Math.round(LYRIC_FONT_SIZE * LYRIC_ASCENDER_RATIO) + LYRIC_BASELINE_AIR_GAP;
 
 /**
  * Per-staff lyric baseline (JOB 4): the legacy LYRIC_BASE_Y, pushed down

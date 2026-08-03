@@ -248,8 +248,24 @@ describe('verseNumberLeadReservation', () => {
     ).toBeCloseTo(needed, 6);
   });
 
-  it('is zero when the short first syllable already fits', () => {
-    expect(verseNumberLeadReservation(mkVoices(['a', 'a']), [2])).toBe(0);
+  it('matches the formula for a short first syllable', () => {
+    // JOB 5: at 39px lyrics, even a 1-char syllable no longer fits inside
+    // PRELUDE_NOTE_MIN_DAYLIGHT — the reservation formula is what's under
+    // test here, not a "premise" of zero, which the raised font size makes
+    // unreachable at any syllable length. Same formula/toBeCloseTo pattern
+    // as the "long first syllable" test above.
+    const syl = 'a';
+    const needed = Math.max(
+      0,
+      estimateLyricWidth(syl) / 2 +
+        VERSE_NUMBER_GAP +
+        estimateLyricWidth('2.', VERSE_NUMBER_FONT_SIZE) +
+        VERSE_NUMBER_LEAD_CLEARANCE -
+        PRELUDE_NOTE_MIN_DAYLIGHT
+    );
+    expect(
+      verseNumberLeadReservation(mkVoices([syl, syl]), [2])
+    ).toBeCloseTo(needed, 6);
   });
 
   it('is zero when the system FIRST note carries no syllable', () => {

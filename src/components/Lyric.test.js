@@ -1,13 +1,19 @@
 /** @jest-environment jsdom */
 
 /**
- * Lyric engraving defaults (SPEC-lyric-spacing.md JOB 2).
+ * Lyric engraving defaults (SPEC-lyric-spacing.md JOB 2;
+ * SPEC-lyric-engraving-scale.md JOB 5).
  *
- * The raised sizes are a deliberate design change: 11px lyric text at the
- * professional display scale (~0.33) rendered ~3.6px on screen — far below
- * hymnal lyric size relative to a 7mm staff. 15px syllables / 13px verse
- * numbers / 30px verse line-height restore engraving proportions.
- * LYRIC_BASE_Y stays at the legacy 115.
+ * JOB 2's 15px/13px/30px sizes were a first pass at "bigger than the
+ * professional display scale made them read." JOB 5 replaces that guess
+ * with sizes MEASURED off real hymnal engravings (Amazing Grace, Holy
+ * Holy Holy scans): fontSize/staffSpace averaged 1.97 across 4 pages,
+ * giving 39px syllables at this renderer's 20px staff space. Verse
+ * numbers stay 0.85x that (33px). Verse-line pitch was independently
+ * measured (baseline-to-baseline, identical-glyph cross-checks) at
+ * ~1.00x font size, not assumed at 2x — 39px line height. LYRIC_BASE_Y
+ * moves from the legacy 115 to 126 so the taller ascenders still clear
+ * the staff bottom (deliberate design change, not a legacy pin anymore).
  */
 
 import {
@@ -23,30 +29,30 @@ import {
 } from './Lyric.js';
 
 describe('lyric engraving defaults (JOB 2)', () => {
-  it('pins the raised size constants', () => {
-    expect(LYRIC_FONT_SIZE).toBe(15);
-    expect(VERSE_NUMBER_FONT_SIZE).toBe(13);
-    expect(VERSE_LINE_HEIGHT).toBe(30);
-    // Deliberately unchanged: verse 1 stays at the legacy baseline.
-    expect(LYRIC_BASE_Y).toBe(115);
+  it('pins the measured-from-engravings size constants', () => {
+    expect(LYRIC_FONT_SIZE).toBe(39);
+    expect(VERSE_NUMBER_FONT_SIZE).toBe(33);
+    expect(VERSE_LINE_HEIGHT).toBe(39);
+    // JOB 5: raised so a 39px font's ascenders still clear the staff.
+    expect(LYRIC_BASE_Y).toBe(126);
   });
 
   it('renderLyric emits the syllable font size from the constant', () => {
     const g = renderLyric({ text: 'grace', x: 100 });
     const text = g.querySelector('text');
     expect(text.getAttribute('font-size')).toBe(String(LYRIC_FONT_SIZE));
-    expect(text.getAttribute('font-size')).toBe('15');
+    expect(text.getAttribute('font-size')).toBe('39');
   });
 
   it('renderVerseNumber emits the number font size from the constant', () => {
     const g = renderVerseNumber({ number: 3, x: 50 });
     const text = g.querySelector('text');
     expect(text.getAttribute('font-size')).toBe(String(VERSE_NUMBER_FONT_SIZE));
-    expect(text.getAttribute('font-size')).toBe('13');
+    expect(text.getAttribute('font-size')).toBe('33');
     expect(text.textContent).toBe('3.');
   });
 
-  it('verse lines stack at the raised line height from the unchanged base', () => {
+  it('verse lines stack at the raised line height from the raised base', () => {
     const v0 = renderLyric({ text: 'a', x: 0, verseIndex: 0 });
     const v2 = renderLyric({ text: 'c', x: 0, verseIndex: 2 });
     const y = (el) =>
@@ -54,15 +60,16 @@ describe('lyric engraving defaults (JOB 2)', () => {
     expect(y(v0)).toBe(LYRIC_BASE_Y);
     expect(y(v2)).toBe(LYRIC_BASE_Y + 2 * VERSE_LINE_HEIGHT);
     const m = renderMelisma({ startX: 0, endX: 40, verseIndex: 1 });
-    expect(parseFloat(m.getAttribute('y1'))).toBe(120 + VERSE_LINE_HEIGHT);
+    // Melisma drop stays a fixed 5px below the (now-raised) baseline.
+    expect(parseFloat(m.getAttribute('y1'))).toBe(LYRIC_BASE_Y + 5 + VERSE_LINE_HEIGHT);
   });
 
-  it('the width heuristic follows the raised font size', () => {
+  it('the width heuristic follows the measured font size', () => {
     expect(estimateLyricWidth('grace')).toBeCloseTo(
-      5 * LYRIC_CHAR_WIDTH_RATIO * 15
+      5 * LYRIC_CHAR_WIDTH_RATIO * 39
     );
     expect(estimateLyricWidth('2.', VERSE_NUMBER_FONT_SIZE)).toBeCloseTo(
-      2 * LYRIC_CHAR_WIDTH_RATIO * 13
+      2 * LYRIC_CHAR_WIDTH_RATIO * 33
     );
   });
 });

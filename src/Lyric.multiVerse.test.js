@@ -4,10 +4,12 @@
  * Multi-verse lyrics (hymnal-style stacked verses) — SPEC-multi-verse-lyrics.md.
  *
  * NOTE (JOB 4, lyric-baseline-clears-content): tests here that assert the
- * EXACT legacy baseline y use pitches whose ink stays above the lyric band
- * (stem-down bottoms <= 107 staff-local). B4's down-stem reaches y=120 —
- * inside the band — so those songs use D5 instead; a B4 song now correctly
- * shifts its lyric block down (covered in lyricBaseline.test.js).
+ * EXACT legacy baseline y use pitches whose ink stays inside the staff
+ * (stem bottoms <= 80 staff-local, comfortably under the JOB 5 clearance
+ * threshold of 90). B4's down-stem reaches y=120 and D5's reaches y=100 —
+ * both now inside the (much wider, JOB 5) lyric band — so those songs use
+ * G4/A4 instead; a B4 or D5 song now correctly shifts its lyric block down
+ * (covered in lyricBaseline.test.js).
  *
  * `lyric` accepts a string (verse 1, unchanged) or an array of strings/nulls
  * (one entry per verse). Verses stack below the staff, each verse line
@@ -18,11 +20,14 @@
 import { createNotationContext } from './__tests__/helpers/testUtils.js';
 import { NotationRenderer } from './NotationRenderer.js';
 
-const LYRIC_BASE_Y = 115;
-const MELISMA_BASE_Y = 120;
-// SPEC-lyric-spacing.md JOB 2: verse line height raised 26 -> 30 with the
-// larger lyric font (deliberate design change, not test-fudging).
-const VERSE_LINE = 30;
+// SPEC-lyric-engraving-scale.md JOB 5: LYRIC_BASE_Y raised 115 -> 126 (a
+// 39px font's ascenders need more clearance above the staff bottom);
+// melisma drop stays a fixed +5 off that raised baseline (131); verse line
+// height raised 30 -> 39 (measured verse-row pitch ~= 1x font size, not a
+// naive 2x guess — see Lyric.js).
+const LYRIC_BASE_Y = 126;
+const MELISMA_BASE_Y = 131;
+const VERSE_LINE = 39;
 
 function parseTranslate(el) {
   const m = /translate\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)/.exec(
@@ -49,7 +54,7 @@ describe('Multi-verse lyrics', () => {
         notes: [
           { pitch: 'G4', length: '1/4', lyric: ['A-', 'Twas', 'Through'] },
           { pitch: 'A4', length: '1/4', lyric: ['maz-', 'grace', 'man-'] },
-          { pitch: 'D5', length: '1/4', lyric: ['ing', 'that', 'y'] },
+          { pitch: 'A4', length: '1/4', lyric: ['ing', 'that', 'y'] },
           { pitch: 'G4', length: '1/4', lyric: ['grace', 'taught', 'dan-'] },
         ],
       });
@@ -74,7 +79,7 @@ describe('Multi-verse lyrics', () => {
           // Verse 1 melisma over note 2; verse 2 has a syllable there.
           { pitch: 'G4', length: '1/4', lyric: ['A-', 'Grace'] },
           { pitch: 'A4', length: '1/4', lyric: [null, 'how'] },
-          { pitch: 'D5', length: '1/4', lyric: ['zing', 'sweet'] },
+          { pitch: 'A4', length: '1/4', lyric: ['zing', 'sweet'] },
           { pitch: 'G4', length: '1/4', lyric: ['grace', 'sound'] },
         ],
       });
@@ -89,7 +94,7 @@ describe('Multi-verse lyrics', () => {
         notes: [
           { pitch: 'G4', length: '1/4', lyric: ['A-', 'Grace-'] },
           { pitch: 'A4', length: '1/4', lyric: ['ma-', null] },
-          { pitch: 'D5', length: '1/4', lyric: ['zing', 'less'] },
+          { pitch: 'A4', length: '1/4', lyric: ['zing', 'less'] },
           { pitch: 'G4', length: '1/4', lyric: ['grace', 'now'] },
         ],
       });
@@ -108,7 +113,7 @@ describe('Multi-verse lyrics', () => {
         notes: [
           { pitch: 'G4', length: '1/4', lyric: ['A-', 'Twas'] },
           { pitch: 'A4', length: '1/4', lyric: ['maz-', 'grace'] },
-          { pitch: 'D5', length: '1/2', lyric: ['ing', 'that'] },
+          { pitch: 'A4', length: '1/2', lyric: ['ing', 'that'] },
         ],
       });
       const numbers = [...ctx.container.querySelectorAll('.lyric-verse-number')];
@@ -234,7 +239,7 @@ describe('Multi-verse lyrics', () => {
         notes: [
           { pitch: 'G4', length: '1/4', lyric: 'A-' },
           { pitch: 'A4', length: '1/4', lyric: 'maz-' },
-          { pitch: 'D5', length: '1/4' },
+          { pitch: 'A4', length: '1/4' },
           { pitch: 'G4', length: '1/4', lyric: 'ing' },
         ],
       });
@@ -256,7 +261,7 @@ describe('Multi-verse lyrics', () => {
         notes: [
           { pitch: 'G4', length: '1/4', lyric: ['one'] },
           { pitch: 'A4', length: '1/4', lyric: 'two' },
-          { pitch: 'D5', length: '1/2', lyric: ['three'] },
+          { pitch: 'A4', length: '1/2', lyric: ['three'] },
         ],
       });
       const lyrics = [...ctx.getLyrics()];
