@@ -37,6 +37,10 @@ export function parseNoteData(input) {
 
     const result = {
       staffGroups: input.staffGroups || [],
+      // Pickup (anacrusis) length in quarter-note beats — see
+      // SPEC-pickup-and-barline-lyrics.md JOB B. Only added when present so
+      // pickup-free input keeps its exact legacy shape.
+      ...(input.pickupBeats !== undefined ? { pickupBeats: input.pickupBeats } : {}),
       voices: input.voices.map((voice, index) => ({
         id: voice.id !== undefined ? voice.id : String(index),
         clef: voice.clef,
@@ -69,5 +73,9 @@ export function parseNoteData(input) {
     voice.clef = input.clef;
   }
 
-  return { staffGroups: [], voices: [voice] };
+  return {
+    staffGroups: [],
+    ...(input.pickupBeats !== undefined ? { pickupBeats: input.pickupBeats } : {}),
+    voices: [voice],
+  };
 }

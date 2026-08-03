@@ -96,19 +96,30 @@ function getElementBeats(element) {
  * - Rests break beams
  * - Unmetered mode (null timeSignature) = no beaming
  *
+ * Pickup (SPEC-pickup-and-barline-lyrics.md JOB B): pass
+ * `opts.pickupBeats` to group an anacrusis against the measure's END —
+ * standard engraving counts pickup beats backwards from the barline. The
+ * beat cursor simply starts at `measureLength - pickupBeats`, mapping the
+ * pickup onto the tail of a virtual full measure; every later downbeat
+ * still lands on a beat-group boundary, so full measures are unaffected.
+ *
  * @param {Array} notes - Array of note/rest/chord elements
  * @param {[number, number]|null} timeSignature
+ * @param {{pickupBeats?: number}} [opts]
  * @returns {Array<Array<number>>} Array of beam groups (each is array of indices)
  */
-export function computeBeamGroups(notes, timeSignature) {
+export function computeBeamGroups(notes, timeSignature, opts = {}) {
   if (!timeSignature) return [];
   if (notes.length === 0) return [];
 
   const beatLength = getBeatLength(timeSignature);
+  const pickupBeats = opts.pickupBeats || 0;
 
   // First pass: annotate elements with metadata
   const annotated = [];
-  let currentBeat = 0;
+  let currentBeat = pickupBeats
+    ? timeSignature[0] * (4 / timeSignature[1]) - pickupBeats
+    : 0;
 
   for (let i = 0; i < notes.length; i++) {
     const element = notes[i];

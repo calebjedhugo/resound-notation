@@ -21,6 +21,20 @@ The renderer accepts three shapes. `parseNoteData()` normalizes them.
 
 `staffGroups` only supports `type: 'brace'` today. The brace draws a curly brace at the left edge plus shared barlines spanning grouped voices.
 
+## `pickupBeats` — pickup (anacrusis) measure
+
+Optional top-level key on Level 2/3 input (quarter-note beats, same units as note durations):
+
+```js
+{ timeSignature: [4, 4], pickupBeats: 1, notes: [...] }
+```
+
+- Measure 0 spans beats `[0, pickupBeats)`; measure m ≥ 1 spans `[pickupBeats + (m-1)·L, pickupBeats + m·L)` (L = full measure length). The whole barline grid shifts: breaking, slicing, shared barlines, accidental resets, `data-start-measure`/`data-end-measure` (the pickup counts as measure 0). `data-beat` stays system-relative and unshifted.
+- Constraints (validated, throws): requires a `timeSignature`; `0 < pickupBeats < measure length`; every voice's content must fill the pickup exactly (no element may straddle the pickup boundary — do NOT pad the anacrusis with leading rests anymore).
+- A normal thin barline closes the pickup; no time-signature re-print.
+- Auto-beaming groups the pickup against the measure's END (anacrusis beats count backwards from the barline).
+- Dev preset: `pickup-measure`.
+
 ## `staff` — two voices per staff (close score)
 
 A Level-3 voice may declare an optional `staff` key. Voices with the same

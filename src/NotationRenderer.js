@@ -87,6 +87,11 @@ import { analyzeOttava } from './lib/segmentOttava.js';
 import { createOttavaBracket } from './components/OttavaBracket.js';
 import { breakIntoSystems, breakIntoSystemsOptimal, justifySystemSpring, LAST_SYSTEM_STRETCH_CAP } from './lib/breakIntoSystems.js';
 import { sliceVoiceByMeasure } from './lib/sliceVoiceByMeasure.js';
+import {
+  isMeasureBoundary,
+  measureIndexAt,
+  validatePickup,
+} from './lib/measureGrid.js';
 
 // Chromatic offsets for converting scientific pitch (C4 = MIDI 60) to MIDI.
 const PITCH_CHROMATIC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
@@ -470,6 +475,7 @@ function voiceSkyline(notes, clef, opts = {}) {
     voiceIndex,
     voiceCount,
     forcedStemDown,
+    pickupBeats = 0,
   } = opts;
   const TOP_LINE = STAFF_TOP_OFFSET; // 10
   const BOTTOM_LINE = STAFF_TOP_OFFSET + STAFF_HEIGHT; // 90
@@ -479,7 +485,9 @@ function voiceSkyline(notes, clef, opts = {}) {
   // Indices that belong to a beam group are handled by the beam-aware pass
   // below (their stems follow the shared beam line, not the per-note
   // estimate). Everything else uses the per-note head/stem extent.
-  const beamGroups = timeSignature ? computeBeamGroups(notes, timeSignature) : [];
+  const beamGroups = timeSignature
+    ? computeBeamGroups(notes, timeSignature, { pickupBeats })
+    : [];
   const beamedIdx = new Set();
   for (const group of beamGroups) for (const idx of group) beamedIdx.add(idx);
 
@@ -990,8 +998,10 @@ function accidentalGlyphWithMemory(pitchAccidental, pitchLetter, octave, keyInfo
  * note re-shows its accidental. `state` is a per-voice `{ memory, marker }`
  * carried across the note loop.
  */
-function measureAccidentalMemory(beat, measureLength, state) {
-  const marker = measureLength ? Math.floor((beat + 1e-6) / measureLength) : beat;
+function measureAccidentalMemory(beat, measureLength, state, pickupBeats = 0) {
+  const marker = measureLength
+    ? measureIndexAt(beat, measureLength, pickupBeats)
+    : beat;
   if (marker !== state.marker) {
     state.memory.clear();
     state.marker = marker;
@@ -1066,15 +1076,15 @@ function computeSystemSpringLayout(
 
   const sortedBeats = [...naturalBeatToX.keys()].sort((a, b) => a - b);
 
-  // Interior measure boundary: a positive integer multiple of the measure
-  // length, strictly before the system's last beat. The spring whose RIGHT
+  // Interior measure boundary: a measure-grid boundary (pickup-shifted —
+  // lib/measureGrid.js), strictly inside the system. The spring whose RIGHT
   // endpoint lands here crosses a barline (Gould "Behind Bars", Spacing).
+  const layoutPickupBeats = opts.pickupBeats || 0;
   const isInteriorBoundary = (beat) => {
     if (!sharedMeasureLength) return false;
     if (beat <= 0) return false;
     if (beat >= sortedBeats[sortedBeats.length - 1] - 1e-6) return false;
-    const ratio = beat / sharedMeasureLength;
-    return Math.abs(ratio - Math.round(ratio)) < 1e-6;
+    return isMeasureBoundary(beat, sharedMeasureLength, layoutPickupBeats);
   };
 
   const activeBeats = sortedBeats;
@@ -1117,7 +1127,7 @@ function computeSystemSpringLayout(
     for (let i = 1; i < activeBeats.length - 1; i += 1) {
       const b = activeBeats[i];
       if (b > 0 && b < lastBeat &&
-          Math.abs((b / sharedMeasureLength) - Math.round(b / sharedMeasureLength)) < 1e-6) {
+          isMeasureBoundary(b, sharedMeasureLength, layoutPickupBeats)) {
         interiorBoundaryCount += 1;
         const preNat = naturalBeatToX.get(b) - naturalBeatToX.get(activeBeats[i - 1]);
         const postNat = naturalBeatToX.get(activeBeats[i + 1]) - naturalBeatToX.get(b);
@@ -1582,6 +1592,19 @@ export class NotationRenderer {
     const voiceCount = parsed.voices.length;
     const staffGroups = parsed.staffGroups || [];
 
+    // Pickup (anacrusis) measure — SPEC-pickup-and-barline-lyrics.md JOB B.
+    // Measure 0 spans [0, pickupBeats); every later boundary shifts by
+    // pickupBeats (lib/measureGrid.js). 0 = no pickup (exact legacy grid).
+    const pickupBeats = parsed.pickupBeats || 0;
+    if (pickupBeats) {
+      const pickupTsig = parsed.voices.find((v) => v.timeSignature)?.timeSignature;
+      validatePickup(
+        parsed.voices,
+        pickupBeats,
+        pickupTsig ? pickupTsig[0] * (4 / pickupTsig[1]) : null
+      );
+    }
+
     // Two-voices-per-staff (close score) model. Validates shared-staff
     // constraints (≤2 voices, clef agreement, equal duration) and maps
     // each voice to its staff. With no `staff` keys this is a 1:1 map and
@@ -1649,6 +1672,7 @@ export class NotationRenderer {
         voiceIndex: vi,
         voiceCount: parsed.voices.length,
         forcedStemDown: voiceForcedStemDown[vi],
+        pickupBeats,
       })
     );
 
@@ -1869,7 +1893,16 @@ export class NotationRenderer {
       let beat = 0;
       let measureStartBeat = 0;
       let accumBeats = 0;
-      const flush = () => { count += 1; measureStartBeat = beat; accumBeats = 0; };
+      // Measure 0 fills at the pickup length when one exists (JOB B);
+      // every later measure fills at the full measure length.
+      let fillTarget =
+        pickupBeats && rhythmMeasureLength ? pickupBeats : rhythmMeasureLength;
+      const flush = () => {
+        count += 1;
+        measureStartBeat = beat;
+        accumBeats = 0;
+        fillTarget = rhythmMeasureLength;
+      };
       for (const el of rhythmVoice.notes) {
         if (!el) continue;
         if (!Array.isArray(el) && el.barline !== undefined) { flush(); continue; }
@@ -1901,7 +1934,7 @@ export class NotationRenderer {
         }
         beat += evBeats;
         accumBeats += evBeats;
-        if (rhythmMeasureLength && accumBeats >= rhythmMeasureLength - 1e-6) flush();
+        if (rhythmMeasureLength && accumBeats >= fillTarget - 1e-6) flush();
       }
       if (beat > measureStartBeat) flush();
       return count;
@@ -1965,13 +1998,17 @@ export class NotationRenderer {
     // three overlapping ESTIMATES collapsed into one source of truth.
     const systemNaturalWidth = (startMeasure, endMeasure, systemIndex) => {
       const slicedNotes = parsed.voices.map((v, vi) => sliceVoiceByMeasure(
-        shiftedVoiceNotes[vi], sharedMeasureLength, startMeasure, endMeasure
+        shiftedVoiceNotes[vi], sharedMeasureLength, startMeasure, endMeasure, pickupBeats
       ));
       const sliceVoices = parsed.voices.map((v, vi) => ({ ...v, notes: slicedNotes[vi] }));
       const startX = musicStartXForSystem(systemIndex);
       const { naturalRightX } = computeSystemSpringLayout(
         sliceVoices, slicedNotes, startX, sharedMeasureLength, null,
-        { voiceVerseCounts }
+        // Slice-relative grid: only the system containing measure 0 opens
+        // with the (short) pickup measure; later systems start on a full-
+        // measure boundary, so their slice-relative boundaries are plain
+        // multiples of the measure length.
+        { voiceVerseCounts, pickupBeats: startMeasure === 0 ? pickupBeats : 0 }
       );
       return naturalRightX;
     };
@@ -2052,8 +2089,11 @@ export class NotationRenderer {
         // length (driving the system break). The slicer assigns markers
         // to the next sounding note's measure.
         const slicedVoiceNotes = parsed.voices.map((v, vi) => sliceVoiceByMeasure(
-          shiftedVoiceNotes[vi], sliceMeasureLength, plan.startMeasure, plan.endMeasure
+          shiftedVoiceNotes[vi], sliceMeasureLength, plan.startMeasure, plan.endMeasure, pickupBeats
         ));
+        // Slice-relative pickup: only the system that starts at measure 0
+        // opens with the short pickup measure (see systemNaturalWidth).
+        const systemPickupBeats = plan.startMeasure === 0 ? pickupBeats : 0;
         // Sliced ottava segments: keep only segments whose start lies in
         // this system's range, and clip their endIndex to the slice. The
         // segment indices are into the ORIGINAL pre-slice voice; we'll
@@ -2095,7 +2135,7 @@ export class NotationRenderer {
         // natural — so the last note always keeps its proportional trailing.
         const naturalLayout = computeSystemSpringLayout(
           sliceVoices, slicedVoiceNotes, perSystemMusicStartX, sharedMeasureLength, null,
-          { voiceVerseCounts }
+          { voiceVerseCounts, pickupBeats: systemPickupBeats }
         );
         const naturalRightX = naturalLayout.naturalRightX;
         // RAGGED RENDER edge: the proportional-trailing extent. The breaker
@@ -2216,7 +2256,7 @@ export class NotationRenderer {
           ? naturalLayout
           : computeSystemSpringLayout(
               sliceVoices, slicedVoiceNotes, perSystemMusicStartX, sharedMeasureLength, springTargetRightX,
-              { voiceVerseCounts }
+              { voiceVerseCounts, pickupBeats: systemPickupBeats }
             );
         const {
           stretchedBeatToX,
@@ -2323,6 +2363,7 @@ export class NotationRenderer {
           postPadMap,
           staffModel,
           voiceVerseCounts,
+          pickupBeats: systemPickupBeats,
         });
 
         // Advance Y for the next system. Use effectiveVoiceYPositions so
@@ -2463,6 +2504,7 @@ export class NotationRenderer {
     postPadMap = null,
     staffModel = null,
     voiceVerseCounts = null,
+    pickupBeats = 0,
   }) {
     let contentMinY = systemContext.contentMinY;
     let contentMaxY = systemContext.contentMaxY;
@@ -2506,12 +2548,15 @@ export class NotationRenderer {
       const evs = collectVoiceEvents(shiftedVoiceNotes[voices.indexOf(v)]);
       let cum = 0;
       let lastEnd = 0;
+      // First measure of a pickup system fills at the pickup length (JOB B).
+      let fill = pickupBeats > 0 ? pickupBeats : mLen;
       for (const ev of evs) {
         lastEnd = ev.endBeat;
         cum += ev.endBeat - ev.startBeat;
-        while (cum >= mLen - 0.001) {
-          set.add(ev.endBeat - (cum - mLen));
-          cum -= mLen;
+        while (cum >= fill - 0.001) {
+          set.add(ev.endBeat - (cum - fill));
+          cum -= fill;
+          fill = mLen;
         }
       }
       void lastEnd;
@@ -2543,6 +2588,7 @@ export class NotationRenderer {
         voiceIndex: vi,
         voiceCount: voices.length,
         forcedStemDown: shared ? sDef.voiceIndices.indexOf(vi) === 1 : undefined,
+        pickupBeats,
       });
       const lowest = STAFF_TOP_OFFSET + STAFF_HEIGHT + sk.descent;
       const prev = staffLyricBaseYByStaff.get(sIdx);
@@ -2646,9 +2692,13 @@ export class NotationRenderer {
         cursorX += tsWidth + TIME_SIG_PADDING;
       }
 
-      // Beat tracking for bar lines
+      // Beat tracking for bar lines. With a pickup (JOB B) the FIRST
+      // measure of the system fills at the pickup length; after its
+      // barline flushes, every later measure fills at the full length.
       const measureLength = timeSignature ? timeSignature[0] * (4 / timeSignature[1]) : null;
       let cumulativeBeats = 0;
+      let measureFillTarget =
+        pickupBeats > 0 && measureLength ? pickupBeats : measureLength;
 
       // Jump to shared music-start X. From here on, note positions are
       // looked up in the shared beatToX map (with cumulative barline
@@ -2674,8 +2724,11 @@ export class NotationRenderer {
       const barlineXs = [];
       voiceBarlineXPositions.set(voice.id, barlineXs);
 
-      // Pre-compute beam groups
-      const beamGroups = timeSignature ? computeBeamGroups(voice.notes, timeSignature) : [];
+      // Pre-compute beam groups. A pickup groups against the measure END
+      // (lib/beaming.js — SPEC-pickup-and-barline-lyrics.md JOB B).
+      const beamGroups = timeSignature
+        ? computeBeamGroups(voice.notes, timeSignature, { pickupBeats })
+        : [];
       const beamLookup = new Map();
       beamGroups.forEach((group, gi) => {
         group.forEach((noteIdx, posInGroup) => {
@@ -2727,10 +2780,12 @@ export class NotationRenderer {
         : null;
       const accidentalMemoryFor = (beat) => {
         if (!staffAccStore) {
-          return measureAccidentalMemory(beat, measureLength, accidentalState);
+          return measureAccidentalMemory(
+            beat, measureLength, accidentalState, pickupBeats
+          );
         }
         const marker = measureLength
-          ? Math.floor((beat + 1e-6) / measureLength)
+          ? measureIndexAt(beat, measureLength, pickupBeats)
           : beat;
         let mem = staffAccStore.get(marker);
         if (!mem) {
@@ -3122,7 +3177,7 @@ export class NotationRenderer {
               return sum;
             }, 0);
             cumulativeBeats += tupletBeats;
-            while (cumulativeBeats >= measureLength - 0.001) {
+            while (cumulativeBeats >= measureFillTarget - 0.001) {
               // `barlineGap` is the visible glyph-edge → barline gap
               // (Gould's measurement); the cursor sits at the last
               // note's CENTER, so we add HEAD_TIP_X to step past the
@@ -3140,7 +3195,8 @@ export class NotationRenderer {
               // tuplet barlines still emit normally.
               emitAutoBarline(cursorX);
               cursorX += barlineGap + HEAD_TIP_X;
-              cumulativeBeats -= measureLength;
+              cumulativeBeats -= measureFillTarget;
+              measureFillTarget = measureLength;
             }
             if (Math.abs(cumulativeBeats) < 0.001) {
               cumulativeBeats = 0;
@@ -3550,7 +3606,7 @@ export class NotationRenderer {
             // beatToX(measureEndBeat) + accumulated barlineOffset + padding).
             if (measureLength && chordElementBeats > 0) {
               cumulativeBeats += chordAdjBeats;
-              while (cumulativeBeats >= measureLength - 0.001) {
+              while (cumulativeBeats >= measureFillTarget - 0.001) {
                 const isShared = sharedBarlineBeats.has(beatPosition);
                 // Per Gould "Behind Bars" (Spacing), Lilypond
                 // `Spacing_spanner`, and Dorico, each note's trailing
@@ -3580,7 +3636,8 @@ export class NotationRenderer {
                   : xForBeat(beatPosition) - BAR_LINE_PADDING;
                 emitAutoBarline(barlineX);
                 if (isShared && !isSystemClosing) barlineOffset += postGap + HEAD_TIP_X;
-                cumulativeBeats -= measureLength;
+                cumulativeBeats -= measureFillTarget;
+                measureFillTarget = measureLength;
               }
               if (Math.abs(cumulativeBeats) < 0.001) {
                 cumulativeBeats = 0;
@@ -3912,7 +3969,7 @@ export class NotationRenderer {
         // above for the duration-proportional preGap / postGap rule.
         if (measureLength && elementBeats > 0) {
           cumulativeBeats += elementBeats;
-          while (cumulativeBeats >= measureLength - 0.001) {
+          while (cumulativeBeats >= measureFillTarget - 0.001) {
             const isShared = sharedBarlineBeats.has(beatPosition);
             const isSystemClosing =
               systemEndBeat !== null &&
@@ -3931,7 +3988,8 @@ export class NotationRenderer {
               : xForBeat(beatPosition) - BAR_LINE_PADDING;
             emitAutoBarline(barlineX);
             if (isShared && !isSystemClosing) barlineOffset += postGap + HEAD_TIP_X;
-            cumulativeBeats -= measureLength;
+            cumulativeBeats -= measureFillTarget;
+            measureFillTarget = measureLength;
           }
           if (Math.abs(cumulativeBeats) < 0.001) {
             cumulativeBeats = 0;

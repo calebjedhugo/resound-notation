@@ -15,7 +15,12 @@
 import { fractionToBeats } from './durationSymbols.js';
 import { getTupletNoteDuration } from './tuplets.js';
 
-function elementBeats(element) {
+/**
+ * Sounding duration (beats) of one voice element: chords take the first
+ * length-bearing member, tuplets sum their pro-rated members, markers are 0.
+ * Exported for the measure-grid helpers (lib/measureGrid.js).
+ */
+export function elementBeats(element) {
   if (!element) return 0;
   if (Array.isArray(element)) {
     const first = element.find((n) => n && n.length);
@@ -56,8 +61,17 @@ function isMarker(element) {
   );
 }
 
-export function sliceVoiceByMeasure(voiceNotes, measureLength, startMeasure, endMeasure) {
-  // First pass: assign each note index to its measure index.
+export function sliceVoiceByMeasure(
+  voiceNotes,
+  measureLength,
+  startMeasure,
+  endMeasure,
+  pickupBeats = 0
+) {
+  // First pass: assign each note index to its measure index. With a pickup
+  // (SPEC-pickup-and-barline-lyrics.md JOB B) measure 0 fills at
+  // `pickupBeats`; every later measure fills at `measureLength`.
+  const fillFor = (m) => (m === 0 && pickupBeats ? pickupBeats : measureLength);
   const measureOf = new Array(voiceNotes.length).fill(-1);
   let measureIdx = 0;
   let beat = 0;
@@ -96,9 +110,9 @@ export function sliceVoiceByMeasure(voiceNotes, measureLength, startMeasure, end
       pendingMarkerStart = null;
     }
     beat += b;
-    if (measureLength && beat >= measureLength - 1e-6) {
+    if (measureLength && beat >= fillFor(measureIdx) - 1e-6) {
       // Wrap any small overflow forward.
-      const overflow = beat - measureLength;
+      const overflow = beat - fillFor(measureIdx);
       measureIdx += 1;
       beat = overflow > 1e-6 ? overflow : 0;
     }
