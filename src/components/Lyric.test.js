@@ -24,6 +24,7 @@ import {
   LYRIC_FONT_SIZE,
   VERSE_NUMBER_FONT_SIZE,
   LYRIC_CHAR_WIDTH_RATIO,
+  LYRIC_CHAR_WIDTHS,
   VERSE_LINE_HEIGHT,
   LYRIC_BASE_Y,
 } from './Lyric.js';
@@ -65,11 +66,35 @@ describe('lyric engraving defaults (JOB 2)', () => {
   });
 
   it('the width heuristic follows the measured font size', () => {
-    expect(estimateLyricWidth('grace')).toBeCloseTo(
-      5 * LYRIC_CHAR_WIDTH_RATIO * 39
+    const sum = (text) => [...text].reduce(
+      (total, ch) => total + (LYRIC_CHAR_WIDTHS[ch] ?? LYRIC_CHAR_WIDTH_RATIO), 0
     );
+    expect(estimateLyricWidth('grace')).toBeCloseTo(sum('grace') * 39);
     expect(estimateLyricWidth('2.', VERSE_NUMBER_FONT_SIZE)).toBeCloseTo(
-      2 * LYRIC_CHAR_WIDTH_RATIO * 33
+      sum('2.') * 33
     );
+  });
+
+  it('estimates per character, so wide glyphs reserve more than narrow ones', () => {
+    // A flat per-character ratio under-reserved wide syllables, and barlines
+    // struck through them ("dimmed" in America the Beautiful).
+    expect(estimateLyricWidth('dimmed')).toBeGreaterThan(estimateLyricWidth('little'));
+    expect(estimateLyricWidth('mm')).toBeGreaterThan(2 * estimateLyricWidth('il'));
+  });
+
+  it('estimates within a few percent of the real advance widths', () => {
+    // Advance widths measured in a browser at font-size 100 (the renderer's
+    // default sans stack), as a fraction of font size.
+    const MEASURED = {
+      dimmed: 3.432, cross: 2.246, 'beau-': 2.523, O: 0.731, ful: 1.035, 'shin-': 2.166,
+    };
+    for (const [text, ratio] of Object.entries(MEASURED)) {
+      const error = Math.abs(estimateLyricWidth(text, 100) - ratio * 100) / (ratio * 100);
+      expect(error).toBeLessThan(0.03);
+    }
+  });
+
+  it('falls back to the average ratio for characters it has no width for', () => {
+    expect(estimateLyricWidth('üü', 100)).toBeCloseTo(2 * LYRIC_CHAR_WIDTH_RATIO * 100);
   });
 });

@@ -25,18 +25,23 @@ import {
   LYRIC_FONT_SIZE,
   VERSE_NUMBER_FONT_SIZE,
   LYRIC_CHAR_WIDTH_RATIO,
+  LYRIC_CHAR_WIDTHS,
 } from '../components/Lyric.js';
 
 describe('estimateLyricWidth', () => {
-  it('estimates width from character count and the REAL font-size constant', () => {
-    expect(estimateLyricWidth('grace')).toBeCloseTo(
-      5 * LYRIC_CHAR_WIDTH_RATIO * LYRIC_FONT_SIZE
-    );
+  const ems = (text) => [...text].reduce(
+    (total, ch) => total + (LYRIC_CHAR_WIDTHS[ch] ?? LYRIC_CHAR_WIDTH_RATIO), 0
+  );
+
+  it('sums per-character advances against the REAL font-size constant', () => {
+    expect(estimateLyricWidth('grace')).toBeCloseTo(ems('grace') * LYRIC_FONT_SIZE);
+    // width-sensitive, not merely character-count-sensitive
+    expect(estimateLyricWidth('mmmmm')).toBeGreaterThan(estimateLyricWidth('iiiii'));
   });
 
   it('accepts an explicit font size (verse numbers)', () => {
     expect(estimateLyricWidth('2.', VERSE_NUMBER_FONT_SIZE)).toBeCloseTo(
-      2 * LYRIC_CHAR_WIDTH_RATIO * VERSE_NUMBER_FONT_SIZE
+      ems('2.') * VERSE_NUMBER_FONT_SIZE
     );
   });
 });

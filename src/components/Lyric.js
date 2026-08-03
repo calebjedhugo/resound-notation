@@ -35,10 +35,33 @@ export const VERSE_NUMBER_FONT_SIZE = 33;
 
 // Width-estimation heuristic (SPEC-lyric-spacing.md JOB 1). jsdom offers no
 // text metrics (getComputedTextLength / getBBox return 0), so syllable
-// widths are ESTIMATED from character count: the average advance of the
-// default serif at lyric sizes is ~0.5 em per character (mixed-case Latin
-// text; digits and '.' in verse numbers land close to the same average).
+// widths are ESTIMATED. ~0.5 em is the average advance across mixed-case
+// Latin text — the fallback for any character missing from the table below.
 export const LYRIC_CHAR_WIDTH_RATIO = 0.5;
+
+// Per-character advance as a fraction of font size, measured in a browser at
+// font-size 100 against the renderer's default sans stack. A flat 0.5 per
+// character is wrong by up to 25% on real syllables ("dimmed" runs 0.57/ch,
+// "ful" 0.35/ch), and the barline-clearance floors that consume it
+// (lib/lyricSpacing.js) then let a barline strike through the wide ones.
+// Summing this table lands within ~1% of the true advance. Whatever font a
+// consumer's CSS picks will differ in absolute terms; the RATIOS between
+// glyphs ('m' is 4x 'i') are what the spacing math needs, and those hold
+// across the text faces hymn lyrics get set in.
+export const LYRIC_CHAR_WIDTHS = {
+  a: 0.502, b: 0.554, c: 0.501, d: 0.554, e: 0.512, f: 0.304, g: 0.549,
+  h: 0.539, i: 0.206, j: 0.205, k: 0.485, l: 0.204, m: 0.803, n: 0.527,
+  o: 0.531, p: 0.549, q: 0.549, r: 0.308, s: 0.465, t: 0.301, u: 0.527,
+  v: 0.483, w: 0.715, x: 0.468, y: 0.486, z: 0.468,
+  A: 0.635, B: 0.604, C: 0.686, D: 0.679, E: 0.552, F: 0.528, G: 0.707,
+  H: 0.699, I: 0.225, J: 0.495, K: 0.601, L: 0.524, M: 0.831, N: 0.699,
+  O: 0.731, P: 0.578, Q: 0.731, R: 0.599, S: 0.593, T: 0.581, U: 0.696,
+  V: 0.631, W: 0.924, X: 0.635, Y: 0.612, Z: 0.617,
+  0: 0.606, 1: 0.443, 2: 0.566, 3: 0.592, 4: 0.604, 5: 0.585, 6: 0.617,
+  7: 0.547, 8: 0.6, 9: 0.617,
+  ' ': 0.205, '-': 0.429, '.': 0.215, ',': 0.215, ':': 0.215, ';': 0.215,
+  "'": 0.254, '’': 0.215, '"': 0.403, '!': 0.267, '?': 0.489,
+};
 
 // Ascender reach as a fraction of nominal font size (SPEC-lyric-engraving-
 // scale.md JOB 5): measured 16px ascender height ("h"/"d"/"A") against a
@@ -55,7 +78,12 @@ export const LYRIC_ASCENDER_RATIO = 0.71;
  * @returns {number}
  */
 export function estimateLyricWidth(text, fontSize = LYRIC_FONT_SIZE) {
-  return String(text).length * LYRIC_CHAR_WIDTH_RATIO * fontSize;
+  let ems = 0;
+  for (const ch of String(text)) {
+    const w = LYRIC_CHAR_WIDTHS[ch];
+    ems += w === undefined ? LYRIC_CHAR_WIDTH_RATIO : w;
+  }
+  return ems * fontSize;
 }
 
 // Vertical distance between stacked verse lines (SPEC-multi-verse-lyrics.md
