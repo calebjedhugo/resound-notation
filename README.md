@@ -63,7 +63,7 @@ DOM-touching tests need jsdom: either set `testEnvironment: 'jsdom'` globally or
 ## Develop
 
 ```bash
-npm test            # 507 jest tests (jsdom)
+npm test            # 879 jest tests (jsdom)
 npm run build       # babel CLI per-file → dist/, then tsc emits .d.ts
 ```
 

@@ -13,9 +13,15 @@ or overlap when notes are close (short durations, narrow systems).
 Rule: for each pair of CONSECUTIVE lyric-bearing notes within a voice, for each
 verse line, the horizontal advance between the two notes must be at least
   (estWidth(sylA) + estWidth(sylB)) / 2 + LYRIC_GAP
-where LYRIC_GAP ≈ 8 units and estWidth uses a character-count heuristic
-(~0.5 × font-size per character; jsdom offers no text metrics — document the
-constant). Take the max requirement across all verse lines of that voice, and
+where LYRIC_GAP ≈ 8 units and estWidth is an estimate (jsdom offers no text
+metrics — document the constants). AMENDED 2026-08-03: estWidth first shipped
+as a flat ~0.5 × font-size per character, which under-reserved wide syllables
+by up to 25% and let barlines strike through them (the JOB A defect in
+SPEC-pickup-and-barline-lyrics.md — "dimmed" in America the Beautiful survived
+the fix). It now sums a per-character advance table measured in a browser
+(`LYRIC_CHAR_WIDTHS` in components/Lyric.js), landing within ~1% of the true
+advance; 0.5 survives only as the fallback for characters absent from the
+table. Take the max requirement across all verse lines of that voice, and
 across voices sharing the system (staves are x-aligned). Notes between the pair
 that carry no syllable (melisma notes) subdivide the requirement naturally —
 the constraint applies between the two anchor x positions, so intervening

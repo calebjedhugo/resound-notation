@@ -13,7 +13,7 @@ Published SVG notation package extracted from `resound-fe/src/notation/`. See `R
 ## Workflows
 
 ```bash
-npm test            # 507 jest tests (jsdom). Keep these green.
+npm test            # 879 jest tests (jsdom). Keep these green.
 npm run build       # babel CLI src→dist (per-file ESM) + tsc emit-only for .d.ts
 ```
 
