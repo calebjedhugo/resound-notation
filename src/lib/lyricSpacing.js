@@ -33,6 +33,10 @@
 
 import { fractionToBeats } from './durationSymbols.js';
 import {
+  BARLINE_SEPARATION,
+  THIN_BARLINE_THICKNESS,
+} from './engravingDefaults.js';
+import {
   estimateLyricWidth,
   VERSE_NUMBER_FONT_SIZE,
 } from '../components/Lyric.js';
@@ -58,6 +62,23 @@ export const PRELUDE_NOTE_MIN_DAYLIGHT = 32;
 // Clear air (px) to preserve between prelude ink and the verse number's
 // left edge when reserving leading space (≈0.4 staff space).
 export const VERSE_NUMBER_LEAD_CLEARANCE = 8;
+
+// Minimum daylight (px) between a barline and the estimated near edge of an
+// adjacent syllable (SPEC-pickup-and-barline-lyrics.md JOB A). Syllables
+// render centered on their note, so a wide syllable on a measure's first
+// (or last) note reaches toward the barline by estWidth/2; the barline must
+// clear that edge by this gap (~0.3 staff space).
+export const BARLINE_LYRIC_GAP = 6;
+
+// Leftward ink reach (px) of the worst-case barline at a measure boundary,
+// measured from its anchor x: a system-closing FINAL pair's thin stroke
+// sits BARLINE_SEPARATION left of the anchor and is THIN_BARLINE_THICKNESS
+// wide, so its ink reaches 8 + 1.6 = 9.6px left. Pre-side clearance budgets
+// for this so the last syllable of a measure clears the pair's nearest ink,
+// not just its anchor. (Plain interior barlines reach only ±1.6px; they get
+// a slightly generous pre-gap when a lyric floor binds — consistent look.)
+export const PRE_BARLINE_INK_EXTENT =
+  BARLINE_SEPARATION + THIN_BARLINE_THICKNESS / 2; // 9.6
 
 /**
  * The syllable a `lyric` value contributes to verse `v` (0-based), or null
@@ -264,6 +285,103 @@ export function applyLyricSpacing(beatToX, voices) {
     beatToX.set(beats[i], x);
   }
   return beatToX;
+}
+
+/**
+ * The half-width (px) a lyric value reaches to either side of its note:
+ * half the estimated width of the WIDEST syllable across all verse lines
+ * (barline clearance is governed by the widest line — JOB A).
+ */
+function anchorHalfWidth(lyric) {
+  const verses = Array.isArray(lyric) ? lyric.length : 1;
+  let widest = 0;
+  for (let v = 0; v < verses; v += 1) {
+    const syl = lyricSyllableForVerse(lyric, v);
+    if (syl === null) continue;
+    const w = estimateLyricWidth(syl);
+    if (w > widest) widest = w;
+  }
+  return widest / 2;
+}
+
+/**
+ * Barline↔syllable clearance floors (SPEC-pickup-and-barline-lyrics.md
+ * JOB A).
+ *
+ * For each measure boundary the renderer will draw a barline at, compute
+ * minimum values ("floors") for the barline pads so that the barline keeps
+ *     halfWidth(widest syllable) + BARLINE_LYRIC_GAP
+ * of daylight from the CENTER of every nearby lyric anchor:
+ *   - post floor (barline → first-anchor side): the rendered daylight from
+ *     the barline to an anchor at beat a ≥ b is
+ *         postPad + headTipX + mapDist(b → a)
+ *     so postPad must be ≥ requirement − headTipX − mapDist(b → a).
+ *   - pre floor (last-anchor → barline side): the boundary-crossing gap of
+ *     the beat→x map is REPLACED by the pre-pad at render time, so the
+ *     daylight from an anchor at beat a < b is
+ *         mapDist(a → pred(b)) + prePad + headTipX
+ *     where pred(b) is the map key immediately before b.
+ *
+ * Distances are measured on the NATURAL (lyric-widened) map; justification
+ * only ever stretches gaps, so the floors stay sufficient at any width.
+ * Anchors are bounded to the measure adjacent to each boundary. Lyric-free
+ * input returns empty maps (all pads keep their exact legacy values).
+ *
+ * @param {Array<{notes: Array}>} voices - this system's (sliced) voices
+ * @param {Array<number>} boundaryBeats - beats where barlines will draw
+ *   (interior measure boundaries plus the system-closing beat)
+ * @param {Map<number, number>} beatToX - NATURAL beat->x map
+ * @param {number} headTipX - notehead half-width (px)
+ * @returns {{ pre: Map<number, number>, post: Map<number, number> }}
+ */
+export function computeBarlineLyricFloors(voices, boundaryBeats, beatToX, headTipX) {
+  const pre = new Map();
+  const post = new Map();
+  if (!boundaryBeats || boundaryBeats.length === 0) return { pre, post };
+
+  const anchors = [];
+  for (const voice of voices || []) {
+    for (const a of walkLyricAnchors(voice.notes)) {
+      const half = anchorHalfWidth(a.lyric);
+      if (half > 0) anchors.push({ beat: a.startBeat, half });
+    }
+  }
+  if (anchors.length === 0) return { pre, post };
+
+  const beats = [...beatToX.keys()].sort((a, b) => a - b);
+  const xAt = (beat) => {
+    const i = beatIndex(beats, beat);
+    return i >= 0 ? beatToX.get(beats[i]) : null;
+  };
+  const bounds = [...boundaryBeats].sort((a, b) => a - b);
+
+  for (let bi = 0; bi < bounds.length; bi += 1) {
+    const b = bounds[bi];
+    const prevBound = bi > 0 ? bounds[bi - 1] : -Infinity;
+    const nextBound = bi + 1 < bounds.length ? bounds[bi + 1] : Infinity;
+    const bIdx = beatIndex(beats, b);
+    if (bIdx < 0) continue;
+    const bX = beatToX.get(beats[bIdx]);
+    const predX = bIdx > 0 ? beatToX.get(beats[bIdx - 1]) : bX;
+    for (const a of anchors) {
+      const aX = xAt(a.beat);
+      if (aX === null) continue;
+      if (a.beat >= b - 1e-6 && a.beat < nextBound - 1e-6) {
+        // Anchor in the measure FOLLOWING b → post-side clearance.
+        const requirement = a.half + BARLINE_LYRIC_GAP - headTipX;
+        const floor = requirement - (aX - bX);
+        if (floor > 0 && floor > (post.get(b) || 0)) post.set(b, floor);
+      } else if (a.beat < b - 1e-6 && a.beat >= prevBound - 1e-6) {
+        // Anchor in the measure ENDING at b → pre-side clearance. Budgets
+        // the worst-case leftward barline ink (final thin+thick pair).
+        const requirement =
+          a.half + BARLINE_LYRIC_GAP + PRE_BARLINE_INK_EXTENT - headTipX;
+        const floor = requirement - (predX - aX);
+        if (floor > 0 && floor > (pre.get(b) || 0)) pre.set(b, floor);
+      }
+    }
+  }
+  return { pre, post };
 }
 
 /**

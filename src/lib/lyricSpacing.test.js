@@ -11,7 +11,10 @@ import {
   VERSE_NUMBER_GAP,
   PRELUDE_NOTE_MIN_DAYLIGHT,
   VERSE_NUMBER_LEAD_CLEARANCE,
+  BARLINE_LYRIC_GAP,
+  PRE_BARLINE_INK_EXTENT,
   computeLyricConstraints,
+  computeBarlineLyricFloors,
   applyLyricSpacing,
   verseNumberLeadReservation,
   lyricSyllableForVerse,
@@ -278,5 +281,96 @@ describe('verseNumberLeadReservation', () => {
       },
     ];
     expect(verseNumberLeadReservation(voices, [2])).toBe(0);
+  });
+});
+
+describe('computeBarlineLyricFloors (SPEC-pickup-and-barline-lyrics.md JOB A)', () => {
+  const HEAD = 10.84;
+  // 4/4: four quarters, boundary at beat 4, four quarters, system end at 8.
+  const map = new Map([
+    [0, 200], [1, 300], [2, 400], [3, 500],
+    [4, 600], [5, 700], [6, 800], [7, 900], [8, 1000],
+  ]);
+  const boundaries = [4, 8];
+  const mkVoice = (lyrics) => [{
+    notes: lyrics.map((lyric, i) => ({
+      pitch: 'C4',
+      length: '1/4',
+      ...(lyric === undefined ? {} : { lyric }),
+    })),
+  }];
+
+  it('returns empty maps for lyric-free input', () => {
+    const { pre, post } = computeBarlineLyricFloors(
+      mkVoice(Array(8).fill(undefined)), boundaries, map, HEAD
+    );
+    expect(pre.size).toBe(0);
+    expect(post.size).toBe(0);
+  });
+
+  it('post floor: a wide downbeat syllable demands its half-width + gap', () => {
+    const wide = 'dimmed,';
+    const { post } = computeBarlineLyricFloors(
+      mkVoice(['a', 'b', 'c', 'd', wide, 'e', 'f', 'g']), boundaries, map, HEAD
+    );
+    expect(post.get(4)).toBeCloseTo(
+      estimateLyricWidth(wide) / 2 + BARLINE_LYRIC_GAP - HEAD,
+      6
+    );
+  });
+
+  it('pre floor: a wide measure-final syllable adds the barline ink extent', () => {
+    const wide = 'extraordinary,';
+    const { pre } = computeBarlineLyricFloors(
+      mkVoice(['a', 'b', 'c', wide, 'd', 'e', 'f', 'g']), boundaries, map, HEAD
+    );
+    expect(pre.get(4)).toBeCloseTo(
+      estimateLyricWidth(wide) / 2 + BARLINE_LYRIC_GAP + PRE_BARLINE_INK_EXTENT - HEAD,
+      6
+    );
+  });
+
+  it('in-measure map distance relaxes the requirement for non-adjacent anchors', () => {
+    const wide = 'extraordinary,';
+    // Wide syllable a beat BEFORE the measure end: the 100px gap between it
+    // and the measure's last onset (beat 3) is subtracted from the floor.
+    const { pre } = computeBarlineLyricFloors(
+      mkVoice(['a', 'b', wide, undefined, 'd', 'e', 'f', 'g']), boundaries, map, HEAD
+    );
+    expect(pre.get(4)).toBeCloseTo(
+      estimateLyricWidth(wide) / 2 + BARLINE_LYRIC_GAP + PRE_BARLINE_INK_EXTENT - HEAD - 100,
+      6
+    );
+  });
+
+  it('narrow syllables never raise a floor past the MIN_BARLINE_PADDING regime', () => {
+    const { pre, post } = computeBarlineLyricFloors(
+      mkVoice(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']), boundaries, map, HEAD
+    );
+    for (const v of [...pre.values(), ...post.values()]) {
+      expect(v).toBeLessThan(40); // MIN_BARLINE_PADDING — pads unchanged
+    }
+  });
+
+  it('the widest verse line governs a multi-verse anchor', () => {
+    const { post } = computeBarlineLyricFloors(
+      mkVoice(['a', 'b', 'c', 'd', ['e', 'Undimmed,'], 'f', 'g', 'h']),
+      boundaries, map, HEAD
+    );
+    expect(post.get(4)).toBeCloseTo(
+      estimateLyricWidth('Undimmed,') / 2 + BARLINE_LYRIC_GAP - HEAD,
+      6
+    );
+  });
+
+  it('the system-closing boundary takes a pre floor from the last anchor', () => {
+    const wide = 'extraordinary,';
+    const { pre } = computeBarlineLyricFloors(
+      mkVoice(['a', 'b', 'c', 'd', 'e', 'f', 'g', wide]), boundaries, map, HEAD
+    );
+    expect(pre.get(8)).toBeCloseTo(
+      estimateLyricWidth(wide) / 2 + BARLINE_LYRIC_GAP + PRE_BARLINE_INK_EXTENT - HEAD,
+      6
+    );
   });
 });

@@ -74,6 +74,7 @@ import {
 } from './components/Lyric.js';
 import {
   applyLyricSpacing,
+  computeBarlineLyricFloors,
   verseNumberLeadReservation,
   lyricSyllableForVerse,
   maxLyricVerseCount,
@@ -1076,20 +1077,6 @@ function computeSystemSpringLayout(
     return Math.abs(ratio - Math.round(ratio)) < 1e-6;
   };
 
-  // Build springs. Barline-crossing springs carry the FULL across-bar
-  // daylight (pre + post gap); see the long comment in the renderer.
-  const allSprings = [];
-  for (let i = 0; i < sortedBeats.length - 1; i += 1) {
-    const a = sortedBeats[i];
-    const z = sortedBeats[i + 1];
-    let natLength = naturalBeatToX.get(z) - naturalBeatToX.get(a);
-    if (isInteriorBoundary(z)) {
-      const postNat = naturalBeatToX.get(sortedBeats[i + 2]) - naturalBeatToX.get(z);
-      natLength += postNat;
-    }
-    const K = Math.max(natLength, 1);
-    allSprings.push({ natLength, K });
-  }
   const activeBeats = sortedBeats;
 
   // Leading-offset: leading repeat-barline markers advance the cursor at
@@ -1138,6 +1125,63 @@ function computeSystemSpringLayout(
         postBarlineNatural.set(b, postNat);
       }
     }
+  }
+
+  // Barline↔syllable clearance (SPEC-pickup-and-barline-lyrics.md JOB A):
+  // per-boundary FLOORS for the barline pads so a wide syllable centered on
+  // a measure's first (or last) note never reaches under the barline. The
+  // floors ride the pad mechanism (not the map) because the LEADING
+  // post-pad is capped at barlinePadCap — widening the natural map alone
+  // could never guarantee the clearance. Computed from the (lyric-widened)
+  // natural map, whose gaps justification only ever stretches, so a floor
+  // sufficient at natural stays sufficient at any width. Empty for
+  // lyric-free input — every pad keeps its exact legacy value.
+  const lyricBarlineFloors = computeBarlineLyricFloors(
+    sliceVoices,
+    sortedBeats.length > 1
+      ? [...preBarlineNatural.keys(), sortedBeats[sortedBeats.length - 1]]
+      : [],
+    naturalBeatToX,
+    HEAD_TIP_X,
+  );
+  // Fold the floors into the boundary NATURALS so the spring solver budgets
+  // for them: pads are paid out of each boundary spring's stretched length
+  // (split preNat:postNat), so a pad floor above its share would otherwise
+  // push the closing barline past the justify target, where the edge clamp
+  // in emitAutoBarline would crush the very daylight the floor guarantees.
+  // Raising the naturals keeps pads ≤ shares at every stretch. No-op (maps
+  // untouched) when the floors are empty.
+  for (const [b, floor] of lyricBarlineFloors.pre) {
+    if (preBarlineNatural.has(b) && floor > preBarlineNatural.get(b)) {
+      preBarlineNatural.set(b, floor);
+    }
+  }
+  for (const [b, floor] of lyricBarlineFloors.post) {
+    if (postBarlineNatural.has(b) && floor > postBarlineNatural.get(b)) {
+      postBarlineNatural.set(b, floor);
+    }
+  }
+  const trailingLyricFloor = sortedBeats.length > 1
+    ? lyricBarlineFloors.pre.get(sortedBeats[sortedBeats.length - 1]) || 0
+    : 0;
+
+  // Build springs. Barline-crossing springs carry the FULL across-bar
+  // daylight (pre + post gap) — the (possibly lyric-raised) boundary
+  // naturals; the trailing spring's natural is floored at the trailing
+  // lyric clearance for the same budget reason.
+  const allSprings = [];
+  const trailingSpringBuildIdx = sortedBeats.length - 2;
+  for (let i = 0; i < sortedBeats.length - 1; i += 1) {
+    const a = sortedBeats[i];
+    const z = sortedBeats[i + 1];
+    let natLength = naturalBeatToX.get(z) - naturalBeatToX.get(a);
+    if (isInteriorBoundary(z)) {
+      natLength = preBarlineNatural.get(z) + postBarlineNatural.get(z);
+    } else if (i === trailingSpringBuildIdx && trailingLyricFloor > natLength) {
+      natLength = trailingLyricFloor;
+    }
+    const K = Math.max(natLength, 1);
+    allSprings.push({ natLength, K });
   }
 
   // Each interior boundary needs HEAD_TIP_X on each side (glyph-edge gaps);
@@ -1237,10 +1281,18 @@ function computeSystemSpringLayout(
     const stretched = stretchedGaps[i];
     const preShare = span > 0 ? stretched * (preNat / span) : stretched / 2;
     const postShare = span > 0 ? stretched * (postNat / span) : stretched / 2;
+    // Lyric clearance floors (JOB A) — 0 when no wide syllable abuts this
+    // boundary, so lyric-free pads are untouched.
+    const preLyricFloor = lyricBarlineFloors.pre.get(z) || 0;
+    const postLyricFloor = lyricBarlineFloors.post.get(z) || 0;
     // TRAILING: proportional, floored only (no cap).
-    const prePad = Math.max(MIN_BARLINE_PADDING, preShare);
-    // LEADING: floored AND capped.
-    const postPad = Math.min(barlinePadCap, Math.max(MIN_BARLINE_PADDING, postShare));
+    const prePad = Math.max(preLyricFloor, MIN_BARLINE_PADDING, preShare);
+    // LEADING: floored AND capped — but the lyric floor OVERRIDES the cap
+    // (the cap exists to keep downbeats tight, never to strike text).
+    const postPad = Math.max(
+      postLyricFloor,
+      Math.min(barlinePadCap, Math.max(MIN_BARLINE_PADDING, postShare))
+    );
     // Freed slack = ONLY the leading (post) excess; the boundary spring's full
     // stretched length is preShare + postShare, and we now spend prePad (≈
     // preShare, the trailing keeps its proportional length) + postPad (capped),
@@ -1300,10 +1352,11 @@ function computeSystemSpringLayout(
 
   // Trailing (last) spring → closing-barline pre-gap, floored at
   // MIN_BARLINE_PADDING. PROPORTIONAL to the last note's duration (its
-  // stretched spring length).
+  // stretched spring length). A wide syllable on (or near) the system's
+  // last note raises the floor (JOB A) so the closing barline clears it.
   const trailingBarlineGap = trailingSpringIdx >= 0
-    ? Math.max(MIN_BARLINE_PADDING, stretchedGaps[trailingSpringIdx])
-    : MIN_BARLINE_PADDING;
+    ? Math.max(trailingLyricFloor, MIN_BARLINE_PADDING, stretchedGaps[trailingSpringIdx])
+    : Math.max(trailingLyricFloor, MIN_BARLINE_PADDING);
 
   // Median of pre-pads for the legacy uniform-`barlineGap` API.
   let barlineGap = MIN_BARLINE_PADDING;
@@ -1368,8 +1421,12 @@ function computeSystemSpringLayout(
   const lastBeatX = activeBeats.length > 0
     ? stretchedBeatToX.get(activeBeats[activeBeats.length - 1])
     : perSystemMusicStartX;
+  // The trailing reservation is the FLOOR — raised past MIN_BARLINE_PADDING
+  // only when a wide final syllable demands closing-barline clearance
+  // (JOB A), so the breaker keeps runs that can honor it.
   const naturalRightX =
-    lastBeatX + accumBarlineOffset + MIN_BARLINE_PADDING + trailingBarlineOffset;
+    lastBeatX + accumBarlineOffset
+    + Math.max(MIN_BARLINE_PADDING, trailingLyricFloor) + trailingBarlineOffset;
 
   // naturalRenderRightX = the same extent but with the PROPORTIONAL trailing
   // (`trailingBarlineGap`, floored at MIN_BARLINE_PADDING) instead of the bare
