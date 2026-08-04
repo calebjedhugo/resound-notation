@@ -4,34 +4,6 @@
 
 ### Added
 
-- **Multi-verse lyrics (hymnal-style stacked verses)** —
-  SPEC-multi-verse-lyrics.md. `lyric` now also accepts an array of
-  strings/nulls, one entry per verse (`['A-', 'Twas', 'Through']`); `null`
-  means no syllable for that verse on that note. Verse lines stack below
-  the staff 26 units apart (verse 1 at the legacy position); each verse
-  computes its own melisma underscores independently; verse numbers
-  ("1.", "2.", …) render as separate end-anchored text elements at each
-  system's first syllable of every verse (multi-verse voices only, so note
-  spacing never shifts); inter-staff skylines, the inter-system gap, and
-  the viewBox all reserve room for the verse block — including below a
-  shared (close score) staff. Bare-string lyric input renders
-  pixel-identically to before.
-
-### Fixed
-
-- **Final systems could render WIDER than the page.** A ragged last system
-  placed its closing barline at the last note's duration-proportional
-  trailing (`naturalRenderRightX`), but the system breaker only reserved
-  the minimum trailing floor — so a piece ending on a long note
-  (whole/dotted-whole) overflowed the container by up to ~16%
-  (singHarmony2 repro: o-holy-night rendered its last system at 2287
-  units in a 1971-unit page). The ragged render edge is now clamped to
-  the container: ragged-right may be narrower than the page, never wider.
-  Note positions are untouched, the trailing gap keeps its
-  MIN_BARLINE_PADDING floor, and a degenerate single measure that cannot
-  fit still renders at its natural (overfull) extent rather than being
-  compressed.
-
 - **Two voices per staff (close score)** — SPEC-multi-voice-staff.md. A
   Level-3 voice may declare an optional `staff` key; voices with the same
   value render on ONE shared staff (the SATB hymnal layout: soprano+alto on
@@ -47,6 +19,79 @@
   above and down-voice below. Validation: >2 voices per staff, clef
   mismatches, and unequal total durations throw. Inputs without `staff`
   keys render byte-identically to 1.0.0. New dev preset `close-score-hymn`.
+
+- **Multi-verse lyrics (hymnal-style stacked verses)** —
+  SPEC-multi-verse-lyrics.md. `lyric` now also accepts an array of
+  strings/nulls, one entry per verse (`['A-', 'Twas', 'Through']`); `null`
+  means no syllable for that verse on that note. Verse lines stack below
+  the staff `VERSE_LINE_HEIGHT` (39) units apart (verse 1 at the legacy
+  position); each verse computes its own melisma underscores
+  independently; verse numbers
+  ("1.", "2.", …) render as separate end-anchored text elements at each
+  system's first syllable of every verse (multi-verse voices only, so note
+  spacing never shifts); inter-staff skylines, the inter-system gap, and
+  the viewBox all reserve room for the verse block — including below a
+  shared (close score) staff. Bare-string lyric input renders
+  pixel-identically to before.
+
+- **Pickup (anacrusis) measures** — SPEC-pickup-and-barline-lyrics.md JOB B.
+  New top-level **public input key `pickupBeats`**: measure 0 spans
+  `[0, pickupBeats)` and every later measure boundary shifts by that amount
+  (`src/lib/measureGrid.js`). Beam grouping counts a pickup backwards from
+  the barline per standard engraving, and the system breaker/slicer honour
+  the shifted grid. `validatePickup` throws when the declared pickup
+  exceeds the measure length. Omitting the key reproduces the exact legacy
+  grid. New dev preset `pickup-measure`.
+
+- **Lyric-aware horizontal spacing** — SPEC-lyric-spacing.md JOB 1. Note
+  spacing now widens so consecutive same-verse syllables cannot crowd, and
+  a system opening on a multi-verse voice reserves lead-in room for its
+  end-anchored verse numbers. Applied to the shared natural-width metric,
+  so the system breaker sees the widened measures and justification
+  preserves the minima. No-op for lyric-free input.
+
+- **Syllable/barline clearance** — SPEC-pickup-and-barline-lyrics.md JOB A.
+  Per-boundary floors keep a wide syllable centred on a measure's first or
+  last note from reaching under the barline, including the closing barline
+  of a system. Rides the barline-pad mechanism so lyric-free scores keep
+  every pad at its exact previous value.
+
+- **Per-character lyric width estimation.** `estimateLyricWidth` now sums a
+  measured per-character width table rather than multiplying a character
+  count by a flat ratio, so `MI` and `il` no longer reserve the same room.
+
+### Changed
+
+- **Lyric engraving scale raised to measured hymnal proportions** —
+  SPEC-lyric-engraving-scale.md JOB 5 (and JOB 2 before it). Syllable font
+  size 11 → 15 → **39**, verse numbers 10 → 13 → **33**,
+  `VERSE_LINE_HEIGHT` 26 → 30 → **39**, `LYRIC_BASE_Y` 115 → **126**.
+  Sized off real hymnal scans; JOB 2's intermediate values are superseded.
+
+- **Lyric baselines sit below staff content** — JOB 4. A verse block's
+  baseline is pushed past the staff's lowest ink (down-stem tips, beams,
+  low ledgers) plus the measured ascender reach, so a down-stem partner
+  voice on a shared staff can no longer overlap the text. Scores whose
+  content stays clear of the band keep the legacy baseline exactly.
+
+- **Long ties and slurs flatten** — SPEC-lyric-spacing.md JOB 3. Arc height
+  grows sub-linearly with span instead of proportionally, so a tie spanning
+  a stretched measure no longer balloons into the lyric band.
+
+### Fixed
+
+- **Final systems could render WIDER than the page.** A ragged last system
+  placed its closing barline at the last note's duration-proportional
+  trailing (`naturalRenderRightX`), but the system breaker only reserved
+  the minimum trailing floor — so a piece ending on a long note
+  (whole/dotted-whole) overflowed the container by up to ~16%
+  (singHarmony2 repro: o-holy-night rendered its last system at 2287
+  units in a 1971-unit page). The ragged render edge is now clamped to
+  the container: ragged-right may be narrower than the page, never wider.
+  Note positions are untouched, the trailing gap keeps its
+  MIN_BARLINE_PADDING floor, and a degenerate single measure that cannot
+  fit still renders at its natural (overfull) extent rather than being
+  compressed.
 
 ## 1.0.0 — 2026-06-25
 

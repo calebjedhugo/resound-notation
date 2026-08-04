@@ -1,6 +1,6 @@
 # SPEC: Two Voices per Staff (close score)
 
-Status: implementing. Motivation: SATB hymn close score (soprano+alto on one
+Status: **shipped** (unreleased; see CHANGELOG). Tests: `src/NotationRenderer.multiVoiceStaff.test.js`. Dev preset: `close-score-hymn`. Motivation: SATB hymn close score (soprano+alto on one
 treble staff, tenor+bass on one bass staff) — the layout every hymnal uses.
 Consumer: singHarmony2 (sing-harmony-beta.calebhugo.com).
 
@@ -84,7 +84,7 @@ Add `NotationRenderer.multiVoiceStaff.test.js` covering at least:
 - per-voice `data-voice-id` groups + `data-beat` preserved on a shared staff
 - staff furniture not inside either voice group
 
-All 507 existing tests must stay green. `npm test` before and after.
+All existing tests must stay green (925 as of 2026-08-03). `npm test` before and after.
 
 ## Dev playground
 

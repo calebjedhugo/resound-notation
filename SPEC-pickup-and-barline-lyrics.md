@@ -60,7 +60,7 @@ battery).
 ## Ground rules
 
 Read CLAUDE.md first. Never touch the STAFF_TOP_OFFSET transform-pin test.
-All existing tests stay green (834+). Update dev/SCHEMA.md (pickupBeats) and
+All existing tests stay green (834+ at the time; 925 as of 2026-08-03). Update dev/SCHEMA.md (pickupBeats) and
 add a dev preset (e.g. pickup-measure.js — a 4/4 hymn phrase with a 1-beat
 pickup and lyrics). Commit the spec with JOB A. No push, no version bump, no
 publish. Report per job: approach, test counts, compromises — adversarial

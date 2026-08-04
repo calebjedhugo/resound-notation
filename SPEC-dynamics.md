@@ -1,5 +1,14 @@
 # Notation Dynamics Specification
 
+> **Historical design record — this feature has shipped** (most of it in the 0.1.0
+> extraction; see `CHANGELOG.md`). This document was written before
+> the package was extracted from `resound-fe`, so its paths are pre-extraction:
+> source rooted at `src/notation/` is now just `src/`, the `../audio/SPEC-*.md`
+> links point at a directory that does not exist here, `TESTING.md` was not carried
+> over (see `SPEC-testing.md`), and the `__tests__/fixtures/songs/` fixtures it names
+> were never created — real fixtures live flat in `src/__tests__/fixtures/`. Treat
+> the code and `CHANGELOG.md` as authoritative; keep this for the design rationale.
+
 Rendering of dynamic markings (volume indicators) and hairpins (gradual volume changes) in SVG staff notation.
 
 > **Parent:** [SPEC.md](SPEC.md) · **Audio:** [SPEC-dynamics.md](../audio/SPEC-dynamics.md)
@@ -223,7 +232,7 @@ Renders a point dynamic marking. Input: dynamic value string, x position, y posi
 
 ```js
 // Dynamic.js
-export function renderDynamic(svgHelpers, { dynamic, x, y }) {
+export function renderDynamic({ dynamic, x, y }) {
   // Returns <g class="dynamic"> with <text> child
 }
 ```
@@ -234,7 +243,7 @@ Renders a hairpin wedge. Input: type (`"crescendo"` or `"decrescendo"`), start x
 
 ```js
 // Hairpin.js
-export function renderHairpin(svgHelpers, { type, startX, endX, y }) {
+export function renderHairpin({ type, startX, endX, y }) {
   // Returns <g class="hairpin hairpin-{type}"> with two <path> children
 }
 ```

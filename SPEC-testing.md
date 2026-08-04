@@ -23,7 +23,7 @@ Testing approach for the SVG notation renderer. Follows the project-wide [`TESTI
 Create a test helper similar to the game's `createTestContext()`:
 
 ```js
-// src/notation/__tests__/helpers/testUtils.js
+// src/__tests__/helpers/testUtils.js
 
 export function createNotationContext() {
   const container = document.createElement('div');
@@ -291,7 +291,7 @@ describe('NotationRenderer', () => {
 
 ## Test Fixtures
 
-Create JSON files in `__tests__/fixtures/songs/` for reusable test data:
+Create JSON files in `src/__tests__/fixtures/` (flat — there is no `songs/` subdirectory) for reusable test data:
 
 ```js
 // simple-melody.json

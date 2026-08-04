@@ -1,7 +1,11 @@
 # SPEC: Multi-verse lyrics (hymnal-style stacked verses)
 
-Status: planned (implement AFTER SPEC-multi-voice-staff.md lands — same renderer
-regions). Motivation: hymnals print verses 1..n stacked under the melody staff;
+Status: **shipped** (unreleased; see CHANGELOG). Tests: `src/Lyric.multiVerse.test.js`.
+NOTE: the sizing numbers below are the ORIGINAL targets and were superseded by
+SPEC-lyric-spacing.md JOB 2 and SPEC-lyric-engraving-scale.md JOB 5 — verse
+spacing is now `VERSE_LINE_HEIGHT = 39` (not ~26) and `LYRIC_BASE_Y` is 126 (not
+115), and the baseline is shifted further down by content (JOB 4). Read
+SPEC-lyric-engraving-scale.md for the current values. Motivation: hymnals print verses 1..n stacked under the melody staff;
 the current per-note `lyric: string` supports only one line of text.
 
 ## Data model

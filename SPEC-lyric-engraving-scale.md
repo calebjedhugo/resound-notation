@@ -157,7 +157,7 @@ Tests shipped/updated:
   result — the formula under test didn't change, only what a "short"
   syllable's reservation evaluates to.
 
-Full suite at JOB 5: 834/834 green; `npm run build` passes.
+Full suite at JOB 5: 834/834 green (925 as of 2026-08-03); `npm run build` passes.
 
 ## What could not be recovered
 

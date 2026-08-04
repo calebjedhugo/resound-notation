@@ -50,11 +50,10 @@ The algorithm has three passes:
 Input: `events: Array<Note | Rest>` for one voice. For 8vb, mirror all comparisons (≥ vs. ≤). Below is the 8va direction; run the same procedure independently for 8vb and merge segment lists at the end (the two directions cannot overlap because the trigger zones don't overlap).
 
 Constants:
-- `TRIGGER = 91` (G6) — minimum MIDI for 8va entry.
-- `IN_RANGE_MAX = 89` (F6) — maximum MIDI that counts as "in-range" for the exit dip.
+- `TRIGGER_VA = 91` (G6) — minimum MIDI for 8va entry.
+- `IN_RANGE_MAX_VA = 89` (F6) — maximum MIDI that counts as "in-range" for the exit dip.
 - `EXIT_DIP = 3` — consecutive in-range notes required to leave the bracket.
-- `CONTEXT_PULL_WINDOW = 4` — see §3.1.3.
-- `CONTEXT_PULL_RATIO = 0.5` — see §3.1.3.
+- `CONTEXT_PULL_WINDOW = 4` — see §3.1.3. (A `CONTEXT_PULL_RATIO` was proposed in OQ-2 but never implemented; there is no such constant in the code.)
 
 #### 3.1.1 Raw segmentation (greedy with hysteresis)
 
@@ -109,6 +108,8 @@ Motivating fragment: `C6 G6 B5 C6 G6` — the user reports this reads better ent
 > **Rule CP-1.** After raw segmentation, for any two adjacent segments `S_i` and `S_{i+1}` of the same kind separated by a gap of `g` non-rest in-range notes: if **either**
 >   (a) every note in the gap is within an octave of `TRIGGER` (i.e. MIDI ≥ `TRIGGER - 12`), **and** `g ≤ CONTEXT_PULL_WINDOW`, **or**
 >   (b) the ratio `out_of_range_count / total_non_rest_count` across the span `[S_i.start … S_{i+1}.end]` is `≥ CONTEXT_PULL_RATIO`,
+>   *(NOT IMPLEMENTED — `CONTEXT_PULL_RATIO` does not exist in `segmentOttava.js`; the shipped
+>   context-pull uses `CONTEXT_PULL_WINDOW` alone.)*
 > then **merge** `S_i` and `S_{i+1}` into a single segment spanning `[S_i.start, S_{i+1}.end]`.
 
 > **Rule CP-2.** A segment may additionally absorb a leading or trailing run of in-range notes (length ≤ `CONTEXT_PULL_WINDOW`) when **every** note in that run is within an octave of `TRIGGER` *and* the absorbed run is bounded on the outside by either (a) the start/end of the voice, (b) a different-clef-zone note, or (c) a barline.
@@ -226,7 +227,7 @@ A more interesting case: `E6 F6 | G6 A6 B6 C7` — raw starts at index 2 (G6). B
 ## 5. Edge cases and open questions
 
 - **OQ-1 (MIDI 90 / 51 chromatic gap).** Spec says "neutral" — neither triggers entry nor counts toward exit dip. Alternative: treat as out-of-range for entry (so F♯6 alone would force 8va). Rejected for now — F♯6 with ledger lines is still common and readable. Verify with engraving reference.
-- **OQ-2 (CP constants).** `CONTEXT_PULL_WINDOW = 4` and `CONTEXT_PULL_RATIO = 0.5` are guesses. Iteration C should tune against a larger fragment corpus.
+- **OQ-2 (CP constants).** `CONTEXT_PULL_WINDOW = 4` was a guess and shipped as-is. The proposed `CONTEXT_PULL_RATIO = 0.5` was never implemented — no such constant exists in `segmentOttava.js`. Still untuned against a larger fragment corpus.
 - **OQ-3 (CP-2 leading absorb).** The relaxed condition "within 12 semitones of bracket-edge note" admits Fragment 5 but could over-pull on long lyrical descents. Bound the absorbed run length tightly (≤ 4) and never absorb across a barline; the boundary-snap pass should prefer to start at the barline anyway.
 - **OQ-4 (Multi-voice agreement).** When two voices agree on the 8va span, the renderer should draw **one** bracket above (or below) the system, not two. This is a renderer concern but the segmenter output should support a `voiceIds: number[]` field per segment.
 - **OQ-5 (Chord notes).** Treble chord with one note in 8va range and the rest in-range — spec assumes monophonic voices. If a model chord straddles the threshold, treat its highest pitch as the chord's representative pitch for 8va analysis. Re-examine in iteration C.
@@ -271,7 +272,7 @@ function reconcileOttava(perVoice: OttavaSegment[][]): OttavaSegment[][];
 function analyzeOttava(voices: OttavaInput[]): OttavaSegment[][];
 ```
 
-Returns an empty array for bass-clef voices. Emits `console.warn` from `reconcileOttava` on cross-voice conflicts.
+Returns an empty array for **alto, tenor and percussion** voices. Bass-clef voices are analysed for `8vb` only (`kinds = clef === 'bass' ? ['8vb'] : ['8va', '8vb']` in `segmentOttava.js`) — §1 says the same; an earlier draft of this line wrongly said bass returned nothing. Emits `console.warn` from `reconcileOttava` on cross-voice conflicts.
 
 ---
 

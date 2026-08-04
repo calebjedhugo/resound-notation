@@ -1,5 +1,14 @@
 # Notation Library: Slurs Specification
 
+> **Historical design record — this feature has shipped** (most of it in the 0.1.0
+> extraction; see `CHANGELOG.md`). This document was written before
+> the package was extracted from `resound-fe`, so its paths are pre-extraction:
+> source rooted at `src/notation/` is now just `src/`, the `../audio/SPEC-*.md`
+> links point at a directory that does not exist here, `TESTING.md` was not carried
+> over (see `SPEC-testing.md`), and the `__tests__/fixtures/songs/` fixtures it names
+> were never created — real fixtures live flat in `src/__tests__/fixtures/`. Treat
+> the code and `CHANGELOG.md` as authoritative; keep this for the design rationale.
+
 Rendering specification for musical slurs in the SVG notation system.
 
 > **Parent:** [SPEC.md](SPEC.md) · **Audio:** [SPEC-slurs.md](../audio/SPEC-slurs.md)

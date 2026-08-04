@@ -1,5 +1,14 @@
 # Notation Library Specification: Ties
 
+> **Historical design record — this feature has shipped** (most of it in the 0.1.0
+> extraction; see `CHANGELOG.md`). This document was written before
+> the package was extracted from `resound-fe`, so its paths are pre-extraction:
+> source rooted at `src/notation/` is now just `src/`, the `../audio/SPEC-*.md`
+> links point at a directory that does not exist here, `TESTING.md` was not carried
+> over (see `SPEC-testing.md`), and the `__tests__/fixtures/songs/` fixtures it names
+> were never created — real fixtures live flat in `src/__tests__/fixtures/`. Treat
+> the code and `CHANGELOG.md` as authoritative; keep this for the design rationale.
+
 Extends the notation renderer to display tie arcs connecting notes of the same pitch across durations.
 
 > **Parent:** [SPEC.md](SPEC.md) · **Audio:** [SPEC-ties.md](../audio/SPEC-ties.md)

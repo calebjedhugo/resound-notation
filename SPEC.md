@@ -624,22 +624,20 @@ When iterating a `notes` array, elements must be detected in this order. The fir
 
 ---
 
-## Future Feature Specs
+## Feature Specs
 
-Each feature below has a full specification document covering data structures, API design, SVG rendering, testing approach, and gotchas. Audio behavior specs are in `src/audio/`.
+**All eight features below shipped in 0.1.0**, the initial extraction (see the 0.1.0 entry in `CHANGELOG.md`). Their spec documents are kept as design records, not as plans — see the note at the top of each. The "Audio Spec" column pointed at `src/audio/`, which lived in `resound-fe` before the extraction and does not exist in this repo; those links are dead and have been removed.
 
-| Feature | Notation Spec | Audio Spec |
-|---------|---------------|------------|
-| **Ties** | [`SPEC-ties.md`](SPEC-ties.md) | [`audio/SPEC-ties.md`](../audio/SPEC-ties.md) |
-| **Slurs** | [`SPEC-slurs.md`](SPEC-slurs.md) | [`audio/SPEC-slurs.md`](../audio/SPEC-slurs.md) |
-| **Dynamics** | [`SPEC-dynamics.md`](SPEC-dynamics.md) | [`audio/SPEC-dynamics.md`](../audio/SPEC-dynamics.md) |
-| **Articulations** | [`SPEC-articulations.md`](SPEC-articulations.md) | [`audio/SPEC-articulations.md`](../audio/SPEC-articulations.md) |
-| **Tuplets** | [`SPEC-tuplets.md`](SPEC-tuplets.md) | [`audio/SPEC-tuplets.md`](../audio/SPEC-tuplets.md) |
-| **Grace Notes** | [`SPEC-grace-notes.md`](SPEC-grace-notes.md) | [`audio/SPEC-grace-notes.md`](../audio/SPEC-grace-notes.md) |
-| **Repeats** | [`SPEC-repeats.md`](SPEC-repeats.md) | [`audio/SPEC-repeats.md`](../audio/SPEC-repeats.md) |
-| **Text Annotations** | [`SPEC-text-annotations.md`](SPEC-text-annotations.md) | [`audio/SPEC-text-annotations.md`](../audio/SPEC-text-annotations.md) |
-
-**Priorities:** Ties should be promoted to Phase 4 alongside bar lines (cross-barline notes are common). Tuplets and dynamics are high-value additions after that.
+| Feature | Notation Spec | Implementation |
+|---------|---------------|----------------|
+| **Ties** | [`SPEC-ties.md`](SPEC-ties.md) | `lib/tieResolver.js`, `components/Tie.js` |
+| **Slurs** | [`SPEC-slurs.md`](SPEC-slurs.md) | `lib/slurGrouping.js`, `components/Slur.js` |
+| **Dynamics** | [`SPEC-dynamics.md`](SPEC-dynamics.md) | `components/Dynamic.js`, `components/Hairpin.js` |
+| **Articulations** | [`SPEC-articulations.md`](SPEC-articulations.md) | `components/Articulation.js` |
+| **Tuplets** | [`SPEC-tuplets.md`](SPEC-tuplets.md) | `lib/tuplets.js`, `components/TupletBracket.js` |
+| **Grace Notes** | [`SPEC-grace-notes.md`](SPEC-grace-notes.md) | `components/GraceNote.js` |
+| **Repeats** | [`SPEC-repeats.md`](SPEC-repeats.md) | `components/RepeatBarline.js`, `Ending.js`, `NavigationMarker.js` |
+| **Text Annotations** | [`SPEC-text-annotations.md`](SPEC-text-annotations.md) | `components/TempoMarking.js`, `ExpressionText.js`, `RehearsalMark.js`, `Lyric.js` |
 
 ---
 
@@ -654,3 +652,4 @@ Each feature below has a full specification document covering data structures, A
 - **v1.5** - Extracted all future features into individual spec files with notation + audio pairs.
 - **v1.6** - Audit fixes: canonical parser detection order, pre-processing requirements, getDuration dotted note responsibility, resolvePlaybackOrder naming, chord duration clarification, markers array for multi-voice, fermata duration extension approach, repeatPass parameter, parseFraction independence, stale version references, dot Y positions, file structure additions.
 - **v1.7** - Restructured: extracted testing approach to SPEC-testing.md, moved implementation order to ROADMAP.md, removed placeholder SVG symbol paths.
+- **v1.8** - Post-extraction accuracy pass (2026-08-03). Marked the eight "future" feature specs as shipped and dropped the dead `../audio/` links. Flagged the pre-extraction `src/notation/` file tree and the never-created `components/Cursor.js` / `__tests__/fixtures/songs/` entries as historical. `ROADMAP.md` (referenced by v1.7) was never carried over from `resound-fe`. Known still-unimplemented items described above as if present: `options.repeatPass` on `setPlaybackPosition` (only `voiceId` is read) and courtesy accidentals. Layout numbers quoted in this document (clef width 30, time-sig 25, per-duration note widths, 40px staff gap, 3px ledger extension) are all pre-1.0 values, superseded by `lib/measureIntrinsicWidths.js`, `lib/engravingDefaults.js` and the content-aware staff spacing in `NotationRenderer.js`; treat the code as authoritative.

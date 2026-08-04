@@ -1,5 +1,12 @@
 # Test Coverage Audit — Iterations A–E (responsive layout overhaul)
 
+> **STALE LINE NUMBERS — read as a findings list, not a map.** Written when the
+> suite was ~520 tests; it is 925 across 51 suites as of 2026-08-03, so every
+> `line NNN` reference below is wrong (e.g. the `STAFF_TOP_OFFSET` pin cited at
+> 396 is now at 854; the responsive blocks cited from ~2584 now start at 5697).
+> Grep the quoted test NAME instead. The findings themselves were re-checked on
+> 2026-08-03 and are still accurate except where struck through below.
+
 Scope: `src/NotationRenderer.test.js` (focus on the new blocks starting at line ~2584), `src/lib/breakIntoSystems.test.js`, `src/lib/measureIntrinsicWidths.test.js`, `src/lib/segmentOttava.test.js`, plus a sweep for untested files. Audit only — no code or test changes.
 
 Total tests audited (in the relevant areas): ~80 across the targeted blocks. Several tests have strong assertions; many in the new responsive/spring/optimal blocks have at least one significant weakness or are silently complemented by other tests in ways future authors should not rely on.
@@ -144,9 +151,23 @@ Total tests audited (in the relevant areas): ~80 across the targeted blocks. Sev
 - **8vb + system break mirror.** Same as above for low passages.
 
 ### Untested files
-- **`src/lib/sliceVoiceByMeasure.js`** has zero tests. This is *the* function that drives multi-voice voice-major slicing during system breaks. Add unit tests covering: measure-aligned splits, mid-tuplet attempts (should it warn/throw/round?), empty trailing measures, voice with fewer measures than `endMeasure`. Currently every behavior here is tested only indirectly through end-to-end SVG output.
-- **`src/lib/slurGrouping.js`** has zero tests.
-- **`src/lib/tuplets.js`** has zero tests.
+
+**RESOLVED 2026-08-03** — all three named below now have sibling test files:
+`sliceVoiceByMeasure.test.js`, `slurGrouping.test.js`, `tuplets.test.js`.
+`stemLength.test.js` and `engravingDefaults.test.js` were added in the same pass.
+
+- ~~**`src/lib/sliceVoiceByMeasure.js`** has zero tests.~~ Now covered. Note its exported `elementBeats` helper still has no *direct* test, only coverage through the slicer.
+- ~~**`src/lib/slurGrouping.js`** has zero tests.~~ Now covered.
+- ~~**`src/lib/tuplets.js`** has zero tests.~~ Now covered.
+
+**Still untested as of 2026-08-03** (this sweep missed them):
+
+- `src/components/Bracket.js` — no test file.
+- `src/components/Ending.js`, `Hairpin.js`, `NavigationMarker.js` — no sibling test file; covered only indirectly through the renderer.
+- `TempoMarking.js`, `ExpressionText.js`, `RehearsalMark.js` have no *sibling* test file but ARE covered end-to-end by `src/components/TextAnnotation.test.js` (`describe('tempo markings')`, `describe('expression text')`, `describe('rehearsal marks')`). Not a real gap.
+- `OttavaBracket.js` likewise has no sibling test, but its 8va-vs-8vb glyph-edge anchoring IS directly asserted — `NotationRenderer.test.js`, `it('anchors the dashed line to top of "8" for 8va and bottom of "8" for 8vb')`.
+- Exported-but-undirectly-tested helpers: `beamStemExtension` and `beamLineYAt` (`components/Beam.js`), `getBraceWidth` (`components/Brace.js`), `keySignatureAdvance` (`components/KeySignature.js`, drives the prelude cursor at two renderer sites), and the three `Dynamic.js` metrics that feed hairpin placement and viewBox sizing.
+- No test renders an **alto or tenor** key signature — see the tenor-flat placement defect in `TODO.md`.
 
 ---
 

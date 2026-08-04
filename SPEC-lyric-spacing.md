@@ -1,6 +1,10 @@
 # SPEC: Lyric-aware spacing, lyric sizing, and long-tie flattening
 
-Status: implementing. Three related engraving-quality jobs, in order, each with
+Status: **shipped** (unreleased; see CHANGELOG).
+SUPERSEDED SIZES: JOB 2's font targets below (syllable 15, verse number 13,
+`VERSE_LINE_HEIGHT` 30, "keep `LYRIC_BASE_Y` unchanged") were all replaced by
+SPEC-lyric-engraving-scale.md JOB 5 — the shipped values are 39 / 33 / 39, and
+`LYRIC_BASE_Y` did move, 115 → 126. JOB 1 and JOB 3 shipped as written. Three related engraving-quality jobs, in order, each with
 its own TDD cycle and commit. Consumer: singHarmony2 (74 hymns with 1-6 stacked
 verses; worst crowding in dense syllabic passages).
 

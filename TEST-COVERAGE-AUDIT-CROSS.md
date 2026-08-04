@@ -1,5 +1,12 @@
 # Cross-Audit: Test Coverage of Iterations A–E
 
+> **STALE LINE NUMBERS — read as a findings list, not a map.** Written when the
+> suite was ~520 tests; it is 925 across 51 suites as of 2026-08-03, so every
+> `line NNN` reference below is wrong (e.g. the `STAFF_TOP_OFFSET` pin cited at
+> 396 is now at 854; the responsive blocks cited from ~2584 now start at 5697).
+> Grep the quoted test NAME instead. The findings themselves were re-checked on
+> 2026-08-03 and are still accurate except where struck through below.
+
 Independent second-pass audit of test strength for the responsive-layout overhaul (intrinsic measurement → system breaking → reactive layout → spring spacing → Knuth-Plass). Findings are formed without reading the first auditor's report.
 
 Audited files:
@@ -167,15 +174,19 @@ Audited files:
 
 `src/lib/*.js` without a sibling `*.test.js`:
 
-- `src/lib/sliceVoiceByMeasure.js` — **no test**. Given how central voice slicing is to the system-breaking pipeline (each system slices each voice by measure range), this is alarming. Bugs here surface as off-by-one notes per system or duplicate notes at boundaries, exactly the failure class iteration B nearly shipped.
-- `src/lib/slurGrouping.js` — **no test**. Slurs across system breaks are explicitly TODO'd; the grouping logic has no coverage.
-- `src/lib/tuplets.js` — **no test**. Sextuplet rendering has integration coverage in NotationRenderer.test.js but the tuplet-grouping helper itself is untested.
+**RESOLVED 2026-08-03** — all three now have sibling test files. See the
+corresponding section of `TEST-COVERAGE-AUDIT.md` for the components that are
+still untested.
+
+- ~~`src/lib/sliceVoiceByMeasure.js` — **no test**.~~ Now covered.
+- ~~`src/lib/slurGrouping.js` — **no test**.~~ Now covered. (Slurs across system breaks are still TODO'd.)
+- ~~`src/lib/tuplets.js` — **no test**.~~ Now covered.
 
 ---
 
 ## 5. Top 5 priorities
 
-1. **Add `sliceVoiceByMeasure` unit tests.** Highest-leverage gap. This helper is the pipeline's gatekeeper across system breaks; a regression here is exactly the iteration-B class of bug (voices wrapping into independent systems / off-by-one measure boundaries) and there is currently zero direct coverage. Test: empty voice, single measure, slice exactly at a measure boundary, slice across a tie, slice across a beamed group, slice at end-of-voice.
+1. ~~**Add `sliceVoiceByMeasure` unit tests.**~~ **DONE** (2026-08-03) — `src/lib/sliceVoiceByMeasure.test.js` exists. Original text: Highest-leverage gap. This helper is the pipeline's gatekeeper across system breaks; a regression here is exactly the iteration-B class of bug (voices wrapping into independent systems / off-by-one measure boundaries) and there is currently zero direct coverage. Test: empty voice, single measure, slice exactly at a measure boundary, slice across a tie, slice across a beamed group, slice at end-of-voice.
 
 2. **Tighten "voices synchronized across system boundaries" (W1).** Replace the staff-line-count equality with a per-system breakpoint-index equality (expose `data-start-measure` / `data-end-measure`) or assert per-voice final-barline x equality within each system. This is the same class of bug iteration B shipped — the user's stated worry.
 

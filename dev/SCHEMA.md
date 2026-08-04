@@ -1,6 +1,8 @@
 # resound-notation Input Schema (audit notes)
 
-Notes for the dev playground. Source: `src/lib/dataParser.js`, `src/NotationRenderer.js`, `SPEC.md`, `SPEC-*.md`. v0.1.0.
+Notes for the dev playground. Source: `src/lib/dataParser.js` (the three input shapes and
+top-level keys), `src/NotationRenderer.js` (per-element dispatch — `getMarkerType` is where the
+element-type table actually lives), `SPEC.md`, `SPEC-*.md`. Current at v1.0.0 + unreleased work.
 
 ## Three input shapes
 
@@ -106,11 +108,11 @@ Rules (see `SPEC-multi-voice-staff.md`; dev preset: `close-score-hymn`):
 | Property | Values | Notes |
 |---|---|---|
 | `dotted` | `true` | Renders aug. dot, multiplies duration by 1.5 |
-| `articulation` | `'staccato'`, `'staccatissimo'`, `'accent'`, `'marcato'`, `'tenuto'`, `'fermata'`, or array of these | Fermata also valid on rests |
+| `articulation` | `'staccato'`, `'staccatissimo'`, `'accent'`, `'marcato'`, `'tenuto'`, `'fermata'`, `'portato'`, or array of these | Fermata also valid on rests |
 | `tie` | `'start' \| 'continue' \| 'stop'` | Spans across rests/barlines; matches by pitch |
 | `slur` | `'start' \| 'stop'` | Stack-based; nesting allowed |
 | `grace` | `{pitch, type:'acciaccatura'\|'appoggiatura'}` or array | Drawn before the host note |
-| `lyric` | string or array of strings/nulls | Plain text below the note (`Hel-`, `lo`, etc.). Implicit melismata when subsequent notes lack a lyric. An **array stacks hymnal verses** (`['A-', 'Twas', 'Through']` = verses 1-3; `null` = no syllable for that verse → per-verse melisma). Verse lines stack 26 units apart; verse numbers (`1.`, `2.`, …) render at each system's first syllable when a voice has >1 verse; inter-staff/system spacing reserves room for the block. A bare string = verse 1 (unchanged). |
+| `lyric` | string or array of strings/nulls | Plain text below the note (`Hel-`, `lo`, etc.). Implicit melismata when subsequent notes lack a lyric. An **array stacks hymnal verses** (`['A-', 'Twas', 'Through']` = verses 1-3; `null` = no syllable for that verse → per-verse melisma). Verse lines stack `VERSE_LINE_HEIGHT` (39) units apart; verse numbers (`1.`, `2.`, …) render at each system's first syllable when a voice has >1 verse; inter-staff/system spacing reserves room for the block. A bare string = verse 1 (unchanged). |
 
 ## Tuplet wrapper
 
@@ -135,9 +137,14 @@ Inside notes you may have notes / rests / chords. **No nested tuplets.** Bracket
 - **Nested tuplets** — explicitly rejected by the validator.
 - **Glissando / arpeggio markings** — no element type.
 - **Trills, mordents, turns, ornaments** — not articulations; no separate element type.
-- **8va / 8vb** — no element.
+- **8va / 8vb** — no *input* element, but ottava is **auto-detected and auto-engraved** from the
+  written pitches (`src/lib/segmentOttava.js` → `src/components/OttavaBracket.js`). You cannot ask
+  for a bracket; you get one when the line goes high/low enough. See `dev/presets/ottava-showcase.js`.
 - **Pedal markings** — no element.
-- **System breaks / page breaks** — single SVG row, scrolls horizontally.
+- **Manual system / page breaks** — you cannot force a break. Breaking itself is automatic and
+  always on: the renderer wraps the piece onto as many systems as the width needs
+  (`src/lib/breakIntoSystems.js`; `breakingStrategy: 'optimal'` — Knuth-Plass — by default,
+  `'greedy'` available). There is no element or option to pin a break to a chosen measure.
 
 ## Defaults / inference
 
