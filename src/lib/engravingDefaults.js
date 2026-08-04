@@ -9,6 +9,30 @@
 // Staff space → pixels.
 export const LINE_SPACING = 20;
 
+// --- Shared staff geometry -------------------------------------------
+// These are not Bravura weights but the canonical staff coordinates every
+// module measures against. They lived as private duplicates in
+// NotationRenderer.js, components/Note.js, components/Beam.js,
+// components/Rest.js (as STAFF_MIDLINE) and lib/beaming.js — plus a
+// defaulted parameter in lib/stemLength.js and a literal 2.4 repeated at
+// four stem-drawing sites. A single definition keeps stems, beams, rests
+// and skyline math from silently disagreeing.
+// VALUES ARE UNCHANGED from those duplicates; engravingDefaults.test.js
+// pins them because moving one re-engraves every score.
+
+// Y of the middle (third) staff line, in the pitchToStaffY frame where the
+// top line sits at y=10 and each staff space is LINE_SPACING px.
+export const MIDDLE_LINE_Y = 50;
+
+// Default stem length: one octave / 3.5 staff spaces (Gould "Behind Bars",
+// Stems). lib/stemLength.js may lengthen — never shorten — this.
+export const STEM_LENGTH = 3.5 * LINE_SPACING; // 70
+
+// stemThickness = 0.12 spaces — the note stem. Shared by the single-note
+// path (components/Note.js) and the chord / percussion stems the renderer
+// draws inline, so every stem in a score carries one weight.
+export const STEM_THICKNESS = 0.12 * LINE_SPACING; // 2.4
+
 // staffLineThickness = 0.13 spaces — the five horizontal lines of the
 // staff. Without an explicit thickness, SVG defaults to 1px and the
 // staff lines read as anemic next to the Bravura-weighted stems (2.4),

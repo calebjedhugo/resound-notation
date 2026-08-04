@@ -1,16 +1,9 @@
 /**
- * Slice a voice's note array by measure index range.
- *
- * Used by the system-breaking pass to hand each system a per-voice note
- * array containing exactly the measures that system covers. Non-sounding
- * markers (dynamics, hairpins, navigation, etc.) attach to the *next*
- * sounding note, so they belong to whatever measure that note is in.
- *
- * @param {Array} voiceNotes
- * @param {number|null} measureLength  beats per measure, null = no time sig
- * @param {number} startMeasure  inclusive
- * @param {number} endMeasure    inclusive
- * @returns {Array}  sliced subset of voiceNotes
+ * Measure-range slicing for a single voice, plus the shared element-model
+ * helpers that slicing is built on (`elementBeats`, `MARKER_KEYS`,
+ * `isMarker`) — which `lib/measureGrid.js`, `lib/lyricSpacing.js` and
+ * `NotationRenderer.js` also consume, so there is one definition of "how
+ * long is this element" and "is this element a marker".
  */
 import { fractionToBeats } from './durationSymbols.js';
 import { getTupletNoteDuration } from './tuplets.js';
@@ -46,21 +39,55 @@ export function elementBeats(element) {
   return 0;
 }
 
-function isMarker(element) {
+/**
+ * THE canonical list of non-sounding inline marker keys, in the order the
+ * renderer's `getMarkerType` tests them (first match wins, so the order is
+ * part of the contract). A voice element carrying any of these keys occupies
+ * no time and attaches to the next sounding note.
+ *
+ * Exported because this list was previously copy-pasted into three modules
+ * (this one, lib/lyricSpacing.js, and NotationRenderer.js) and had already
+ * drifted. Note that `tuplet` is deliberately NOT here: it is a marker to the
+ * renderer's dispatch (it needs its own render branch) but a SOUNDING element
+ * to every beat-walker, so each caller handles it explicitly.
+ */
+export const MARKER_KEYS = Object.freeze([
+  'barline',
+  'ending',
+  'navigation',
+  'tempo',
+  'tempoChange',
+  'expression',
+  'rehearsal',
+  'dynamic',
+  'hairpin',
+]);
+
+/**
+ * True when `element` is a non-sounding inline marker (see MARKER_KEYS).
+ * Arrays are chords, so never markers.
+ */
+export function isMarker(element) {
   if (!element || Array.isArray(element)) return false;
-  return (
-    element.barline !== undefined
-    || element.ending !== undefined
-    || element.navigation !== undefined
-    || element.tempo !== undefined
-    || element.tempoChange !== undefined
-    || element.expression !== undefined
-    || element.rehearsal !== undefined
-    || element.dynamic !== undefined
-    || element.hairpin !== undefined
-  );
+  return MARKER_KEYS.some((k) => element[k] !== undefined);
 }
 
+/**
+ * Slice a voice's note array by measure index range.
+ *
+ * Used by the system-breaking pass to hand each system a per-voice note
+ * array containing exactly the measures that system covers. Non-sounding
+ * markers (dynamics, hairpins, navigation, etc.) attach to the *next*
+ * sounding note, so they belong to whatever measure that note is in.
+ *
+ * @param {Array} voiceNotes
+ * @param {number|null} measureLength  beats per measure, null = no time sig
+ * @param {number} startMeasure  inclusive
+ * @param {number} endMeasure    inclusive
+ * @param {number} [pickupBeats=0]  anacrusis length; measure 0 fills at this
+ *   instead of measureLength (SPEC-pickup-and-barline-lyrics.md JOB B)
+ * @returns {Array}  sliced subset of voiceNotes
+ */
 export function sliceVoiceByMeasure(
   voiceNotes,
   measureLength,

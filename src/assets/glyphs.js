@@ -1,9 +1,14 @@
 /**
- * Glyph data sourced from two libraries:
- *   - Bravura (SIL OFL) — SMuFL reference font; used for noteheads.
- *     Path data lifted directly from ~/Desktop/smufl-glyphs/bravura/*.svg.
- *   - Wikimedia Commons (public domain) — used for accidentals and clefs
- *     pending Bravura migration of those glyphs.
+ * Glyph data from Bravura (SIL OFL), the SMuFL reference font. Path data
+ * lifted directly from ~/Desktop/smufl-glyphs/bravura/*.svg.
+ *
+ * Every glyph in this file is now in the SMuFL format — font-unit `d` plus a
+ * `bbox` — and renders through `createSmuflGlyph`. An earlier generation of
+ * accidental/clef glyphs came from Wikimedia Commons in a different shape
+ * (`vbWidth`/`vbHeight`/`innerTransform`) and rendered through a separate
+ * `createGlyph`/`glyphTip` pair; both the data and that render path were
+ * removed once Bravura covered accidentals and clefs. Don't reintroduce the
+ * old shape — `createSmuflGlyph` assumes `bbox`.
  *
  * SMuFL coordinate system: paths are in font units (upem=1000); 1 staff
  * space = upem/4 = 250 units; y=0 is the staff midline. Bravura SVG assets
@@ -188,41 +193,6 @@ export const NOTEHEAD_WHOLE_GLYPH = {
   fillRule: 'evenodd',
 };
 
-export const SHARP_GLYPH = {
-  d: 'm 216,-312 c 0,-10 -8,-19 -18,-19 -10,0 -19,9 -19,19 v 145 l -83,-31 v -158 c 0,-10 -9,-19 -19,-19 -10,0 -18,9 -18,19 v 145 l -32,-12 c -2,-1 -5,-1 -7,-1 -11,0 -20,9 -20,20 v 60 c 0,8 5,16 13,19 l 46,16 V 51 L 27,40 C 25,39 22,39 20,39 9,39 0,48 0,59 v 60 c 0,8 5,15 13,18 l 46,17 v 158 c 0,10 8,19 18,19 10,0 19,-9 19,-19 V 167 l 83,31 v 158 c 0,10 9,19 19,19 10,0 18,-9 18,-19 V 211 l 32,12 c 2,1 5,1 7,1 11,0 20,-9 20,-20 v -60 c 0,-8 -5,-16 -13,-19 L 216,109 V -51 l 32,11 c 2,1 5,1 7,1 11,0 20,-9 20,-20 v -60 c 0,-8 -5,-15 -13,-18 l -46,-17 V -312 z M 96,65 V -95 l 83,30 V 95 z',
-  innerTransform: 'matrix(0.004, 0, 0, -0.004, 0, 1.5)',
-  vbWidth: 1.12,
-  vbHeight: 2.75,
-};
-
-export const FLAT_GLYPH = {
-  d: 'm 27,41 -1,-66 v -11 c 0,-22 1,-44 4,-66 45,38 93,80 93,139 0,33 -14,67 -43,67 C 49,104 28,74 27,41 z m -42,-179 -12,595 c 8,5 18,8 27,8 9,0 19,-3 27,-8 L 20,112 c 25,21 58,34 91,34 52,0 89,-48 89,-102 0,-80 -86,-117 -147,-169 -15,-13 -24,-38 -45,-38 -13,0 -23,11 -23,25 z',
-  innerTransform: 'matrix(0.004, 0, 0, -0.004, 0.108, 1.86)',
-  vbWidth: 0.91,
-  vbHeight: 2.5,
-};
-
-// Half-note head — outer outline + inner cutout, rendered with fill-rule
-// evenodd. Path lifted from Wikimedia Commons Blanche.svg (PD); the original
-// asset includes a stem rectangle which we drop here (we render stems
-// separately). Inner transform combines the asset's wrapper translate with
-// its inline matrix transform: matrix(0.004,0,0,-0.004,0,0.548). After this
-// transform the notehead occupies viewBox x ∈ [0, 1.388], y ∈ [0, 1.10].
-export const HALF_NOTEHEAD_GLYPH = {
-  d: 'm 315,65 c 0,24 -21,41 -42,41 -4,0 -8,0 -12,-1 C 230,96 184,65 147,41 110,17 63,-12 43,-37 36,-45 32,-55 32,-65 c 0,-24 21,-41 42,-41 4,0 8,0 12,1 31,9 78,40 115,64 37,24 84,53 104,78 7,8 10,18 10,28 z m -51,72 c 47,0 83,-21 83,-72 0,-19 -4,-37 -10,-56 -12,-38 -32,-74 -65,-96 -54,-36 -113,-51 -188,-51 -47,0 -84,22 -84,73 0,19 5,37 11,56 12,38 31,74 64,96 54,36 114,50 189,50 z',
-  innerTransform: 'matrix(0.004, 0, 0, -0.004, 0, 0.548)',
-  vbWidth: 1.388,
-  vbHeight: 1.10,
-  fillRule: 'evenodd',
-  // Stem attaches at the long-axis tip per engraving convention. The path's
-  // max-x vertex is (347, 65) → vb (1.388, 0.288), but visually the outline
-  // curls in slightly before that vertex; pulling the tip 1px toward center
-  // (vb-x 1.388 → 1.333 = ~1px in local coords at scale 18.18) lands the
-  // stem flush with the visible curve.
-  tipVbX: 1.333,
-  tipVbY: 0.288,
-};
-
 // Bravura grace-note glyphs (U+E560..E563). Each glyph bakes the notehead +
 // stem + 8th-note flag (and slash for acciaccatura) at the engraver's intended
 // grace size. Registration point is the notehead center: notehead extent in
@@ -239,21 +209,9 @@ export const GRACE_NOTE_ACCIACCATURA_STEM_UP_GLYPH = {
   headCx: 97.5,
 };
 
-export const GRACE_NOTE_ACCIACCATURA_STEM_DOWN_GLYPH = {
-  d: 'M183 -395 115 -343C140 -300 156 -253 156 -204C156 -166 137 -105 135 -100C131 -93 127 -90 123 -90H119C116 -92 110 -97 110 -105C110 -107 110 -109 112 -112C122 -138 127 -170 127 -199C127 -245 119 -287 91 -324L23 -272V-72C34 -79 48 -83 64 -83C122 -83 195 -28 195 28C195 62 169 83 130 83C59 83 2 32 0 -24V-254L-58 -210C-61 -208 -64 -207 -68 -207C-73 -207 -77 -209 -80 -213C-83 -216 -84 -219 -84 -223C-84 -228 -82 -233 -77 -236L0 -295V-516C0 -522 5 -525 8 -525C13 -525 19 -517 20 -511C30 -462 58 -423 88 -384L98 -370L164 -421C167 -423 171 -424 174 -424C179 -424 183 -422 186 -418C188 -415 189 -411 189 -408C189 -403 187 -398 183 -395ZM23 -372V-313L70 -348C53 -363 36 -369 23 -372Z',
-  bbox: { xMin: -84, yMin: -525, xMax: 195, yMax: 83 },
-  headCx: 97.5,
-};
-
 export const GRACE_NOTE_APPOGGIATURA_STEM_UP_GLYPH = {
   d: 'M257 385C229 426 205 468 195 516C194 525 188 526 184 526H179C175 526 172 526 172 520V73C161 80 147 84 131 84C58 84 0 31 0 -26C0 -61 28 -81 64 -81C121 -81 191 -30 195 24V375C267 358 298 274 298 207C298 184 294 160 285 138C284 135 283 132 283 130C283 122 288 117 292 115C293 114 295 114 296 114C300 114 305 117 308 125C311 130 323 175 323 208V212C320 276 293 336 257 385Z',
   bbox: { xMin: 0, yMin: -81, xMax: 323, yMax: 526 },
-  headCx: 97.5,
-};
-
-export const GRACE_NOTE_APPOGGIATURA_STEM_DOWN_GLYPH = {
-  d: 'M64 -86C122 -86 195 -31 195 25C195 59 169 80 130 80C59 80 2 29 0 -27V-519C0 -525 5 -528 8 -528C13 -528 19 -520 20 -514C30 -465 58 -426 88 -387C127 -334 156 -273 156 -207C156 -169 137 -108 135 -103C131 -96 127 -93 123 -93H119C116 -95 110 -100 110 -108C110 -110 110 -112 112 -115C122 -141 127 -173 127 -202C127 -272 100 -357 23 -375V-75C34 -82 48 -86 64 -86Z',
-  bbox: { xMin: 0, yMin: -528, xMax: 195, yMax: 80 },
   headCx: 97.5,
 };
 
@@ -318,12 +276,6 @@ export const OTTAVA_GLYPHS = {
   },
 };
 
-export const NATURAL_GLYPH = {
-  d: 'm -8,375 c 8,4 17,7 26,7 9,0 17,-3 25,-7 l -3,-183 106,20 h 3 c 10,0 18,-7 18,-17 l 7,-570 c -8,-4 -16,-7 -25,-7 -9,0 -17,3 -25,7 l 3,183 -106,-20 h -3 c -10,0 -18,7 -18,17 z M 131,112 39,95 l -3,-207 92,17 z',
-  innerTransform: 'matrix(0.004, 0, 0, -0.004, 0.032, 1.528)',
-  vbWidth: 0.73,
-  vbHeight: 3.06,
-};
 /* eslint-disable max-len */
 // SMuFL Bravura unbeamed-note flags (U+E240–E245). Each glyph is anchored
 // at SMuFL (0, 0) = the stem tip. `headCx: 0` makes createSmuflGlyph skip
@@ -363,30 +315,6 @@ export const FLAG_GLYPHS = {
   },
 };
 /* eslint-enable max-len */
-
-/**
- * Render a glyph as an SVG group, scaled to targetHeight (px) and centered
- * on the local origin (0, 0). Caller positions the group via translate().
- *
- * @param {{d:string, innerTransform:string, vbWidth:number, vbHeight:number}} glyph
- * @param {number} targetHeight  Desired rendered height in pixels (staff coords)
- * @param {string} className
- * @returns {SVGGElement}
- */
-/**
- * For glyphs that declare `tipVbX`/`tipVbY`, return the local-coord
- * (x, y) of the head's long-axis tip (the right tip; left tip is the
- * negation). Stems attach here per standard engraving convention.
- * Returns null if the glyph doesn't declare a tip.
- */
-export function glyphTip(glyph, targetHeight) {
-  if (typeof glyph.tipVbX !== 'number' || typeof glyph.tipVbY !== 'number') return null;
-  const scale = targetHeight / glyph.vbHeight;
-  return {
-    x: (glyph.tipVbX - glyph.vbWidth / 2) * scale,
-    y: (glyph.tipVbY - glyph.vbHeight / 2) * scale,
-  };
-}
 
 /**
  * Render a SMuFL glyph at engraving scale (SMUFL_SCALE px/font-unit).
@@ -430,24 +358,4 @@ export function smuflTip(glyph) {
     x: (glyph.tipFu.x - cx) * SMUFL_SCALE,
     y: -glyph.tipFu.y * SMUFL_SCALE,
   };
-}
-
-export function createGlyph(glyph, targetHeight, className) {
-  const scale = targetHeight / glyph.vbHeight;
-  const w = glyph.vbWidth * scale;
-  const h = glyph.vbHeight * scale;
-  // Outer group has NO transform — the caller positions it via translate().
-  // Centering + scale lives on an inner group so caller-set transforms
-  // don't clobber it.
-  const wrapper = createGroup(className);
-  const centerer = createGroup('', {
-    transform: `translate(${-w / 2}, ${-h / 2}) scale(${scale})`,
-  });
-  const inner = createGroup('', { transform: glyph.innerTransform });
-  const pathAttrs = { fill: 'currentColor' };
-  if (glyph.fillRule) pathAttrs['fill-rule'] = glyph.fillRule;
-  inner.appendChild(createPath(glyph.d, pathAttrs));
-  centerer.appendChild(inner);
-  wrapper.appendChild(centerer);
-  return wrapper;
 }

@@ -7,12 +7,13 @@
 import { createGroup } from '../lib/svgHelpers.js';
 import { getDurationInfo } from '../lib/durationSymbols.js';
 import { createSmuflGlyph, REST_GLYPHS } from '../assets/glyphs.js';
+import { MIDDLE_LINE_Y } from '../lib/engravingDefaults.js';
 
 // Per SMuFL convention each rest glyph has a different y=0 anchor
 // relative to the staff. Whole rest hangs from line 2; half rest sits
 // on line 3; the rest center on the staff midline.
 const STAFF_LINE_2 = 30;
-const STAFF_MIDLINE = 50;
+const STAFF_MIDLINE = MIDDLE_LINE_Y;
 
 const REST_PLACEMENT = {
   whole: { glyph: REST_GLYPHS.whole, y: STAFF_LINE_2 },

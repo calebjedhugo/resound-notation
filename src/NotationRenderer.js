@@ -53,8 +53,12 @@ import { renderTupletBracket } from './components/TupletBracket.js';
 import { renderGraceNotes, GRACE_LEAD_IN_PAD, GRACE_SPACING } from './components/GraceNote.js';
 import { renderRepeatBarline } from './components/RepeatBarline.js';
 import {
+  LINE_SPACING,
+  MIDDLE_LINE_Y,
   REPEAT_BARLINE_DOT_EDGE_OFFSET,
   REPEAT_BARLINE_INNER_PAD,
+  STEM_LENGTH,
+  STEM_THICKNESS,
   THIN_BARLINE_THICKNESS,
 } from './lib/engravingDefaults.js';
 import { renderEnding } from './components/Ending.js';
@@ -86,7 +90,7 @@ import { createSharedBarLine } from './components/SharedBarLine.js';
 import { analyzeOttava } from './lib/segmentOttava.js';
 import { createOttavaBracket } from './components/OttavaBracket.js';
 import { breakIntoSystems, breakIntoSystemsOptimal, justifySystemSpring, LAST_SYSTEM_STRETCH_CAP } from './lib/breakIntoSystems.js';
-import { sliceVoiceByMeasure } from './lib/sliceVoiceByMeasure.js';
+import { MARKER_KEYS, sliceVoiceByMeasure } from './lib/sliceVoiceByMeasure.js';
 import {
   isMeasureBoundary,
   measureIndexAt,
@@ -172,7 +176,6 @@ function applyOttavaShift(voiceNotes, segments) {
   });
 }
 
-const SVG_NS = 'http://www.w3.org/2000/svg';
 const DEFAULT_WIDTH = 800;
 const DEFAULT_HEIGHT = 200;
 // Display calibration: scale 1.0 renders a PROFESSIONAL staff size. The
@@ -214,7 +217,11 @@ const CLEF_ONLY_EXTRA_PAD = 31;
 const BRACE_TO_BARLINE_GAP = 8;
 const VOICE_HEIGHT = 200;
 const VOICE_GAP = 40;
-const GRAND_STAFF_GAP = 60;
+// Trailing margin (px) below a staff band's bottom line, reserved for
+// descenders (down-stems, low ledgers) and bracket bottom hooks. Used as
+// the band's bottom edge everywhere a system's vertical extent is
+// measured, so the four sites below cannot drift apart.
+const STAFF_BAND_TRAILING_MARGIN = 40;
 const STAFF_HEIGHT = 80; // 5 lines, 20px apart
 // --- Content-aware inter-staff spacing (Gould "Behind Bars",
 // staff-to-staff distance; LilyPond `staff-staff-spacing`) -------------
@@ -292,14 +299,6 @@ const TIME_SIG_PADDING = 51;
 // of visible clearance between the stem and the barline — enough that a
 // stem-down first note in the next measure has clear breathing room.
 const BAR_LINE_PADDING = 30;
-// Boundary-spring natural length (px) for the spring that crosses an
-// interior measure boundary (last-note-of-measure → first-note-of-next-
-// measure). Zero: the spring contributes no length of its own; the
-// per-system `barlineGap` (computed below from local inter-note gaps)
-// is added to `barlineOffset` on both sides of every shared barline,
-// producing a symmetric pre/post gap that scales with the rest of the
-// music. K=0 keeps the spring out of the slack-distribution math.
-const BARLINE_SPRING_NAT_LENGTH = 0;
 // Minimum (and natural-width default) note→barline padding, in px,
 // measured from the VISIBLE rightmost extent of the last note's glyph
 // (notehead right edge, ≈ HEAD_TIP_X from note center; for stem-up
@@ -324,7 +323,6 @@ const MIN_BARLINE_PADDING = 40;
 // medianInterNoteGap)` so at heavy stretch the barline gap grows but
 // never drops below the floor.
 const BARLINE_GAP_RATIO = 0.35;
-const MIDDLE_LINE_Y = 50;
 // SMuFL Bravura black notehead stem-up tip (in local pixel coords). All
 // chord rendering paths use the black-notehead tip; quarter/8th/16th heads
 // share this geometry. Half/whole chord rendering uses the same tip vertex
@@ -332,7 +330,6 @@ const MIDDLE_LINE_Y = 50;
 const BLACK_TIP = smuflTip(NOTEHEAD_BLACK_GLYPH);
 const HEAD_TIP_X = BLACK_TIP.x;
 const HEAD_TIP_Y = BLACK_TIP.y;
-const STEM_LENGTH = 70;
 // Per Gould "Behind Bars" (Dynamics): point dynamics below the staff
 // sit ≥1.5 staff spaces clear of the bottom staff line — measured from
 // the TOP of the letter glyph. Bravura's tallest dynamic letter here
@@ -347,8 +344,8 @@ const STEM_LENGTH = 70;
 // push the y LOWER (further from staff) when the target note's lowest
 // visual extent reaches near or past this floor.
 const DYNAMICS_Y_MIN = 160;
-const STAFF_CENTER_Y = STAFF_TOP_OFFSET + 40; // midpoint of 5-line staff
-const ONE_SPACE = 20; // LINE_SPACING — one staff space in px.
+const STAFF_CENTER_Y = STAFF_TOP_OFFSET + STAFF_HEIGHT / 2; // midpoint of 5-line staff
+const ONE_SPACE = LINE_SPACING; // one staff space in px (= 20).
 
 /**
  * Estimate the lowest visual y of a music element (note/chord) for the
@@ -725,6 +722,13 @@ function lyricBlockBottomAt(baseY, verseCount) {
 // (diatonic distance ≤ 1 → staff-Y distance ≤ 10px), or a voice crossing
 // (the lower voice's head ABOVE the upper voice's). ~One notehead width.
 const SHARED_STAFF_COLLISION_OFFSET = 22;
+// Staff-Y distance (px) at or below which the two voices' heads count as
+// colliding. A diatonic second is one half-space = 10px in the
+// pitchToStaffY frame; the extra 0.5 is float slop so an exact 10.0 always
+// compares as "collides". A NEGATIVE difference means the lower voice's
+// head sits ABOVE the upper voice's (a crossing), which also collides —
+// hence the single `<=` test rather than an absolute-value band.
+const SHARED_STAFF_COLLISION_MAX_DY = 10.5;
 
 /** Stable float key for beat-position maps used by shared-staff logic. */
 const sharedBeatKey = (beat) => beat.toFixed(4);
@@ -830,15 +834,17 @@ function buildStaffModel(voices) {
  * Walk one voice's (system-sliced, ottava-shifted) notes and collect the
  * cross-voice information shared-staff rendering needs about the PARTNER
  * voice:
- *   - onsets: beatKey → { minY, maxY } staff-Y extremes of the pitched
- *     event starting at that beat (collision rule 4),
+ *   - onsets: beatKey → { maxY } the LOWEST staff-Y (largest y) of the
+ *     pitched event starting at that beat. Only the lowest head matters
+ *     for collision rule 4: the down-stem voice compares its highest head
+ *     against the up-stem voice's lowest.
  *   - rests: beatKey → duration in beats for top-level rests (rest
  *     dedupe/shift rule 5). Rests inside tuplets are not collected — the
  *     tuplet render path keeps its legacy placement.
  *
  * @param {Array} voiceNotes
  * @param {string} clef
- * @returns {{ onsets: Map<string, {minY:number, maxY:number}>, rests: Map<string, number> }}
+ * @returns {{ onsets: Map<string, {maxY:number}>, rests: Map<string, number> }}
  */
 function collectSharedStaffEvents(voiceNotes, clef) {
   const onsets = new Map();
@@ -846,7 +852,7 @@ function collectSharedStaffEvents(voiceNotes, clef) {
   let beat = 0;
   const addOnset = (b, ys) => {
     if (ys.length === 0) return;
-    onsets.set(sharedBeatKey(b), { minY: Math.min(...ys), maxY: Math.max(...ys) });
+    onsets.set(sharedBeatKey(b), { maxY: Math.max(...ys) });
   };
 
   for (const element of voiceNotes) {
@@ -909,22 +915,19 @@ function collectSharedStaffEvents(voiceNotes, clef) {
 }
 
 /**
- * Check if an element is a non-note marker (dynamic, hairpin, barline, etc.).
- * Returns the marker type string, or null if it's a note/rest/chord.
+ * Check if an element needs a dedicated render branch rather than the
+ * note/rest/chord path. Returns the branch name, or null.
+ *
+ * `tuplet` is checked first and is NOT in MARKER_KEYS: unlike the true
+ * inline markers it occupies time, so the beat-walkers in lib/ treat it as
+ * sounding. Only the renderer's dispatch calls it a "marker type".
+ * MARKER_KEYS is ordered, and first match wins, so the result for an
+ * element carrying two marker keys is unchanged from the old if-chain.
  */
 function getMarkerType(element) {
   if (Array.isArray(element)) return null;
   if (element.tuplet !== undefined) return 'tuplet';
-  if (element.barline !== undefined) return 'barline';
-  if (element.ending !== undefined) return 'ending';
-  if (element.navigation !== undefined) return 'navigation';
-  if (element.tempo !== undefined) return 'tempo';
-  if (element.tempoChange !== undefined) return 'tempoChange';
-  if (element.expression !== undefined) return 'expression';
-  if (element.rehearsal !== undefined) return 'rehearsal';
-  if (element.dynamic !== undefined) return 'dynamic';
-  if (element.hairpin !== undefined) return 'hairpin';
-  return null;
+  return MARKER_KEYS.find((k) => element[k] !== undefined) || null;
 }
 
 const ACCIDENTAL_TYPE_MAP = {
@@ -933,33 +936,9 @@ const ACCIDENTAL_TYPE_MAP = {
 };
 
 /**
- * Decide which accidental glyph (if any) to draw before a note, given
- * the active key signature for the voice. Implements Gould "Behind
- * Bars" pp. 80-85: an accidental is printed only when the pitch's
- * alteration differs from what the key signature dictates for that
- * letter. A pitch matching the key signature draws no accidental; a
- * natural-letter pitch in a key that would otherwise alter it draws a
- * natural sign to override the key.
- *
- * @param {string} pitchAccidental - "" | "#" | "b" from parsePitch
- * @param {string} pitchLetter - "A".."G"
- * @param {{ type: 'sharp'|'flat'|'none', accidentals: string[] }} keyInfo
- * @returns {'sharp'|'flat'|'natural'|null}
- */
-function accidentalGlyphForPitch(pitchAccidental, pitchLetter, keyInfo) {
-  const keyAltersLetter =
-    keyInfo && keyInfo.type !== 'none' && keyInfo.accidentals.includes(pitchLetter);
-  const keyAlteration = keyAltersLetter
-    ? (keyInfo.type === 'sharp' ? '#' : 'b')
-    : '';
-  if (pitchAccidental === keyAlteration) return null;
-  if (pitchAccidental === '') return 'natural';
-  return ACCIDENTAL_TYPE_MAP[pitchAccidental] || null;
-}
-
-/**
- * Like `accidentalGlyphForPitch`, but honours in-measure accidental memory
- * per standard engraving: an accidental is drawn only when the pitch's
+ * Decide which accidental glyph (if any) to draw before a note,
+ * honouring in-measure accidental memory per standard engraving
+ * (Gould "Behind Bars" pp. 80-85): an accidental is drawn only when the pitch's
  * alteration differs from what is currently in effect for that exact
  * letter+octave — which starts as the key signature and is updated by any
  * earlier accidental in the same measure. A repeated same-alteration note in
@@ -1512,7 +1491,6 @@ export class NotationRenderer {
     this._responsiveMode = responsiveMode;
     this._resizeObserver = null;
     this._rafId = null;
-    this._pending = false;
     // Natural width for zoom-to-fit reference. Captured on the first
     // render(song) call so subsequent ResizeObserver callbacks can
     // compute scale = container.clientWidth / naturalWidth.
@@ -1771,7 +1749,8 @@ export class NotationRenderer {
       // Dynamic height for grouped staves. The trailing 40 covers
       // descenders and bracket bottom hooks.
       const lastStaffBottom =
-        staffYPositions[staffCount - 1] + STAFF_TOP_OFFSET + STAFF_HEIGHT + 40;
+        staffYPositions[staffCount - 1] + STAFF_TOP_OFFSET + STAFF_HEIGHT
+        + STAFF_BAND_TRAILING_MARGIN;
       totalHeight = lastStaffBottom;
     } else {
       // Legacy formula for independent staves
@@ -1817,36 +1796,12 @@ export class NotationRenderer {
       viewBox: `${-bracketLeftMargin} 0 ${this._width + bracketLeftMargin} ${totalHeight}`,
     });
 
-    // Pre-pass: compute the shared music-start X (max over voices of
-    // header end position) and the shared beat → x layout. All voices
-    // jump to musicStartX after their per-voice header (clef + key sig
-    // + time sig) so notes at the same beat align vertically across
-    // staves.
-    let musicStartX = STAFF_START_X + CLEF_WIDTH + CLEF_ONLY_EXTRA_PAD;
-    for (const voice of parsed.voices) {
-      let x = STAFF_START_X + CLEF_WIDTH;
-      const keyInfo = getKeySignature(voice.keySignature || 'C');
-      const hasKeySig = keyInfo.count > 0;
-      if (hasKeySig) {
-        x += keySignatureAdvance(keyInfo.count);
-      }
-      if (voice.timeSignature) {
-        const { width: tsWidth } = createTimeSignature(voice.timeSignature);
-        x += tsWidth + TIME_SIG_PADDING;
-      } else if (!hasKeySig) {
-        // Clef is the rightmost prelude element — open gap to ≥1.5 staff
-        // spaces past clef's visible right edge.
-        x += CLEF_ONLY_EXTRA_PAD;
-      }
-      if (x > musicStartX) musicStartX = x;
-    }
     // Use first voice's measureLength as the shared barline rhythm.
     const sharedTimeSignature = parsed.voices.find((v) => v.timeSignature)
       ?.timeSignature;
     const sharedMeasureLength = sharedTimeSignature
       ? sharedTimeSignature[0] * (4 / sharedTimeSignature[1])
       : null;
-    const beatToX = computeBeatLayout(parsed.voices, musicStartX);
 
     // Track per-voice barline X positions for shared barlines
     const voiceBarlineXPositions = new Map();
@@ -1940,33 +1895,12 @@ export class NotationRenderer {
       return count;
     })();
 
-    // Per-system prelude width: shared across voices (max), since voices
-    // sit in the same horizontal coordinate frame. Time sig only on the
-    // first system. Music starts after the largest prelude.
-    const preludePerSystem = (systemIndex) => {
-      let maxPrelude = 0;
-      for (const voice of parsed.voices) {
-        let p = STAFF_START_X + CLEF_WIDTH;
-        const keyInfo = getKeySignature(voice.keySignature || 'C');
-        const hasKeySig = keyInfo.count > 0;
-        if (hasKeySig) p += keySignatureAdvance(keyInfo.count);
-        const hasTimeSig = systemIndex === 0 && voice.timeSignature;
-        if (hasTimeSig) {
-          const { width: tsWidth } = createTimeSignature(voice.timeSignature);
-          p += tsWidth + TIME_SIG_PADDING;
-        } else if (!hasKeySig) {
-          // Continuation system (or system 0 without a time-sig) where
-          // the clef is the rightmost prelude element — see CLEF_ONLY_EXTRA_PAD.
-          p += CLEF_ONLY_EXTRA_PAD;
-        }
-        if (p > maxPrelude) maxPrelude = p;
-      }
-      return maxPrelude;
-    };
-
-    // Per-system music-start X for a given system index (isFirst drives the
-    // time-sig term). Mirrors preludePerSystem's per-voice max but anchored
-    // at the CLEF_ONLY_EXTRA_PAD default like the inline per-system code.
+    // Per-system music-start X (shared across voices, since voices sit in
+    // the same horizontal coordinate frame): the max over voices of the
+    // per-voice header end position (clef + key sig + time sig). All voices
+    // jump here after their own header so notes at the same beat align
+    // vertically across staves. The time sig only appears on system 0;
+    // later systems keep the same cadence but omit the redundant glyph.
     const musicStartXForSystem = (systemIndex) => {
       let startX = STAFF_START_X + CLEF_WIDTH + CLEF_ONLY_EXTRA_PAD;
       for (const voice of parsed.voices) {
@@ -2055,14 +1989,14 @@ export class NotationRenderer {
 
     if (systemPlans.length === 0) {
       // Empty piece — still render one bare system (clefs + staff lines).
-      const preludeWidth = preludePerSystem(0);
+      const musicStartX = musicStartXForSystem(0);
       this._renderSystem({
         voices: parsed.voices,
         shiftedVoiceNotes,
         ottavaSegmentsPerVoice,
         voiceYPositions,
         voiceBarlineXPositions,
-        beatToX,
+        beatToX: computeBeatLayout(parsed.voices, musicStartX),
         musicStartX,
         startMeasure: 0,
         endMeasure: -1,
@@ -2070,7 +2004,6 @@ export class NotationRenderer {
         isLastSystem: true,
         systemYOffset: 0,
         systemEndX: this._width,
-        preludeWidth,
         renderTimeSignature: true,
         systemContext,
         braceGroups,
@@ -2083,7 +2016,6 @@ export class NotationRenderer {
         const plan = systemPlans[si];
         const isFirst = si === 0;
         const isLast = si === systemPlans.length - 1;
-        const preludeWidth = preludePerSystem(si);
 
         // System slice per voice. Slice indices use the shared measure
         // length (driving the system break). The slicer assigns markers
@@ -2094,21 +2026,6 @@ export class NotationRenderer {
         // Slice-relative pickup: only the system that starts at measure 0
         // opens with the short pickup measure (see systemNaturalWidth).
         const systemPickupBeats = plan.startMeasure === 0 ? pickupBeats : 0;
-        // Sliced ottava segments: keep only segments whose start lies in
-        // this system's range, and clip their endIndex to the slice. The
-        // segment indices are into the ORIGINAL pre-slice voice; we'll
-        // rebase them after the slice in _renderSystem by passing the
-        // sliced segments paired with the sliced notes.
-        const slicedOttavaPerVoice = parsed.voices.map((v, vi) => {
-          const segs = ottavaSegmentsPerVoice[vi] || [];
-          return segs
-            .map((seg) => {
-              // Rebase: find positions of seg start/end in the original
-              // shifted notes, then offset by the slice start index. We
-              // compute slice-relative indices below.
-              return seg;
-            });
-        });
 
         // Per-system Y offsets. We need to know the system's total
         // vertical span (top/bottom from contentMinY/MaxY equivalents).
@@ -2306,8 +2223,6 @@ export class NotationRenderer {
               }
             }
           }
-          // Suppress unused-binding lint
-          void slicedOttavaPerVoice;
           return out;
         });
 
@@ -2370,7 +2285,8 @@ export class NotationRenderer {
         // the per-system band height matches the rendered staves (matters
         // when multiSystem tightens the intra-system voice gap).
         const systemBandTop = Math.min(...effectiveVoiceYPositions);
-        const systemBandBottom = Math.max(...effectiveVoiceYPositions) + STAFF_TOP_OFFSET + STAFF_HEIGHT + 40;
+        const systemBandBottom = Math.max(...effectiveVoiceYPositions)
+          + STAFF_TOP_OFFSET + STAFF_HEIGHT + STAFF_BAND_TRAILING_MARGIN;
         const systemBottom = systemBandBottom + systemYOffset;
         lastSystemBottomY = systemBottom;
         // Multi-verse lyric block below the BOTTOM staff eats into the
@@ -2395,7 +2311,7 @@ export class NotationRenderer {
           bottomStaffLyricExcess = Math.max(
             0,
             lyricBlockBottomAt(bottomBaseY, bottomVerseCount)
-              - (STAFF_TOP_OFFSET + STAFF_HEIGHT + 40)
+              - (STAFF_TOP_OFFSET + STAFF_HEIGHT + STAFF_BAND_TRAILING_MARGIN)
           );
         }
         systemYOffset +=
@@ -2405,7 +2321,7 @@ export class NotationRenderer {
 
     // Update totalHeight if we have multiple systems.
     if (systemPlans.length > 1) {
-      totalHeight = Math.max(totalHeight, lastSystemBottomY + 40);
+      totalHeight = Math.max(totalHeight, lastSystemBottomY + STAFF_BAND_TRAILING_MARGIN);
       systemContext.contentMaxY = Math.max(systemContext.contentMaxY, totalHeight);
     }
 
@@ -2547,11 +2463,9 @@ export class NotationRenderer {
       const mLen = tsig[0] * (4 / tsig[1]);
       const evs = collectVoiceEvents(shiftedVoiceNotes[voices.indexOf(v)]);
       let cum = 0;
-      let lastEnd = 0;
       // First measure of a pickup system fills at the pickup length (JOB B).
       let fill = pickupBeats > 0 ? pickupBeats : mLen;
       for (const ev of evs) {
-        lastEnd = ev.endBeat;
         cum += ev.endBeat - ev.startBeat;
         while (cum >= fill - 0.001) {
           set.add(ev.endBeat - (cum - fill));
@@ -2559,7 +2473,6 @@ export class NotationRenderer {
           fill = mLen;
         }
       }
-      void lastEnd;
       return set;
     });
     const sharedBarlineBeats = voiceBarlineBeatSets.length === 0
@@ -2966,7 +2879,7 @@ export class NotationRenderer {
                     createLine(stemX, stemY1, stemX, stemY2, {
                       class: 'note-stem',
                       stroke: 'currentColor',
-                      'stroke-width': 2.4,
+                      'stroke-width': STEM_THICKNESS,
                     })
                   );
                 }
@@ -3230,8 +3143,6 @@ export class NotationRenderer {
             // eslint-disable-next-line no-continue
             continue;
           }
-          const innerAdvance =
-            REPEAT_BARLINE_DOT_EDGE_OFFSET + REPEAT_BARLINE_INNER_PAD; // 25.5
           // Pre-pad: a repeat-end (or repeat-both) needs the inner-pad on
           // its left so the closing note of the previous measure clears the
           // dots. BAR_LINE_PADDING (30) is wider than 25.5 so this only
@@ -3476,7 +3387,7 @@ export class NotationRenderer {
             let chordRenderX = cursorX;
             if (isSharedStaff && voiceSlot === 1 && partnerEvents) {
               const up = partnerEvents.onsets.get(sharedBeatKey(currentBeatChord));
-              if (up && Math.min(...yPositions) - up.maxY <= 10.5) {
+              if (up && Math.min(...yPositions) - up.maxY <= SHARED_STAFF_COLLISION_MAX_DY) {
                 chordRenderX += SHARED_STAFF_COLLISION_OFFSET;
               }
             }
@@ -3514,7 +3425,7 @@ export class NotationRenderer {
                 createLine(stemX, stemY1, stemX, stemY2, {
                   class: 'note-stem',
                   stroke: 'currentColor',
-                  'stroke-width': 2.4,
+                  'stroke-width': STEM_THICKNESS,
                 })
               );
             }
@@ -3709,7 +3620,7 @@ export class NotationRenderer {
               createLine(stemX, stemY1, stemX, stemY2, {
                 class: 'note-stem',
                 stroke: 'currentColor',
-                'stroke-width': 2.4,
+                'stroke-width': STEM_THICKNESS,
               })
             );
           }
@@ -3795,7 +3706,7 @@ export class NotationRenderer {
           let collisionShift = 0;
           if (isSharedStaff && voiceSlot === 1 && partnerEvents) {
             const up = partnerEvents.onsets.get(sharedBeatKey(currentBeat));
-            if (up && noteY - up.maxY <= 10.5) {
+            if (up && noteY - up.maxY <= SHARED_STAFF_COLLISION_MAX_DY) {
               collisionShift = SHARED_STAFF_COLLISION_OFFSET;
             }
           }
@@ -4623,7 +4534,7 @@ export class NotationRenderer {
         // (their staff furniture is a sibling `.staff` group).
         const staff = d.element.closest('.voice, .staff') || this._svg;
         staff.appendChild(
-          createLine(d.x, 10, d.x, 90, {
+          createLine(d.x, STAFF_TOP_OFFSET, d.x, STAFF_TOP_OFFSET + STAFF_HEIGHT, {
             class: 'playback-cursor',
             stroke: 'currentColor',
             'stroke-width': 1,
@@ -4661,7 +4572,6 @@ export class NotationRenderer {
       cancelAnimationFrame(this._rafId);
     }
     this._rafId = null;
-    this._pending = false;
   }
 
   /**
@@ -4746,7 +4656,6 @@ export class NotationRenderer {
    */
   _scheduleRender() {
     if (!this._song) return;
-    this._pending = true;
     if (this._rafId != null) return;
     if (typeof requestAnimationFrame !== 'function') {
       // Fallback: flush synchronously.
@@ -4764,7 +4673,6 @@ export class NotationRenderer {
    */
   _flush() {
     this._rafId = null;
-    this._pending = false;
     if (!this._song) return;
     this.render(this._song);
   }

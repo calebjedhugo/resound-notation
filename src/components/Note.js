@@ -16,9 +16,11 @@ import {
 } from '../assets/glyphs.js';
 import { beamStemExtension } from './Beam.js';
 import { effectiveStemLength } from '../lib/stemLength.js';
-
-const MIDDLE_LINE_Y = 50;
-const STEM_LENGTH = 70;
+import {
+  MIDDLE_LINE_Y,
+  STEM_LENGTH,
+  STEM_THICKNESS,
+} from '../lib/engravingDefaults.js';
 
 function glyphForDuration(info) {
   if (info.name === 'whole') return NOTEHEAD_WHOLE_GLYPH;
@@ -82,7 +84,11 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
       : stemY1 - baseLen - beamExt;
 
     group.appendChild(
-      createLine(stemX, stemY1, stemX, stemY2, { class: 'note-stem', stroke: 'currentColor', 'stroke-width': 2.4 })
+      createLine(stemX, stemY1, stemX, stemY2, {
+        class: 'note-stem',
+        stroke: 'currentColor',
+        'stroke-width': STEM_THICKNESS,
+      })
     );
 
     // Flags (suppressed when beamed — beams replace flags). Multi-flag

@@ -5,13 +5,9 @@
  */
 
 import { getDurationInfo, fractionToBeats } from './durationSymbols.js';
+import { MIDDLE_LINE_Y } from './engravingDefaults.js';
 
 const MAX_GROUP_SIZE = 4;
-
-// Middle staff line in the pitchToStaffY frame. Mirror of MIDDLE_LINE_Y in
-// NotationRenderer.js; kept here so the (pure) stem-direction rule has no
-// DOM/geometry dependency.
-const MIDDLE_LINE_Y = 50;
 
 /**
  * Stem direction for a beamed group, per Gould "Behind Bars" (Stems):

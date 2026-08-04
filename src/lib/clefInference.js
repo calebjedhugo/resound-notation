@@ -8,7 +8,7 @@
  * 2. If no notes have pitch (all rests or percussion) → percussion
  */
 
-import { getDiatonicPosition } from './notePositions';
+import { getDiatonicPosition } from './notePositions.js';
 
 const C4_DIATONIC = 28;
 

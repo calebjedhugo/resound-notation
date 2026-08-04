@@ -6,15 +6,13 @@
 import { createGroup, createPath } from '../lib/svgHelpers.js';
 import { smuflTip, NOTEHEAD_BLACK_GLYPH } from '../assets/glyphs.js';
 import { effectiveStemLength } from '../lib/stemLength.js';
-
-const MIDDLE_LINE_Y = 50;
+import { MIDDLE_LINE_Y, STEM_LENGTH } from '../lib/engravingDefaults.js';
 
 // Beamed notes are always 8th or shorter → black notehead. Stem attaches
 // at the SMuFL black notehead's stem-up tip vertex.
 const BLACK_TIP = smuflTip(NOTEHEAD_BLACK_GLYPH);
 const HEAD_TIP_X = BLACK_TIP.x;
 const HEAD_TIP_Y = BLACK_TIP.y;
-const STEM_LENGTH = 70;
 // Standard engraving (Gould, Bravura defaults): beam thickness ~0.5 staff
 // space; gap between adjacent beam levels ~0.25 staff space. With
 // LINE_SPACING=20px that's 10px and 5px respectively.

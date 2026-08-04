@@ -4,11 +4,12 @@
  */
 
 import { createGroup, createLine } from '../lib/svgHelpers.js';
+import { LINE_SPACING, THIN_BARLINE_THICKNESS } from '../lib/engravingDefaults.js';
 
 // Staff lines in absolute coords: y = 10, 30, 50, 70, 90
 const TOP_LINE_Y = 10;
 const BOTTOM_LINE_Y = 90;
-const LINE_STEP = 20;
+const LINE_STEP = LINE_SPACING;
 
 // First ledger line positions extending the staff pattern
 const FIRST_LEDGER_ABOVE = TOP_LINE_Y - LINE_STEP; // y = -10
@@ -22,7 +23,8 @@ const FIRST_LEDGER_BELOW = BOTTOM_LINE_Y + LINE_STEP; // y = 110
 const NOTEHEAD_HALF_WIDTH = 11.8;
 const LEGER_EXTENSION = 8;
 const LEDGER_HALF_WIDTH = NOTEHEAD_HALF_WIDTH + LEGER_EXTENSION;
-const LEDGER_THICKNESS = 3.2;
+// legerLineThickness == thinBarlineThickness in Bravura (both 0.16 spaces).
+const LEDGER_THICKNESS = THIN_BARLINE_THICKNESS;
 
 /**
  * Create ledger lines for a note at the given position.

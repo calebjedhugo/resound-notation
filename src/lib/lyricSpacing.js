@@ -32,6 +32,7 @@
  */
 
 import { fractionToBeats } from './durationSymbols.js';
+import { isMarker } from './sliceVoiceByMeasure.js';
 import {
   BARLINE_SEPARATION,
   THIN_BARLINE_THICKNESS,
@@ -106,22 +107,6 @@ export function maxLyricVerseCount(notes) {
     n = Math.max(n, Array.isArray(el.lyric) ? el.lyric.length : 1);
   }
   return n;
-}
-
-/** Non-sounding inline marker (mirrors the renderer's getMarkerType). */
-function isMarker(element) {
-  if (Array.isArray(element)) return false;
-  return (
-    element.barline !== undefined ||
-    element.ending !== undefined ||
-    element.navigation !== undefined ||
-    element.tempo !== undefined ||
-    element.tempoChange !== undefined ||
-    element.expression !== undefined ||
-    element.rehearsal !== undefined ||
-    element.dynamic !== undefined ||
-    element.hairpin !== undefined
-  );
 }
 
 /**

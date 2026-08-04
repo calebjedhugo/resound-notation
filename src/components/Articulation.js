@@ -55,77 +55,25 @@ const STACK_PRIORITY = {
 
 /**
  * Create SVG elements for a single articulation symbol.
+ *
+ * Bravura ships Above/Below glyph pairs for staccato, accent, tenuto,
+ * marcato and fermata, so those always resolve through `bravuraSymbol`.
+ * The hand-rolled shapes below cover only the two articulations Bravura
+ * has no entry for here — staccatissimo and portato.
+ *
  * @param {string} type - Articulation type
  * @param {boolean} below - True if rendering below the notehead
- * @returns {{ element: SVGElement, height: number }}
+ * @returns {{ element: SVGElement, height: number }|null}
  */
 function createArticulationSymbol(type, below) {
-  // Bravura SMuFL paths for the standard articulations + fermata.
-  if (type === 'staccato' || type === 'accent' || type === 'tenuto' || type === 'marcato' || type === 'fermata') {
-    const result = bravuraSymbol(type, below);
-    if (result) return result;
-  }
+  const bravura = bravuraSymbol(type, below);
+  if (bravura) return bravura;
   switch (type) {
-    case 'staccato': {
-      const el = createSvgElement('circle', {
-        cx: 0,
-        cy: 0,
-        r: 1.5,
-        fill: 'currentColor',
-      });
-      return { element: el, height: 3 };
-    }
     case 'staccatissimo': {
       // Wedge pointing toward the notehead
       const d = below ? 'M -1.5 2.5 L 0 -2.5 L 1.5 2.5 Z' : 'M -1.5 -2.5 L 0 2.5 L 1.5 -2.5 Z';
       const el = createPath(d, { fill: 'currentColor' });
       return { element: el, height: 5 };
-    }
-    case 'accent': {
-      const el = createPath('M -4 -3 L 4 0 L -4 3', {
-        fill: 'none',
-        stroke: 'currentColor',
-        'stroke-width': '1.5',
-      });
-      return { element: el, height: 6 };
-    }
-    case 'marcato': {
-      // Caret pointing away from notehead
-      const d = below ? 'M -3 -3 L 0 3 L 3 -3' : 'M -3 3 L 0 -3 L 3 3';
-      const el = createPath(d, {
-        fill: 'none',
-        stroke: 'currentColor',
-        'stroke-width': '1.5',
-      });
-      return { element: el, height: 6 };
-    }
-    case 'tenuto': {
-      const el = createLine(-6, 0, 6, 0, {
-        stroke: 'currentColor',
-        'stroke-width': '1.5',
-      });
-      return { element: el, height: 2 };
-    }
-    case 'fermata': {
-      const g = createGroup('');
-      // Arc (always opens downward)
-      g.appendChild(
-        createPath('M -5 0 Q 0 -8 5 0', {
-          fill: 'none',
-          stroke: 'currentColor',
-          'stroke-width': '1.5',
-        })
-      );
-      // Dot
-      g.appendChild(
-        createSvgElement('circle', {
-          cx: 0,
-          cy: -2,
-          r: 1,
-          fill: 'currentColor',
-        })
-      );
-      return { element: g, height: 8 };
     }
     case 'portato': {
       const g = createGroup('');

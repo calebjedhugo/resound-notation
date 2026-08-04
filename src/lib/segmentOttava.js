@@ -34,10 +34,6 @@ const EXIT_DIP = 3;
 const CONTEXT_PULL_WINDOW = 4;
 const SNAP_BUDGET = 2;
 
-function notesOnly(events) {
-  return events.filter((e) => e.kind === 'note');
-}
-
 function segmentDirection(kind, clef) {
   // 8va vs 8vb direction parameterization. Returns trigger predicate,
   // in-range predicate (for exit-dip count), and the "within 12 of trigger"
@@ -47,7 +43,6 @@ function segmentDirection(kind, clef) {
       isTrigger: (m) => m >= TRIGGER_VA,
       isInRange: (m) => m <= IN_RANGE_MAX_VA,
       isNearTrigger: (m) => m >= TRIGGER_VA - 12,
-      trigger: TRIGGER_VA,
     };
   }
   const trigger = clef === 'bass' ? TRIGGER_VB_BASS : TRIGGER_VB_TREBLE;
@@ -56,7 +51,6 @@ function segmentDirection(kind, clef) {
     isTrigger: (m) => m <= trigger,
     isInRange: (m) => m >= inRange,
     isNearTrigger: (m) => m <= trigger + 12,
-    trigger,
   };
 }
 

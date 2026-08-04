@@ -19,7 +19,6 @@ const LYRIC_Y = 126;
 // a fixed 5px drop, unchanged since JOB 4 (not scaled with font size;
 // only the baseline it hangs from moved for JOB 5).
 const MELISMA_DROP = 5;
-const MELISMA_Y = LYRIC_Y + MELISMA_DROP;
 
 // Engraving defaults for lyric text (SPEC-lyric-engraving-scale.md JOB 5
 // measures these off real hymnal scans — Amazing Grace and Holy, Holy,

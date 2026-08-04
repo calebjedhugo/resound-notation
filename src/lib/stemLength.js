@@ -1,3 +1,5 @@
+import { MIDDLE_LINE_Y } from './engravingDefaults.js';
+
 /**
  * Stem-length lower bound for ledger-line notes.
  *
@@ -23,10 +25,16 @@
  *   for stem-down).
  * @param {boolean} params.stemDown
  * @param {number} params.baseLength - The default stem length (STEM_LENGTH).
- * @param {number} [params.middleLineY] - Staff middle-line y. Default 50.
+ * @param {number} [params.middleLineY] - Staff middle-line y. Defaults to
+ *   MIDDLE_LINE_Y from lib/engravingDefaults.js (50).
  * @returns {number} The effective stem length (≥ baseLength).
  */
-export function effectiveStemLength({ attachY, stemDown, baseLength, middleLineY = 50 }) {
+export function effectiveStemLength({
+  attachY,
+  stemDown,
+  baseLength,
+  middleLineY = MIDDLE_LINE_Y,
+}) {
   // Length required for the tip to just reach the middle line. For stem-up
   // (tip at attachY − L) the tip reaches middleLineY when L = attachY −
   // middleLineY; for stem-down (tip at attachY + L) when L = middleLineY −

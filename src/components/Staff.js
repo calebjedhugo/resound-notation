@@ -4,10 +4,13 @@
  */
 
 import { createGroup, createLine } from '../lib/svgHelpers.js';
-import { STAFF_LINE_THICKNESS, THIN_BARLINE_THICKNESS } from '../lib/engravingDefaults.js';
+import {
+  LINE_SPACING,
+  STAFF_LINE_THICKNESS,
+  THIN_BARLINE_THICKNESS,
+} from '../lib/engravingDefaults.js';
 
 const LINE_COUNT = 5;
-const LINE_SPACING = 20;
 
 /**
  * Create a group of 5 staff lines.

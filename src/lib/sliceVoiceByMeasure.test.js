@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { sliceVoiceByMeasure } from './sliceVoiceByMeasure.js';
+import { sliceVoiceByMeasure, MARKER_KEYS, isMarker } from './sliceVoiceByMeasure.js';
 
 describe('sliceVoiceByMeasure', () => {
   test('returns an empty array for an empty voice', () => {
@@ -132,5 +132,51 @@ describe('sliceVoiceByMeasure', () => {
     ];
     const slice = sliceVoiceByMeasure(voice, 4, 0, 0);
     expect(slice).toContain(trailing);
+  });
+});
+
+// MARKER_KEYS is the single source of truth for "which element keys are
+// non-sounding inline markers". It used to be copy-pasted into three modules
+// and had already drifted (the renderer's copy grew a `tuplet` case the lib
+// copies never got). These pin the contract the other modules rely on.
+describe('MARKER_KEYS / isMarker', () => {
+  test('lists exactly the non-sounding inline marker keys, in dispatch order', () => {
+    expect([...MARKER_KEYS]).toEqual([
+      'barline',
+      'ending',
+      'navigation',
+      'tempo',
+      'tempoChange',
+      'expression',
+      'rehearsal',
+      'dynamic',
+      'hairpin',
+    ]);
+  });
+
+  test('is frozen so a consumer cannot mutate the shared list', () => {
+    expect(Object.isFrozen(MARKER_KEYS)).toBe(true);
+  });
+
+  test.each(MARKER_KEYS)('treats an element carrying `%s` as a marker', (key) => {
+    expect(isMarker({ [key]: 'x' })).toBe(true);
+  });
+
+  test('does NOT treat a tuplet as a marker — it occupies time', () => {
+    // The renderer's getMarkerType returns 'tuplet' because a tuplet needs
+    // its own render branch, but every beat-walker must count its duration.
+    expect(isMarker({ tuplet: [3, 2], notes: [] })).toBe(false);
+  });
+
+  test('does not treat notes, rests, chords, null or undefined as markers', () => {
+    expect(isMarker({ pitch: 'C4', length: '1/4' })).toBe(false);
+    expect(isMarker({ length: '1/4' })).toBe(false);
+    expect(isMarker([{ pitch: 'C4', length: '1/4' }])).toBe(false);
+    expect(isMarker(null)).toBe(false);
+    expect(isMarker(undefined)).toBe(false);
+  });
+
+  test('a marker key set to undefined does not count (parity with `!== undefined`)', () => {
+    expect(isMarker({ barline: undefined })).toBe(false);
   });
 });
