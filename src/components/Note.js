@@ -9,6 +9,8 @@ import { getDurationInfo } from '../lib/durationSymbols.js';
 import {
   createSmuflGlyph,
   smuflTip,
+  SMUFL_SCALE,
+  AUGMENTATION_DOT_GLYPH,
   NOTEHEAD_BLACK_GLYPH,
   NOTEHEAD_HALF_GLYPH,
   NOTEHEAD_WHOLE_GLYPH,
@@ -17,6 +19,7 @@ import {
 import { beamStemExtension } from './Beam.js';
 import { effectiveStemLength } from '../lib/stemLength.js';
 import {
+  LINE_SPACING,
   MIDDLE_LINE_Y,
   STEM_LENGTH,
   STEM_THICKNESS,
@@ -45,9 +48,17 @@ function pickFlagGlyph(flagCount, stemDown) {
  * @param {string} params.clef - Clef for Y positioning
  * @param {boolean} [params.beamed] - If true, suppress flags (note is beamed)
  * @param {boolean} [params.stemDown] - Override auto stem direction
+ * @param {boolean} [params.dotted] - Draw an augmentation dot right of the head
+ * @param {boolean} [params.dotBelow] - On-line dots take the space BELOW the
+ *   line instead of above. Set for the down-stem voice of a shared
+ *   (two-voice) staff so the two voices' dots cannot collide (Gould,
+ *   "Behind Bars" pp. 56-57). NOT tied to stem direction: a single voice
+ *   keeps the above-bias even on stem-down notes.
  * @returns {SVGGElement}
  */
-export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownOverride }) {
+export function createNote({
+  pitch, length, x, clef, beamed, stemDown: stemDownOverride, dotted, dotBelow,
+}) {
   const y = pitchToStaffY(pitch, clef);
   const info = getDurationInfo(length);
 
@@ -60,6 +71,29 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
   // long-axis corner per standard notation convention.
   const glyph = glyphForDuration(info);
   group.appendChild(createSmuflGlyph(glyph, 'note-head'));
+
+  // Augmentation dot (Gould pp. 56-57): to the RIGHT of the head with a
+  // clear gap of a quarter staff space, inside the DOT_WIDTH slot the
+  // spring spacing already reserves. Vertically the dot sits in a SPACE,
+  // never on a line: an on-line head takes the space above (below for the
+  // shared-staff down-stem voice via dotBelow); an in-space head keeps its
+  // own space. The modulo also handles ledger-line notes, whose y values
+  // continue the same 10px line/space alternation beyond the staff.
+  if (dotted) {
+    const headHalfWidth = ((glyph.bbox.xMax - glyph.bbox.xMin) / 2) * SMUFL_SCALE;
+    const dotRadius =
+      ((AUGMENTATION_DOT_GLYPH.bbox.xMax - AUGMENTATION_DOT_GLYPH.bbox.xMin) / 2)
+      * SMUFL_SCALE;
+    const dotGap = LINE_SPACING / 4; // clear gap between head edge and dot edge
+    const dotX = headHalfWidth + dotGap + dotRadius;
+    const halfSpace = LINE_SPACING / 2;
+    // Staff lines sit at odd multiples of a half space (y=10, 30, ..).
+    const onLine = ((y % LINE_SPACING) + LINE_SPACING) % LINE_SPACING === halfSpace;
+    const dotDy = onLine ? (dotBelow ? halfSpace : -halfSpace) : 0;
+    const dot = createSmuflGlyph(AUGMENTATION_DOT_GLYPH, 'augmentation-dot');
+    dot.setAttribute('transform', `translate(${dotX}, ${dotDy})`);
+    group.appendChild(dot);
+  }
 
   if (info.hasStem) {
     const tip = smuflTip(glyph);

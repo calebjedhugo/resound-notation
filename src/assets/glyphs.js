@@ -52,6 +52,15 @@ export const NOTEHEAD_HALF_GLYPH = {
   fillRule: 'evenodd',
 };
 
+// SMuFL Bravura augmentation dot. Path verbatim from
+// ~/Desktop/smufl-glyphs/bravura/augmentationDot.svg. 100 fu diameter =
+// 0.4 staff spaces (8px at SMUFL_SCALE); centered on the bbox center by
+// createSmuflGlyph, so callers translate to the dot's CENTER point.
+export const AUGMENTATION_DOT_GLYPH = {
+  d: 'M100 0C100 28 78 50 50 50C22 50 0 28 0 0C0 -28 22 -50 50 -50C78 -50 100 -28 100 0Z',
+  bbox: { xMin: 0, yMin: -50, xMax: 100, yMax: 50 },
+};
+
 // SMuFL Bravura articulations + fermatas. Each direction-pair anchors
 // y=0 to the side closest to the notehead so callers translate by
 // (x, noteY ± gap) without per-glyph offset gymnastics.

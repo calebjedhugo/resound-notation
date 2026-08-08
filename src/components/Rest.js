@@ -6,8 +6,13 @@
 
 import { createGroup } from '../lib/svgHelpers.js';
 import { getDurationInfo } from '../lib/durationSymbols.js';
-import { createSmuflGlyph, REST_GLYPHS } from '../assets/glyphs.js';
-import { MIDDLE_LINE_Y } from '../lib/engravingDefaults.js';
+import {
+  createSmuflGlyph,
+  SMUFL_SCALE,
+  AUGMENTATION_DOT_GLYPH,
+  REST_GLYPHS,
+} from '../assets/glyphs.js';
+import { LINE_SPACING, MIDDLE_LINE_Y } from '../lib/engravingDefaults.js';
 
 // Per SMuFL convention each rest glyph has a different y=0 anchor
 // relative to the staff. Whole rest hangs from line 2; half rest sits
@@ -32,9 +37,10 @@ const REST_PLACEMENT = {
  * @param {Object} params
  * @param {string} params.length - Fraction string (e.g. "1/4")
  * @param {number} params.x - Horizontal position
+ * @param {boolean} [params.dotted] - Draw an augmentation dot right of the glyph
  * @returns {SVGGElement}
  */
-export function createRest({ length, x }) {
+export function createRest({ length, x, dotted }) {
   const info = getDurationInfo(length);
   const placement = REST_PLACEMENT[info.name] || REST_PLACEMENT.quarter;
 
@@ -45,6 +51,25 @@ export function createRest({ length, x }) {
   const symbol = createSmuflGlyph(placement.glyph, 'rest-symbol');
   symbol.setAttribute('transform', `translate(0, ${placement.y})`);
   group.appendChild(symbol);
+
+  // Augmentation dot (Gould pp. 56-57): right of the rest glyph with a
+  // clear quarter-space gap, placed in the space above the staff midline —
+  // the standard vertical position for dotted rests. Rests repositioned on
+  // a shared staff shift by whole staff spaces (the group transform), so
+  // the dot stays in a space there too.
+  if (dotted) {
+    const glyphHalfWidth =
+      ((placement.glyph.bbox.xMax - placement.glyph.bbox.xMin) / 2) * SMUFL_SCALE;
+    const dotRadius =
+      ((AUGMENTATION_DOT_GLYPH.bbox.xMax - AUGMENTATION_DOT_GLYPH.bbox.xMin) / 2)
+      * SMUFL_SCALE;
+    const dotGap = LINE_SPACING / 4;
+    const dotX = glyphHalfWidth + dotGap + dotRadius;
+    const dotY = MIDDLE_LINE_Y - LINE_SPACING / 2; // space above the midline
+    const dot = createSmuflGlyph(AUGMENTATION_DOT_GLYPH, 'augmentation-dot');
+    dot.setAttribute('transform', `translate(${dotX}, ${dotY})`);
+    group.appendChild(dot);
+  }
 
   return group;
 }

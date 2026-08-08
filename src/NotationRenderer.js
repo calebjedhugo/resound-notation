@@ -2905,7 +2905,11 @@ export class NotationRenderer {
               // Rest inside tuplet
               hasRest = true;
               allBeamable = false;
-              const restGroup = createRest({ length: tEl.length, x: cursorX });
+              const restGroup = createRest({
+                length: tEl.length,
+                x: cursorX,
+                dotted: !!tEl.dotted,
+              });
               restGroup.setAttribute('data-beat', String(beatPosition));
               tupletGroup.appendChild(restGroup);
 
@@ -2940,6 +2944,8 @@ export class NotationRenderer {
                 clef,
                 beamed: allBeamable && !hasRest,
                 stemDown: forcedStemDown,
+                dotted: !!tEl.dotted,
+                dotBelow: forcedStemDown === true,
               });
               noteGroup.setAttribute('data-beat', String(beatPosition));
 
@@ -3668,7 +3674,11 @@ export class NotationRenderer {
             }
 
             if (!skipSharedRest) {
-              const restGroup = createRest({ length: element.length, x: restX });
+              const restGroup = createRest({
+                length: element.length,
+                x: restX,
+                dotted: !!element.dotted,
+              });
               if (restShiftY !== 0) {
                 restGroup.setAttribute(
                   'transform',
@@ -3787,6 +3797,11 @@ export class NotationRenderer {
             clef,
             beamed: isBeamed,
             stemDown: beamStemDown,
+            // On-line dots bias BELOW only for the shared-staff down-stem
+            // voice (forcedStemDown), never merely because a beam chose a
+            // down stem for a single voice.
+            dotted: !!element.dotted,
+            dotBelow: forcedStemDown === true,
           });
           noteGroup.setAttribute('data-beat', String(currentBeat));
 

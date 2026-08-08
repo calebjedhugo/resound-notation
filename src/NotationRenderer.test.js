@@ -8316,4 +8316,127 @@ describe('NotationRenderer', () => {
       expect(bottomWith).toBeGreaterThanOrEqual(lowestBaseline + MIN_DESCENT);
     });
   });
+
+  describe('augmentation dots (Gould pp. 56-57)', () => {
+    // Every `dotted: true` note or rest must draw a dot to the RIGHT of its
+    // head/glyph, with a clear gap, inside the DOT_WIDTH space the spring
+    // model already reserves. Vertically the dot sits in a SPACE, never on
+    // a line: a note ON a line takes the space ABOVE the line; a note IN a
+    // space keeps its own space. On a shared (two-voice) staff the
+    // down-stem voice's on-line notes take the space BELOW the line so the
+    // two voices' dots cannot collide. Dotted rests dot in the space above
+    // the staff midline.
+    const parseTranslate = (el) => {
+      const m = el
+        .getAttribute('transform')
+        .match(/translate\((-?[\d.]+),\s*(-?[\d.]+)\)/);
+      expect(m).not.toBeNull();
+      return { x: parseFloat(m[1]), y: parseFloat(m[2]) };
+    };
+    // Notehead half-width is ~11.8px (Bravura black/half head, 295 fu at
+    // SMUFL_SCALE 0.08); the dot center must clear that plus a visible
+    // gap, but stay within the ~ DOT_WIDTH slot the spacing reserved.
+    const HEAD_HALF_WIDTH = 11.8;
+
+    it('renders dots right of dotted noteheads and rests, in spaces (above-bias), and none on undotted elements', () => {
+      ctx.render({
+        voices: [
+          {
+            clef: 'treble',
+            timeSignature: [4, 4],
+            notes: [
+              { pitch: 'B4', length: '1/4', dotted: true }, // ON the middle line (y=50)
+              { pitch: 'C5', length: '1/4', dotted: true }, // IN a space (y=40)
+              { pitch: 'D5', length: '1/4' }, // undotted -> no dot
+              { length: '1/2', dotted: true }, // dotted rest
+              { length: '1/4' }, // undotted rest
+            ],
+          },
+        ],
+      });
+
+      const notes = ctx.getNotes();
+      expect(notes).toHaveLength(3);
+
+      // (a) note ON a line: dot in the space ABOVE the line (local dy = -half space)
+      const onLineDot = notes[0].querySelector('.augmentation-dot');
+      expect(onLineDot).not.toBeNull();
+      const onLinePos = parseTranslate(onLineDot);
+      expect(onLinePos.x).toBeGreaterThan(HEAD_HALF_WIDTH + 3); // clear gap right of the head
+      expect(onLinePos.x).toBeLessThan(HEAD_HALF_WIDTH + 20); // inside the reserved slot
+      expect(onLinePos.y).toBeCloseTo(-10);
+
+      // (b) note IN a space: dot stays in the note's own space (dy = 0)
+      const inSpaceDot = notes[1].querySelector('.augmentation-dot');
+      expect(inSpaceDot).not.toBeNull();
+      const inSpacePos = parseTranslate(inSpaceDot);
+      expect(inSpacePos.x).toBeCloseTo(onLinePos.x, 5);
+      expect(inSpacePos.y).toBeCloseTo(0);
+
+      // (c) undotted note: no dot
+      expect(notes[2].querySelector('.augmentation-dot')).toBeNull();
+
+      // (d) dotted rest: dot right of the glyph (clear gap, inside the
+      // reserved slot), in the space above the staff midline (y=40
+      // absolute; rest groups translate y=0). Undotted rest gets none.
+      const restDots = ctx.container.querySelectorAll('.rest .augmentation-dot');
+      expect(restDots).toHaveLength(1);
+      const restDotPos = parseTranslate(restDots[0]);
+      // Bravura half-rest half-width is ~5.4px; require a visible gap
+      // past the glyph edge but stay within the reserved dot slot.
+      expect(restDotPos.x).toBeGreaterThan(5.4 + 3);
+      expect(restDotPos.x).toBeLessThan(5.4 + 20);
+      expect(restDotPos.y).toBeCloseTo(40);
+    });
+
+    it('dots the shared-staff down-stem voice BELOW its on-line notes while the up-stem voice keeps the above-bias', () => {
+      ctx.render({
+        voices: [
+          {
+            id: 'sop',
+            staff: 'upper',
+            clef: 'treble',
+            timeSignature: [4, 4],
+            notes: [
+              { pitch: 'B4', length: '1/2', dotted: true }, // on-line, up-stem voice
+              { pitch: 'B4', length: '1/4' },
+            ],
+          },
+          {
+            id: 'alt',
+            staff: 'upper',
+            clef: 'treble',
+            timeSignature: [4, 4],
+            notes: [
+              { pitch: 'G4', length: '1/2', dotted: true }, // on-line, down-stem voice
+              { pitch: 'G4', length: '1/4' },
+            ],
+          },
+        ],
+      });
+
+      // Guard the premise: the slot-1 (alt) voice must actually stem DOWN
+      // (spec rule: second declared voice on a shared staff stems down).
+      // If slot ordering ever changes, fail here, not on the dot rule.
+      const altStem = ctx.container.querySelector(
+        '[data-voice-id="alt"] .note-stem'
+      );
+      expect(altStem).not.toBeNull();
+      expect(parseFloat(altStem.getAttribute('y2'))).toBeGreaterThan(
+        parseFloat(altStem.getAttribute('y1'))
+      );
+
+      const sopDot = ctx.container.querySelector(
+        '[data-voice-id="sop"] .augmentation-dot'
+      );
+      expect(sopDot).not.toBeNull();
+      expect(parseTranslate(sopDot).y).toBeCloseTo(-10); // up-stem voice keeps the above-bias
+
+      const altDot = ctx.container.querySelector(
+        '[data-voice-id="alt"] .augmentation-dot'
+      );
+      expect(altDot).not.toBeNull();
+      expect(parseTranslate(altDot).y).toBeCloseTo(10); // down-stem voice takes the space BELOW
+    });
+  });
 });
