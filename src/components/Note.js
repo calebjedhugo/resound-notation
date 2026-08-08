@@ -64,8 +64,9 @@ export function createNote({ pitch, length, x, clef, beamed, stemDown: stemDownO
   if (info.hasStem) {
     const tip = smuflTip(glyph);
     const stemDown = stemDownOverride !== undefined ? stemDownOverride : y <= MIDDLE_LINE_Y;
-    // Beamed stems extend past the standard tip so they terminate at the
-    // outer edge of the outermost beam.
+    // Beamed stems terminate at the outer edge of the PRIMARY beam, which
+    // sits at the natural stem tip; secondary beam levels stack inside
+    // (toward the head), so no extra length is needed (see Beam.js).
     const beamExt = beamed ? beamStemExtension(info.flags) : 0;
     const stemX = stemDown ? -tip.x : tip.x;
     const stemY1 = stemDown ? -tip.y : tip.y;

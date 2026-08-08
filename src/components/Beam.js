@@ -21,14 +21,15 @@ export const BEAM_GAP = 5;
 
 /**
  * Extra stem length needed for a beamed note so the stem terminates at
- * the outer edge of the outermost beam. The beam stack is shifted one
- * beam-thickness toward the head (see beamPath offset), so the primary
- * beam's far edge sits at the un-beamed stem tip — extension is 0 for a
- * single 8th beam, BT+BG for 16ths, 2*(BT+BG) for 32nds.
+ * the outer edge of the outermost beam. The PRIMARY beam is the
+ * outermost level — its far edge sits at the un-beamed stem tip, and
+ * secondary levels stack INSIDE it, toward the noteheads (Gould "Behind
+ * Bars", Beams: additional beams are added on the notehead side of the
+ * primary). So the stem never needs to extend past its natural tip,
+ * regardless of beam count.
  */
-export function beamStemExtension(numBeams) {
-  if (numBeams <= 0) return 0;
-  return (numBeams - 1) * (BEAM_THICKNESS + BEAM_GAP);
+export function beamStemExtension() {
+  return 0;
 }
 
 // Maximum beam-line rise (px) across an entire beam group. Standard
@@ -131,11 +132,13 @@ function stemX(noteX, stemDown) {
  */
 function beamPath(x1, y1, x2, y2, level, stemDown) {
   const dir = stemDown ? 1 : -1;
-  // Shift the entire beam stack one beam-thickness toward the head so the
-  // primary beam's far edge sits at the un-beamed stem tip (y1, y2). This
-  // tightens the visual spacing between beam and noteheads — without the
-  // shift the stack appears stuck onto the end of the stem.
-  const offset = (level * (BEAM_THICKNESS + BEAM_GAP) - BEAM_THICKNESS) * dir;
+  // The primary beam's far edge sits at the stem tip (y1, y2), its body
+  // one beam-thickness toward the head. Each additional level stacks one
+  // beam-separation further INSIDE — toward the noteheads (below the
+  // primary for up-stems, above for down-stems), per Gould "Behind Bars"
+  // (Beams): secondary beams are added on the notehead side of the
+  // primary, never beyond the stem tip.
+  const offset = -(level * (BEAM_THICKNESS + BEAM_GAP) + BEAM_THICKNESS) * dir;
   const topY1 = y1 + offset;
   const topY2 = y2 + offset;
   const botY1 = topY1 + BEAM_THICKNESS * dir;

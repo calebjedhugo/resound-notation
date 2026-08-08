@@ -723,6 +723,77 @@ describe('NotationRenderer', () => {
       expect(thickness).toBeGreaterThanOrEqual(8);
     });
 
+    // Gould "Behind Bars" (Beams, pp. 153-160; Bravura/LilyPond practice):
+    // a note needing a second beam level inside a group whose neighbors
+    // carry only one gets a FRACTIONAL beam — a short segment attached to
+    // that note's stem, PARALLEL to the primary beam and one beam-
+    // separation (BEAM_GAP) INSIDE it (below the primary for up-stems,
+    // i.e. toward the noteheads). After a dotted eighth the fraction
+    // points BACKWARD (left, toward the note whose value the 16th
+    // completes). The defect this pins: the secondary level was stacked
+    // OUTSIDE the primary (beyond the stem tip), rendering as a detached
+    // horizontal dash floating one gap above the beam's far edge.
+    it('draws a fractional 16th beam inside the primary beam, parallel, pointing left off the 16th stem', () => {
+      // 6/8, one compound beat: dotted-8th + 16th + 8th (Greensleeves
+      // rhythm). All pitches below the middle line → stems UP. Ascending
+      // contour → sloped primary, so parallelism is actually exercised.
+      ctx.render({
+        timeSignature: [6, 8],
+        notes: [
+          { pitch: 'E4', length: '1/8', dotted: true },
+          { pitch: 'F4', length: '1/16' },
+          { pitch: 'G4', length: '1/8' },
+        ],
+      });
+      const beams = [...ctx.container.querySelectorAll('.beam-group .beam')];
+      // One primary spanning the group + one fractional segment.
+      expect(beams).toHaveLength(2);
+      // Beam paths are parallelograms: M xA yA1 L xB yB1 L xB yB2 L xA yA2 Z
+      const parse = (p) => {
+        const n = p.getAttribute('d').match(/-?[\d.]+/g).map(Number);
+        return { xA: n[0], yA1: n[1], xB: n[2], yB1: n[3], yB2: n[5], yA2: n[7] };
+      };
+      const byWidth = beams.map(parse).sort(
+        (a, b) => Math.abs(b.xB - b.xA) - Math.abs(a.xB - a.xA)
+      );
+      const [primary, frac] = byWidth;
+
+      // The 16th's stem absolute x (note group is translated).
+      const sixteenth = ctx.container.querySelector('.note-16th');
+      const stem = sixteenth.querySelector('.note-stem');
+      const tx = parseFloat(sixteenth.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]);
+      const stemAbsX = tx + parseFloat(stem.getAttribute('x1'));
+
+      // (a) The fragment sits on the 16th's stem only, pointing LEFT:
+      // its right end is the 16th's stem x; it stays short of the
+      // dotted-8th's stem (a fraction, not a connecting beam).
+      const fracLeft = Math.min(frac.xA, frac.xB);
+      const fracRight = Math.max(frac.xA, frac.xB);
+      expect(fracRight).toBeCloseTo(stemAbsX, 0);
+      const primaryLeft = Math.min(primary.xA, primary.xB);
+      expect(fracLeft).toBeGreaterThan(primaryLeft);
+      expect(fracRight - fracLeft).toBeLessThan((primary.xB - primary.xA) / 2);
+
+      // (b) One beam-separation INSIDE the primary. Up-stems → the beam
+      // stack hangs below the primary (toward the heads): the fraction's
+      // top edge sits exactly BEAM_GAP below the primary's bottom edge,
+      // interpolated at the 16th's stem x.
+      const edgeAt = (path, pickEdge, x) => {
+        const yAtA = pickEdge(path.yA1, path.yA2);
+        const yAtB = pickEdge(path.yB1, path.yB2);
+        return path.xB === path.xA
+          ? yAtA
+          : yAtA + ((yAtB - yAtA) / (path.xB - path.xA)) * (x - path.xA);
+      };
+      const primaryBottom = edgeAt(primary, Math.max, stemAbsX); // head side
+      const fracTop = edgeAt(frac, Math.min, stemAbsX);
+      expect(fracTop - primaryBottom).toBeCloseTo(BEAM_GAP, 1);
+
+      // (c) Parallel to the primary (same slope).
+      const slope = (p) => (p.xB === p.xA ? 0 : (p.yB1 - p.yA1) / (p.xB - p.xA));
+      expect(slope(frac)).toBeCloseTo(slope(primary), 2);
+    });
+
     // Gould "Behind Bars" (system breaks): every system terminates with
     // EXACTLY ONE closing barline at the staff right edge; on the final
     // system that closing glyph IS the `barline-final`. A measure that
@@ -4379,9 +4450,12 @@ describe('NotationRenderer', () => {
       // Cross-check against computeBeamLine (the SAME geometry the renderer
       // draws and the skyline uses), on the actual stem x-positions — proving
       // the rendered beam top is the beam LINE, not a per-note stem estimate.
-      // The bare beam line is the anchor; the rendered ink adds the secondary
-      // (1/16) beam's offset away from the heads, bounded by one beam-stack
-      // height. No getBBox.
+      // The bare beam line is the anchor. Secondary (1/16) beam levels stack
+      // INSIDE the primary — toward the heads (Gould) — so the rendered ink
+      // never rises above the line; and the renderer splits this 8-note run
+      // into per-beat groups whose individual lines sit at or inside the
+      // whole-run line, so the rendered top lands within one beam-stack
+      // height on the head side of the anchor. No getBBox.
       const stems = [...staff.querySelectorAll('.note .note-stem')];
       const beamNotes = stems.map((stem, k) => {
         const note = stem.closest('.note');
@@ -4394,10 +4468,10 @@ describe('NotationRenderer', () => {
       const bareLineTopAbs = sy + Math.min(line.y1, line.y2);
       const numBeams = 2;
       const stackHeight = (numBeams - 1) * (BEAM_THICKNESS + BEAM_GAP);
-      // Rendered beam top sits at or above the bare line (stack rises away
-      // from the heads), within one stack height.
-      expect(beamTopAbs).toBeLessThanOrEqual(bareLineTopAbs + 1e-6);
-      expect(bareLineTopAbs - beamTopAbs).toBeLessThanOrEqual(stackHeight + 1);
+      // Rendered beam top sits at or just inside (toward the heads from)
+      // the bare line, within one stack height.
+      expect(beamTopAbs).toBeGreaterThanOrEqual(bareLineTopAbs - 1e-6);
+      expect(beamTopAbs - bareLineTopAbs).toBeLessThanOrEqual(stackHeight + 1);
       // It genuinely reaches above the staff top line — this is the clip-risk
       // regime the per-note pass under-counts.
       const staffTopLine = sy + 10; // STAFF_TOP_OFFSET
