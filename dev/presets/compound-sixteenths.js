@@ -12,6 +12,7 @@ export default {
   song: {
     timeSignature: [6, 8],
     keySignature: 'G',
+    pickupBeats: 0.5,
     voices: [
       {
         id: 'melody',
