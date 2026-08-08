@@ -8438,5 +8438,111 @@ describe('NotationRenderer', () => {
       expect(altDot).not.toBeNull();
       expect(parseTranslate(altDot).y).toBeCloseTo(10); // down-stem voice takes the space BELOW
     });
+
+    it('clears shared-staff unison clusters: dots sit right of BOTH heads, coinciding dots dedupe to one', () => {
+      // Gould pp. 46-49 + 56-57: when the down-stem voice's head is offset
+      // beside the up-stem voice's at a unison, an augmentation dot must
+      // clear the ENTIRE two-head cluster — never hide under the companion
+      // head. When both voices carry the same dotted value at an in-space
+      // unison their dots would coincide, so exactly ONE dot renders (it
+      // serves both); at an on-line unison the two dots occupy the spaces
+      // above and below and both survive.
+      // The down-stem voice's head shifts right ~one notehead width (22px);
+      // a cleared dot center must sit past that shift plus the companion
+      // head's half-width plus a visible gap.
+      const CLUSTER_CLEAR_X = 22 + HEAD_HALF_WIDTH + 3;
+      const renderUnisonBar = (sopNotes, altNotes) => {
+        ctx.render({
+          voices: [
+            {
+              id: 'sop',
+              staff: 'upper',
+              clef: 'treble',
+              timeSignature: [4, 4],
+              notes: sopNotes,
+            },
+            {
+              id: 'alt',
+              staff: 'upper',
+              clef: 'treble',
+              timeSignature: [4, 4],
+              notes: altNotes,
+            },
+          ],
+        });
+        const sopNote = ctx.container.querySelector(
+          '[data-voice-id="sop"] .note[data-beat="0"]'
+        );
+        const altNote = ctx.container.querySelector(
+          '[data-voice-id="alt"] .note[data-beat="0"]'
+        );
+        // Guard the premise: the alt (down-stem) unison head actually
+        // shifts right of the sop head. If the collision rule ever
+        // changes, fail here, not on the dot rule.
+        expect(parseTranslate(altNote).x).toBeGreaterThan(
+          parseTranslate(sopNote).x + 15
+        );
+        return { sopNote, altNote };
+      };
+      const dotAbsX = (dot) =>
+        parseTranslate(dot.closest('.note')).x + parseTranslate(dot).x;
+
+      // (a) dotted-vs-plain unison: the sop dot clears the alt's offset head.
+      const a = renderUnisonBar(
+        [{ pitch: 'G4', length: '1/2', dotted: true }, { pitch: 'D5', length: '1/4' }],
+        [
+          { pitch: 'G4', length: '1/2' },
+          { pitch: 'G4', length: '1/4' },
+          { pitch: 'F4', length: '1/4' },
+        ]
+      );
+      const sopDotA = a.sopNote.querySelector('.augmentation-dot');
+      expect(sopDotA).not.toBeNull();
+      expect(parseTranslate(sopDotA).x).toBeGreaterThan(CLUSTER_CLEAR_X);
+      expect(parseTranslate(sopDotA).x).toBeLessThan(CLUSTER_CLEAR_X + 20);
+
+      // (b) both dotted, same value, IN-SPACE unison: the two dots would
+      // overprint — exactly ONE renders, and it clears the cluster.
+      const b = renderUnisonBar(
+        [{ pitch: 'A4', length: '1/2', dotted: true }, { pitch: 'D5', length: '1/4' }],
+        [{ pitch: 'A4', length: '1/2', dotted: true }, { pitch: 'F4', length: '1/4' }]
+      );
+      const spaceDots = ctx.container.querySelectorAll(
+        '.note[data-beat="0"] .augmentation-dot'
+      );
+      expect(spaceDots).toHaveLength(1);
+      expect(parseTranslate(spaceDots[0]).y).toBeCloseTo(0); // A4's own space
+      expect(dotAbsX(spaceDots[0])).toBeGreaterThan(
+        parseTranslate(b.altNote).x + HEAD_HALF_WIDTH + 3
+      );
+
+      // (c) both dotted, same value, ON-LINE unison: two dots survive, one
+      // in the space above (up-stem voice), one below (down-stem voice),
+      // and both clear the cluster.
+      const c = renderUnisonBar(
+        [{ pitch: 'B4', length: '1/2', dotted: true }, { pitch: 'D5', length: '1/4' }],
+        [{ pitch: 'B4', length: '1/2', dotted: true }, { pitch: 'G4', length: '1/4' }]
+      );
+      const lineDots = ctx.container.querySelectorAll(
+        '.note[data-beat="0"] .augmentation-dot'
+      );
+      expect(lineDots).toHaveLength(2);
+      const lineYs = Array.from(lineDots, (d) => parseTranslate(d).y).sort((p, q) => p - q);
+      expect(lineYs[0]).toBeCloseTo(-10);
+      expect(lineYs[1]).toBeCloseTo(10);
+      for (const dot of lineDots) {
+        expect(dotAbsX(dot)).toBeGreaterThan(
+          parseTranslate(c.altNote).x + HEAD_HALF_WIDTH + 3
+        );
+      }
+
+      // (d) single-voice dotted note: dot position unchanged (own head +
+      // gap, inside the reserved slot — no cluster shift leaks in).
+      ctx.render([{ pitch: 'C5', length: '1/2', dotted: true }]);
+      const soloDot = ctx.container.querySelector('.augmentation-dot');
+      expect(soloDot).not.toBeNull();
+      expect(parseTranslate(soloDot).x).toBeGreaterThan(HEAD_HALF_WIDTH + 3);
+      expect(parseTranslate(soloDot).x).toBeLessThan(HEAD_HALF_WIDTH + 20);
+    });
   });
 });

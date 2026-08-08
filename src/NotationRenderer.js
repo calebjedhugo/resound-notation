@@ -834,10 +834,14 @@ function buildStaffModel(voices) {
  * Walk one voice's (system-sliced, ottava-shifted) notes and collect the
  * cross-voice information shared-staff rendering needs about the PARTNER
  * voice:
- *   - onsets: beatKey → { maxY } the LOWEST staff-Y (largest y) of the
- *     pitched event starting at that beat. Only the lowest head matters
- *     for collision rule 4: the down-stem voice compares its highest head
- *     against the up-stem voice's lowest.
+ *   - onsets: beatKey → { maxY, minY, ys, dotted, length }. maxY is the
+ *     LOWEST staff-Y (largest y) of the pitched event starting at that
+ *     beat — collision rule 4 compares the down-stem voice's highest head
+ *     against the up-stem voice's lowest. minY (highest head) is the
+ *     mirror: it lets the UP-STEM voice predict whether its partner will
+ *     shift, so its augmentation dot can clear the offset cluster. ys /
+ *     dotted / length feed the dotted-unison dedupe (a same-value dotted
+ *     unison in a space renders ONE dot for both voices).
  *   - rests: beatKey → duration in beats for top-level rests (rest
  *     dedupe/shift rule 5). Rests inside tuplets are not collected — the
  *     tuplet render path keeps its legacy placement.
@@ -850,9 +854,15 @@ function collectSharedStaffEvents(voiceNotes, clef) {
   const onsets = new Map();
   const rests = new Map();
   let beat = 0;
-  const addOnset = (b, ys) => {
+  const addOnset = (b, ys, dotted, length) => {
     if (ys.length === 0) return;
-    onsets.set(sharedBeatKey(b), { maxY: Math.max(...ys) });
+    onsets.set(sharedBeatKey(b), {
+      maxY: Math.max(...ys),
+      minY: Math.min(...ys),
+      ys,
+      dotted: !!dotted,
+      length,
+    });
   };
 
   for (const element of voiceNotes) {
@@ -863,7 +873,9 @@ function collectSharedStaffEvents(voiceNotes, clef) {
       const dur = fractionToBeats(first.length) * (first.dotted ? 1.5 : 1);
       addOnset(
         beat,
-        element.filter((n) => n && n.pitch).map((n) => pitchToStaffY(n.pitch, clef))
+        element.filter((n) => n && n.pitch).map((n) => pitchToStaffY(n.pitch, clef)),
+        first.dotted,
+        first.length
       );
       beat += dur;
       continue;
@@ -890,7 +902,7 @@ function collectSharedStaffEvents(voiceNotes, clef) {
           continue;
         }
         const dur = fractionToBeats(length) * (dotted ? 1.5 : 1) * (normal / actual);
-        addOnset(beat, ys);
+        addOnset(beat, ys, dotted, length);
         beat += dur;
       }
       continue;
@@ -904,7 +916,7 @@ function collectSharedStaffEvents(voiceNotes, clef) {
     if (!element.length) continue;
     const dur = fractionToBeats(element.length) * (element.dotted ? 1.5 : 1);
     if (element.pitch) {
-      addOnset(beat, [pitchToStaffY(element.pitch, clef)]);
+      addOnset(beat, [pitchToStaffY(element.pitch, clef)], element.dotted, element.length);
     } else {
       rests.set(sharedBeatKey(beat), dur);
     }
@@ -3714,10 +3726,43 @@ export class NotationRenderer {
           // voice's). The shift is render-only: cursor and beat→x grid
           // are untouched, so alignment of later notes is preserved.
           let collisionShift = 0;
-          if (isSharedStaff && voiceSlot === 1 && partnerEvents) {
+          // Augmentation-dot cluster rules (Gould pp. 46-49, 56-57): a dot
+          // must clear the ENTIRE notehead cluster at its beat — including
+          // the partner voice's offset head — never hide under it.
+          let dotShiftX = 0;
+          let dotSuppressed = false;
+          if (isSharedStaff && partnerEvents) {
             const up = partnerEvents.onsets.get(sharedBeatKey(currentBeat));
-            if (up && noteY - up.maxY <= SHARED_STAFF_COLLISION_MAX_DY) {
-              collisionShift = SHARED_STAFF_COLLISION_OFFSET;
+            if (voiceSlot === 1) {
+              if (up && noteY - up.maxY <= SHARED_STAFF_COLLISION_MAX_DY) {
+                collisionShift = SHARED_STAFF_COLLISION_OFFSET;
+                // Same-value dotted unison IN A SPACE: both voices' dots
+                // land on the same point, so ONE dot serves both — the
+                // up-stem voice already drew it (cluster-cleared); skip
+                // this voice's. On a LINE the dots split above/below and
+                // both render.
+                const inSpace =
+                  ((noteY % LINE_SPACING) + LINE_SPACING) % LINE_SPACING
+                    !== LINE_SPACING / 2;
+                if (
+                  inSpace
+                  && element.dotted
+                  && up.dotted
+                  && up.length === element.length
+                  && up.ys.includes(noteY)
+                ) {
+                  dotSuppressed = true;
+                }
+              }
+            } else if (
+              element.dotted
+              && up
+              && up.minY - noteY <= SHARED_STAFF_COLLISION_MAX_DY
+            ) {
+              // Mirror of the slot-1 collision test: the partner's head
+              // WILL be offset one notehead width right of this one, so
+              // push this voice's dot past the offset head.
+              dotShiftX = SHARED_STAFF_COLLISION_OFFSET;
             }
           }
 
@@ -3800,8 +3845,9 @@ export class NotationRenderer {
             // On-line dots bias BELOW only for the shared-staff down-stem
             // voice (forcedStemDown), never merely because a beam chose a
             // down stem for a single voice.
-            dotted: !!element.dotted,
+            dotted: !!element.dotted && !dotSuppressed,
             dotBelow: forcedStemDown === true,
+            dotShiftX,
           });
           noteGroup.setAttribute('data-beat', String(currentBeat));
 

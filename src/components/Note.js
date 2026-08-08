@@ -54,10 +54,16 @@ function pickFlagGlyph(flagCount, stemDown) {
  *   (two-voice) staff so the two voices' dots cannot collide (Gould,
  *   "Behind Bars" pp. 56-57). NOT tied to stem direction: a single voice
  *   keeps the above-bias even on stem-down notes.
+ * @param {number} [params.dotShiftX] - Extra rightward offset for the dot
+ *   only. Set by the renderer when the shared-staff partner voice's head
+ *   is offset beside this one (unison/second cluster) so the dot clears
+ *   the ENTIRE cluster, never hiding under the companion head (Gould
+ *   pp. 46-49). The head and stem are unaffected.
  * @returns {SVGGElement}
  */
 export function createNote({
   pitch, length, x, clef, beamed, stemDown: stemDownOverride, dotted, dotBelow,
+  dotShiftX = 0,
 }) {
   const y = pitchToStaffY(pitch, clef);
   const info = getDurationInfo(length);
@@ -85,7 +91,7 @@ export function createNote({
       ((AUGMENTATION_DOT_GLYPH.bbox.xMax - AUGMENTATION_DOT_GLYPH.bbox.xMin) / 2)
       * SMUFL_SCALE;
     const dotGap = LINE_SPACING / 4; // clear gap between head edge and dot edge
-    const dotX = headHalfWidth + dotGap + dotRadius;
+    const dotX = headHalfWidth + dotGap + dotRadius + dotShiftX;
     const halfSpace = LINE_SPACING / 2;
     // Staff lines sit at odd multiples of a half space (y=10, 30, ..).
     const onLine = ((y % LINE_SPACING) + LINE_SPACING) % LINE_SPACING === halfSpace;
