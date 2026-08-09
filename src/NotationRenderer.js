@@ -1985,7 +1985,16 @@ export class NotationRenderer {
     // never clipped). This supersedes the old additive intrinsic-width table
     // plus the f6d8426 daylight array and the 9ce0b20 fixed trailingReserve —
     // three overlapping ESTIMATES collapsed into one source of truth.
+    // Memoized per render: the Knuth-Plass DP asks for the same runs many
+    // times (and the reconstruction pass re-asks for every chosen plan). The
+    // width depends on systemIndex only through the prelude, which differs
+    // solely between system 0 (time signature) and the rest — so the cache
+    // key collapses systemIndex to first/not-first.
+    const naturalWidthCache = new Map();
     const systemNaturalWidth = (startMeasure, endMeasure, systemIndex) => {
+      const key = `${startMeasure}|${endMeasure}|${systemIndex === 0 ? 0 : 1}`;
+      let width = naturalWidthCache.get(key);
+      if (width !== undefined) return width;
       const slicedNotes = parsed.voices.map((v, vi) => sliceVoiceByMeasure(
         shiftedVoiceNotes[vi], sharedMeasureLength, startMeasure, endMeasure, pickupBeats
       ));
@@ -1999,15 +2008,35 @@ export class NotationRenderer {
         // multiples of the measure length.
         { voiceVerseCounts, pickupBeats: startMeasure === 0 ? pickupBeats : 0 }
       );
+      naturalWidthCache.set(key, naturalRightX);
       return naturalRightX;
     };
 
-    const breakFn = this._breakingStrategy === 'greedy' ? breakIntoSystems : breakIntoSystemsOptimal;
-    const systemPlans = breakFn(
-      measureCount,
-      this._width,
-      systemNaturalWidth,
-    );
+    // Single-system fast path: when the whole piece fits the container as
+    // one system (the ribbon's effectively-infinite width, or any short
+    // piece), both strategies can only answer "one system of everything" —
+    // splitting would trade the soft ragged-last cost for an interior
+    // stretch penalty that is strictly worse. Skipping the DP here is what
+    // keeps ribbon renders O(measures) instead of O(measures²).
+    let systemPlans;
+    if (
+      measureCount > 0
+      && systemNaturalWidth(0, measureCount - 1, 0) <= this._width
+    ) {
+      systemPlans = [{
+        startMeasure: 0,
+        endMeasure: measureCount - 1,
+        intrinsicSum: systemNaturalWidth(0, measureCount - 1, 0),
+        isLast: true,
+      }];
+    } else {
+      const breakFn = this._breakingStrategy === 'greedy' ? breakIntoSystems : breakIntoSystemsOptimal;
+      systemPlans = breakFn(
+        measureCount,
+        this._width,
+        systemNaturalWidth,
+      );
+    }
 
     // Multi-system tightening: when the piece wraps onto >1 system AND
     // the voices are independent (no brace group), the per-voice Y

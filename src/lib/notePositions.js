@@ -25,22 +25,27 @@ export const CLEF_CONSTANTS = {
  * @param {string} pitchString - e.g. "C4", "F#5", "Bb3"
  * @returns {{ noteName: string, accidental: string, octave: number, noteIndex: number }}
  */
+const pitchCache = new Map();
+
 export function parsePitch(pitchString) {
-  const match = pitchString.match(PITCH_REGEX);
-  if (!match) {
-    throw new Error(`Invalid pitch: "${pitchString}"`);
+  // Hot path: pitchToStaffY runs per note per layout pass. The key space is
+  // bounded (~90 real pitches), so memoize; the shared result is frozen.
+  let parsed = pitchCache.get(pitchString);
+  if (!parsed) {
+    const match = pitchString.match(PITCH_REGEX);
+    if (!match) {
+      throw new Error(`Invalid pitch: "${pitchString}"`);
+    }
+    const noteName = match[1];
+    parsed = Object.freeze({
+      noteName,
+      accidental: match[2] || '',
+      octave: parseInt(match[3], 10),
+      noteIndex: NOTE_INDICES[noteName],
+    });
+    pitchCache.set(pitchString, parsed);
   }
-
-  const noteName = match[1];
-  const accidental = match[2] || '';
-  const octave = parseInt(match[3], 10);
-
-  return {
-    noteName,
-    accidental,
-    octave,
-    noteIndex: NOTE_INDICES[noteName],
-  };
+  return parsed;
 }
 
 /**

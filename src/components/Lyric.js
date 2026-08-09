@@ -77,13 +77,23 @@ export const LYRIC_ASCENDER_RATIO = 0.71;
  * @returns {number}
  */
 export function estimateLyricWidth(text, fontSize = LYRIC_FONT_SIZE) {
-  let ems = 0;
-  for (const ch of String(text)) {
-    const w = LYRIC_CHAR_WIDTHS[ch];
-    ems += w === undefined ? LYRIC_CHAR_WIDTH_RATIO : w;
+  // Hot path: the spring layout asks for every syllable's width once per
+  // candidate system run. A piece's syllable vocabulary is a few hundred
+  // strings, so memoize the per-em sum and scale by font size on the way out.
+  const key = String(text);
+  let ems = lyricEmsCache.get(key);
+  if (ems === undefined) {
+    ems = 0;
+    for (const ch of key) {
+      const w = LYRIC_CHAR_WIDTHS[ch];
+      ems += w === undefined ? LYRIC_CHAR_WIDTH_RATIO : w;
+    }
+    lyricEmsCache.set(key, ems);
   }
   return ems * fontSize;
 }
+
+const lyricEmsCache = new Map();
 
 // Vertical distance between stacked verse lines (SPEC-multi-verse-lyrics.md
 // rule 1: verse 1 at the legacy position, each additional verse one

@@ -69,20 +69,33 @@ const DURATION_MAP = {
 
 const FRACTION_REGEX = /^(\d+)\/(\d+)$/;
 
+// These three parsers sit inside the renderer's hottest loops (the system
+// breaker calls them once per note per candidate run), so each memoizes on
+// its input string. The key space is tiny — a handful of length strings per
+// piece — so the maps stay small for the life of the module.
+const fractionCache = new Map();
+const beatsCache = new Map();
+
 /**
  * Parse a fraction string into numerator and denominator.
+ * The returned object is shared and frozen — treat it as read-only.
  * @param {string} lengthString - e.g. "1/4"
  * @returns {{ numerator: number, denominator: number }}
  */
 export function parseFraction(lengthString) {
-  const match = lengthString.match(FRACTION_REGEX);
-  if (!match) {
-    throw new Error(`Invalid fraction: "${lengthString}"`);
+  let parsed = fractionCache.get(lengthString);
+  if (!parsed) {
+    const match = lengthString.match(FRACTION_REGEX);
+    if (!match) {
+      throw new Error(`Invalid fraction: "${lengthString}"`);
+    }
+    parsed = Object.freeze({
+      numerator: parseInt(match[1], 10),
+      denominator: parseInt(match[2], 10),
+    });
+    fractionCache.set(lengthString, parsed);
   }
-  return {
-    numerator: parseInt(match[1], 10),
-    denominator: parseInt(match[2], 10),
-  };
+  return parsed;
 }
 
 /**
@@ -91,12 +104,22 @@ export function parseFraction(lengthString) {
  * @returns {number}
  */
 export function fractionToBeats(lengthString) {
-  const { numerator, denominator } = parseFraction(lengthString);
-  return (numerator / denominator) * 4;
+  let beats = beatsCache.get(lengthString);
+  if (beats === undefined) {
+    const { numerator, denominator } = parseFraction(lengthString);
+    beats = (numerator / denominator) * 4;
+    beatsCache.set(lengthString, beats);
+  }
+  return beats;
 }
+
+// Freeze the rows so getDurationInfo can hand out shared references instead
+// of cloning one object per note per layout pass.
+for (const info of Object.values(DURATION_MAP)) Object.freeze(info);
 
 /**
  * Get visual/rendering properties for a note duration.
+ * The returned object is shared and frozen — treat it as read-only.
  * @param {string} lengthString - e.g. "1/4"
  * @returns {{ name, cssClass, hasStem, filledHead, flags, beams, spacing }}
  */
@@ -105,5 +128,5 @@ export function getDurationInfo(lengthString) {
   if (!info) {
     throw new Error(`Unrecognized note length: "${lengthString}"`);
   }
-  return { ...info };
+  return info;
 }
