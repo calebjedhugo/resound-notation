@@ -4,6 +4,33 @@
 
 ### Added
 
+- **`getContentWidth()`** — the rightmost rendered extent (widest system's
+  closing barline) of the most recent render, in layout units. Lets a
+  consumer that probe-renders at an oversized width (a one-system ribbon)
+  re-render tight to the music without a `getBBox` sweep over the live SVG.
+
+### Performance
+
+- Layout-pass hotspots memoized: `parseFraction`/`fractionToBeats`,
+  `getDurationInfo` (frozen shared rows instead of per-call clones),
+  `parsePitch`, `estimateLyricWidth`, the breaker's `systemNaturalWidth`
+  (per render), and `sliceVoiceByMeasure`'s measure-assignment walk (per
+  voice array). `computeBeatLayout` and `computeBarlineLyricFloors` drop
+  their quadratic inner scans for cursor sweeps.
+- Single-system fast path: when the whole piece fits the container as one
+  system (every ribbon render), the Knuth-Plass DP is skipped outright.
+- `measureIntrinsicWidths` now computes lazily inside `getIntrinsicWidths()`
+  instead of on every render; ottava index maps skip ottava-free voices;
+  `setWidth` ignores same-value calls and the ResizeObserver ignores
+  sub-2px container jitter.
+- Four-hymn benchmark (jsdom): page renders ~1060ms → ~300ms, ribbon
+  ~2790ms → ~210ms.
+
+### Fixed
+
+- `npm run build` now cleans `dist/` first, so files deleted from `src/`
+  (the old `dist/editor/*`) no longer ship as stale build output.
+
 - **Double accidentals** — `##`/`bb` accepted in pitch strings end to end
   (parse, MIDI math, ottava logic) and rendered with the SMuFL doubleSharp /
   doubleFlat glyphs, honouring in-measure accidental memory. A Db-major

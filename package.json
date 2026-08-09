@@ -36,7 +36,7 @@
   ],
   "scripts": {
     "test": "jest",
-    "build": "npm run build:js && npm run build:types",
+    "build": "npm run clean && npm run build:js && npm run build:types",
     "build:js": "babel src --out-dir dist --extensions .js --ignore '**/*.test.js','**/__tests__/**'",
     "build:types": "tsc",
     "clean": "rm -rf dist"

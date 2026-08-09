@@ -340,6 +340,25 @@ export function computeBarlineLyricFloors(voices, boundaryBeats, beatToX, headTi
   };
   const bounds = [...boundaryBeats].sort((a, b) => a - b);
 
+  // Each boundary only reads the anchors in its two adjacent measures, so
+  // sort the anchors once, resolve their x once, and walk each boundary's
+  // window by index — instead of testing every anchor against every
+  // boundary (O(boundaries x anchors), hot inside the system breaker for
+  // multi-verse hymns).
+  anchors.sort((a, b) => a.beat - b.beat);
+  for (const a of anchors) a.x = xAt(a.beat);
+  // First anchor index at or after `beat - 1e-6`.
+  const lowerAnchor = (beat) => {
+    let lo = 0;
+    let hi = anchors.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (anchors[mid].beat < beat - 1e-6) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+
   for (let bi = 0; bi < bounds.length; bi += 1) {
     const b = bounds[bi];
     const prevBound = bi > 0 ? bounds[bi - 1] : -Infinity;
@@ -348,15 +367,18 @@ export function computeBarlineLyricFloors(voices, boundaryBeats, beatToX, headTi
     if (bIdx < 0) continue;
     const bX = beatToX.get(beats[bIdx]);
     const predX = bIdx > 0 ? beatToX.get(beats[bIdx - 1]) : bX;
-    for (const a of anchors) {
-      const aX = xAt(a.beat);
+    const from = prevBound === -Infinity ? 0 : lowerAnchor(prevBound);
+    for (let ai = from; ai < anchors.length; ai += 1) {
+      const a = anchors[ai];
+      if (a.beat >= nextBound - 1e-6) break;
+      const aX = a.x;
       if (aX === null) continue;
-      if (a.beat >= b - 1e-6 && a.beat < nextBound - 1e-6) {
+      if (a.beat >= b - 1e-6) {
         // Anchor in the measure FOLLOWING b → post-side clearance.
         const requirement = a.half + BARLINE_LYRIC_GAP - headTipX;
         const floor = requirement - (aX - bX);
         if (floor > 0 && floor > (post.get(b) || 0)) post.set(b, floor);
-      } else if (a.beat < b - 1e-6 && a.beat >= prevBound - 1e-6) {
+      } else {
         // Anchor in the measure ENDING at b → pre-side clearance. Budgets
         // the worst-case leftward barline ink (final thin+thick pair).
         const requirement =

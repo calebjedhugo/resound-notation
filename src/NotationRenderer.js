@@ -1595,10 +1595,16 @@ export class NotationRenderer {
   }
 
   /**
-   * Return the cached intrinsic-width table from the most recent render.
+   * Return the intrinsic-width table for the most recent render's song.
+   * Computed lazily on first call (nothing in the render path reads it, so
+   * eager computation was pure waste on every resize frame) and cached until
+   * the next render.
    * @returns {Object|null}
    */
   getIntrinsicWidths() {
+    if (!this._intrinsicWidths && this._song) {
+      this._computeIntrinsicWidths(this._song);
+    }
     return this._intrinsicWidths;
   }
 
@@ -1626,7 +1632,6 @@ export class NotationRenderer {
     if (this._naturalWidth == null) {
       this._naturalWidth = this._width;
     }
-    this._computeIntrinsicWidths(songData);
 
     const parsed = parseNoteData(songData);
     const voiceCount = parsed.voices.length;
@@ -2278,6 +2283,8 @@ export class NotationRenderer {
         // using sliceVoiceByMeasure's logic — easiest: re-walk and match
         // by reference identity.
         const slicedOttavaSegs = parsed.voices.map((v, vi) => {
+          const segs = ottavaSegmentsPerVoice[vi] || [];
+          if (segs.length === 0) return []; // no ottava: skip the index map
           const origNotes = shiftedVoiceNotes[vi];
           const sliceNotes = slicedVoiceNotes[vi];
           // Build index map by element identity (Array elements unique
@@ -2291,7 +2298,6 @@ export class NotationRenderer {
               cursor += 1;
             }
           }
-          const segs = ottavaSegmentsPerVoice[vi] || [];
           const out = [];
           for (const seg of segs) {
             const ns = indexInSlice.get(seg.startIndex);
@@ -2423,6 +2429,12 @@ export class NotationRenderer {
     // tightened (contentMinY, contentMaxY) to the actual rendered content.
     // Apply a small visual margin and rewrite width/height/viewBox so the
     // SVG itself contains all rendered ink without consumer-side padding.
+    // Rightmost rendered extent (closing barlines), in layout units — the
+    // exact number a consumer needs to re-render an unconstrained "probe"
+    // layout at its natural width (see getContentWidth) without measuring
+    // the SVG itself via getBBox (a forced synchronous layout per element).
+    this._contentRightX = maxSystemEndX;
+
     const MARGIN = 10;
     const grownTop = Math.min(0, Math.floor(contentMinY - MARGIN));
     const grownBottom = Math.max(totalHeight, Math.ceil(contentMaxY + MARGIN));
@@ -4753,6 +4765,18 @@ export class NotationRenderer {
   }
 
   /**
+   * Rightmost rendered content extent (the widest system's closing barline)
+   * of the most recent render, in the same layout units as the `width`
+   * option. Lets a consumer that probe-renders at an oversized width (e.g.
+   * a one-system ribbon) re-render tight to the music without a getBBox
+   * sweep over the live SVG. Null before the first render.
+   * @returns {number|null}
+   */
+  getContentWidth() {
+    return this._contentRightX ?? null;
+  }
+
+  /**
    * Update the song and schedule a re-render on the next animation frame.
    * Coalesces with any other setSong/setWidth/setScale call in the same tick.
    * @param {Array|Object} songData
@@ -4767,6 +4791,7 @@ export class NotationRenderer {
    * @param {number} width
    */
   setWidth(width) {
+    if (width === this._width) return; // same-value: don't burn a re-render
     this._width = width;
     this._scheduleRender();
   }
@@ -4793,6 +4818,10 @@ export class NotationRenderer {
       if (!this._container) return;
       const cw = this._container.clientWidth;
       if (!cw) return;
+      // Sub-pixel observer noise (scrollbar appearance, transform jitter)
+      // must not trigger a full re-render — a reflow below 2px is invisible.
+      if (this._lastObservedCw != null && Math.abs(cw - this._lastObservedCw) < 2) return;
+      this._lastObservedCw = cw;
       if (this._responsiveMode === 'zoom-to-fit') {
         const ref = this._naturalWidth || this._width;
         if (!ref) return;
