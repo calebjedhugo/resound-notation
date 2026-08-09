@@ -23,7 +23,7 @@ import { createNote } from './components/Note.js';
 import { createClef } from './components/Clef.js';
 import { createRest } from './components/Rest.js';
 import { createLedgerLines } from './components/LedgerLine.js';
-import { createAccidental } from './components/Accidental.js';
+import { createAccidental, accidentalWidth } from './components/Accidental.js';
 import { createKeySignature, keySignatureAdvance } from './components/KeySignature.js';
 import { createBarLine } from './components/BarLine.js';
 import { createTimeSignature } from './components/TimeSignature.js';
@@ -99,10 +99,10 @@ import {
 
 // Chromatic offsets for converting scientific pitch (C4 = MIDI 60) to MIDI.
 const PITCH_CHROMATIC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
-const ACCIDENTAL_CHROMATIC = { '#': 1, b: -1, '': 0 };
+const ACCIDENTAL_CHROMATIC = { '##': 2, '#': 1, b: -1, bb: -2, '': 0 };
 
 function pitchToMidi(pitchString) {
-  const m = /^([A-G])(#|b)?(\d)$/.exec(pitchString);
+  const m = /^([A-G])(##|#|bb|b)?(\d)$/.exec(pitchString);
   if (!m) return null;
   const [, letter, accidental, octaveStr] = m;
   const octave = parseInt(octaveStr, 10);
@@ -114,7 +114,7 @@ function pitchToMidi(pitchString) {
 }
 
 function shiftPitchOctave(pitchString, delta) {
-  const m = /^([A-G])(#|b)?(\d)$/.exec(pitchString);
+  const m = /^([A-G])(##|#|bb|b)?(\d)$/.exec(pitchString);
   if (!m) return pitchString;
   const [, letter, accidental, octaveStr] = m;
   const newOctave = parseInt(octaveStr, 10) + delta;
@@ -276,6 +276,47 @@ const ACCIDENTAL_OFFSET_BEAMED_PRIOR = ACCIDENTAL_OFFSET - 6;
 // accidentals-sweep preset stretches to ~5 sp+), so the shrink applies
 // to exactly the tight case it was built for.
 const ACCIDENTAL_PRIOR_NEAR = 90;
+// Stagger threshold for stacked accidentals (Gould "Behind Bars",
+// Accidentals chapter): accidentals on notes less than a sixth apart
+// cannot share a vertical column — the lower one steps left. A diatonic
+// step is half a staff space (10px); a sixth = 5 steps = 50px.
+const ACCIDENTAL_STAGGER_CLEARANCE = 50;
+// Horizontal air between staggered accidental columns.
+const ACCIDENTAL_STAGGER_GAP = 3;
+
+/**
+ * Place an accidental in its attack column, staggering it left of any
+ * already-placed accidental it would collide with (same column key, within
+ * a sixth vertically, horizontally overlapping). Voices render top-first
+ * (slot 0 stems up) and chords outside-in, so the greedy left-shift lands
+ * the standard layout: nearest column to the chord for the top accidental,
+ * lower ones stepping left. Wide glyphs (doubleFlat) right-align to the
+ * same edge a single accidental would get, then claim their full width.
+ *
+ * @param {Map<string, Array<{y:number,left:number,right:number}>>} columns
+ * @param {string} key - `${staffIdx}|${cursorX}` attack-column identity
+ * @param {number} y - staff-local y of the modified note
+ * @param {number} width - rendered glyph width (px)
+ * @param {number} noteCenterX - the notehead center x
+ * @param {number} accOffset - base center offset for a single accidental
+ * @returns {number} the x to translate the (center-anchored) glyph to
+ */
+function staggeredAccidentalX(columns, key, y, width, noteCenterX, accOffset) {
+  const list = columns.get(key) || [];
+  // Right edge a standard-width accidental would get; wider glyphs grow left.
+  let right = noteCenterX - accOffset + Math.min(width, 20) / 2;
+  for (let guard = 0; guard < 12; guard += 1) {
+    const clash = list.find((e) =>
+      Math.abs(e.y - y) < ACCIDENTAL_STAGGER_CLEARANCE &&
+      right > e.left - ACCIDENTAL_STAGGER_GAP + 1e-6 &&
+      right - width < e.right + ACCIDENTAL_STAGGER_GAP - 1e-6);
+    if (!clash) break;
+    right = clash.left - ACCIDENTAL_STAGGER_GAP;
+  }
+  list.push({ y, left: right - width, right });
+  columns.set(key, list);
+  return right - width / 2;
+}
 // Trailing padding (px) after the time-sig glyph before the first note.
 // Three terms add up here:
 //   ~19 — overshoot. createTimeSignature returns width = digit bbox
@@ -945,6 +986,8 @@ function getMarkerType(element) {
 const ACCIDENTAL_TYPE_MAP = {
   '#': 'sharp',
   b: 'flat',
+  '##': 'doubleSharp',
+  bb: 'doubleFlat',
 };
 
 /**
@@ -959,12 +1002,12 @@ const ACCIDENTAL_TYPE_MAP = {
  * `letter+octave` -> the alteration last shown, reset per measure by the
  * caller (see `measureAccidentalMemory`).
  *
- * @param {string} pitchAccidental - "" | "#" | "b"
+ * @param {string} pitchAccidental - "" | "#" | "b" | "##" | "bb"
  * @param {string} pitchLetter - "A".."G"
  * @param {number} octave
  * @param {{ type: 'sharp'|'flat'|'none', accidentals: string[] }} keyInfo
  * @param {Map<string,string>} memory
- * @returns {'sharp'|'flat'|'natural'|null}
+ * @returns {'sharp'|'flat'|'natural'|'doubleSharp'|'doubleFlat'|null}
  */
 function accidentalGlyphWithMemory(pitchAccidental, pitchLetter, octave, keyInfo, memory) {
   const key = `${pitchLetter}${octave}`;
@@ -2523,6 +2566,11 @@ export class NotationRenderer {
       }
     });
 
+    // Accidental attack columns for this system, shared across the voices
+    // of a staff so stacked accidentals (two voices, or chord notes, a
+    // sixth or less apart) stagger instead of colliding.
+    const accidentalColumns = new Map();
+
     voices.forEach((voice, index) => {
       // Render against the octave-shifted notes so the heads sit near the
       // staff under the bracket. The original voice.notes is preserved on
@@ -3492,9 +3540,17 @@ export class NotationRenderer {
               );
               if (accidentalType) {
                 const accGroup = createAccidental(accidentalType);
+                const accX = staggeredAccidentalX(
+                  accidentalColumns,
+                  `${staffIdx}|${cursorX.toFixed(1)}`,
+                  yPositions[j],
+                  accidentalWidth(accidentalType),
+                  cursorX,
+                  chordAccOffset
+                );
                 accGroup.setAttribute(
                   'transform',
-                  `translate(${cursorX - chordAccOffset}, ${yPositions[j]})`
+                  `translate(${accX}, ${yPositions[j]})`
                 );
                 staffGroup.appendChild(accGroup);
               }
@@ -3822,9 +3878,17 @@ export class NotationRenderer {
               ? ACCIDENTAL_OFFSET_BEAMED_PRIOR
               : ACCIDENTAL_OFFSET;
             const accGroup = createAccidental(accidentalType);
+            const accX = staggeredAccidentalX(
+              accidentalColumns,
+              `${staffIdx}|${cursorX.toFixed(1)}`,
+              noteY,
+              accidentalWidth(accidentalType),
+              cursorX,
+              accOffset
+            );
             accGroup.setAttribute(
               'transform',
-              `translate(${cursorX - accOffset}, ${noteY})`
+              `translate(${accX}, ${noteY})`
             );
             target.appendChild(accGroup);
           }
@@ -4278,6 +4342,15 @@ export class NotationRenderer {
             let melismaEndX = null;
             for (let mi = ld.noteIndex + 1; mi < nextNoteIndex; mi += 1) {
               const mel = voice.notes[mi];
+              // After the voice's FINAL syllable only a tied continuation
+              // extends the line — every later untexted note just means the
+              // voice has no more words, not a melisma to the double bar.
+              if (
+                !nextEntry &&
+                (!mel || Array.isArray(mel) || !(mel.tie === 'continue' || mel.tie === 'stop'))
+              ) {
+                break;
+              }
               if (
                 mel &&
                 !Array.isArray(mel) &&

@@ -399,4 +399,60 @@ describe('NotationRenderer — two voices per staff (close score)', () => {
       expect(ctx.container.querySelectorAll('.clef-bass')).toHaveLength(1);
     });
   });
+
+  describe('accidental staggering (Gould: within a sixth, no shared column)', () => {
+    const accidentalX = (el) =>
+      Number(/translate\(([-\d.]+)/.exec(el.getAttribute('transform'))[1]);
+
+    it('staggers simultaneous accidentals a third apart across shared-staff voices', () => {
+      ctx.render(
+        sharedStaffSong({
+          sop: [q('F#4'), q('C5'), q('C5'), q('C5')],
+          alto: [q('D#4'), q('F4'), q('F4'), q('F4')],
+        })
+      );
+      const sharps = [...ctx.container.querySelectorAll('.accidental.sharp')];
+      expect(sharps).toHaveLength(2);
+      const [x1, x2] = sharps.map(accidentalX);
+      // The second (lower voice) accidental steps LEFT of the first.
+      expect(x2).toBeLessThan(x1 - 10);
+    });
+
+    it('keeps distant simultaneous accidentals (an octave+) in one column', () => {
+      ctx.render(
+        sharedStaffSong({
+          sop: [q('F#5'), q('C5'), q('C5'), q('C5')],
+          alto: [q('F#4'), q('F4'), q('F4'), q('F4')],
+        })
+      );
+      const sharps = [...ctx.container.querySelectorAll('.accidental.sharp')];
+      expect(sharps).toHaveLength(2);
+      const [x1, x2] = sharps.map(accidentalX);
+      expect(Math.abs(x1 - x2)).toBeLessThan(1);
+    });
+
+    it('composes doubleFlat from two flat glyphs (the font dump outline is corrupt)', () => {
+      ctx.render(
+        sharedStaffSong({
+          sop: [q('Bbb4'), q('C5'), q('C5'), q('C5')],
+          alto: [q('F4'), q('F4'), q('F4'), q('F4')],
+        })
+      );
+      const dbl = ctx.container.querySelector('.accidental.doubleFlat');
+      expect(dbl).not.toBeNull();
+      expect(dbl.querySelectorAll('path')).toHaveLength(2);
+    });
+
+    it('renders doubleSharp with its single intact glyph', () => {
+      ctx.render(
+        sharedStaffSong({
+          sop: [q('F##4'), q('C5'), q('C5'), q('C5')],
+          alto: [q('A4'), q('A4'), q('A4'), q('A4')],
+        })
+      );
+      const dbl = ctx.container.querySelector('.accidental.doubleSharp');
+      expect(dbl).not.toBeNull();
+      expect(dbl.querySelectorAll('path')).toHaveLength(1);
+    });
+  });
 });

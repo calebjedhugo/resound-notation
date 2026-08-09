@@ -7,7 +7,7 @@
 
 const NOTE_INDICES = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
 
-const PITCH_REGEX = /^([A-G])(#|b)?(\d)$/;
+const PITCH_REGEX = /^([A-G])(##|#|bb|b)?(\d)$/;
 
 /**
  * Reference constant per clef: the diatonic position of the note at y=0

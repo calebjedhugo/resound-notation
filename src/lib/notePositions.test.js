@@ -29,6 +29,20 @@ describe('notePositions', () => {
       expect(result.noteIndex).toBe(6);
     });
 
+    it('parses double accidentals (Bbb3, F##5)', () => {
+      // A Db-major augmented sixth spells its b6 as Bbb — the schema allows
+      // double accidentals and the parser must not reject them.
+      const dblFlat = parsePitch('Bbb3');
+      expect(dblFlat.noteName).toBe('B');
+      expect(dblFlat.accidental).toBe('bb');
+      expect(dblFlat.octave).toBe(3);
+
+      const dblSharp = parsePitch('F##5');
+      expect(dblSharp.noteName).toBe('F');
+      expect(dblSharp.accidental).toBe('##');
+      expect(dblSharp.octave).toBe(5);
+    });
+
     it('parses the lowest note A0', () => {
       const result = parsePitch('A0');
 

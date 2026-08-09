@@ -4,6 +4,20 @@
 
 ### Added
 
+- **Double accidentals** — `##`/`bb` accepted in pitch strings end to end
+  (parse, MIDI math, ottava logic) and rendered with the SMuFL doubleSharp /
+  doubleFlat glyphs, honouring in-measure accidental memory. A Db-major
+  augmented sixth's Bbb no longer throws `Invalid pitch`. The doubleFlat is
+  composed from two flat glyphs at the font's 411-unit advance (the asset
+  dump's doubleFlat outline is truncated/corrupt and rendered with
+  artifacts); doubleSharp uses its intact glyph.
+- **Accidental staggering** (Gould: accidentals on notes within a sixth
+  never share a vertical column) — simultaneous accidentals in one attack
+  column, whether chord notes or the two voices of a shared staff, now
+  step left column by column instead of colliding. Wide glyphs
+  (doubleFlat) right-align to the standard accidental edge and claim
+  their full width.
+
 - **Two voices per staff (close score)** — SPEC-multi-voice-staff.md. A
   Level-3 voice may declare an optional `staff` key; voices with the same
   value render on ONE shared staff (the SATB hymnal layout: soprano+alto on
@@ -92,6 +106,12 @@
   MIN_BARLINE_PADDING floor, and a degenerate single measure that cannot
   fit still renders at its natural (overfull) extent rather than being
   compressed.
+
+- **Lyric extender lines after a voice's final syllable** — the melisma
+  underscore now extends past the last syllable only through tied
+  continuations of its own note. Untexted notes after the voice's last word
+  (a bass echo line ending mid-song) no longer drew a line to the double
+  bar.
 
 ## 1.0.0 — 2026-06-25
 
