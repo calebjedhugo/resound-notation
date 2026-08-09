@@ -669,28 +669,35 @@ function collectVoiceEvents(voiceNotes) {
  * required by any voice covering that gap (pro-rated by event duration).
  */
 function computeBeatLayout(voices, startX) {
-  const allEvents = [];
-  for (const voice of voices) {
-    for (const ev of collectVoiceEvents(voice.notes)) {
-      allEvents.push(ev);
-    }
-  }
+  const voiceEvents = voices.map((voice) => collectVoiceEvents(voice.notes));
 
   const beats = new Set([0]);
-  for (const ev of allEvents) {
-    beats.add(ev.startBeat);
-    beats.add(ev.endBeat);
+  for (const events of voiceEvents) {
+    for (const ev of events) {
+      beats.add(ev.startBeat);
+      beats.add(ev.endBeat);
+    }
   }
   const sorted = [...beats].sort((a, b) => a - b);
 
+  // A voice's events are contiguous and ascending, so at most ONE of them
+  // covers any gap — sweep a per-voice cursor forward with the gaps instead
+  // of rescanning every event per gap (which was O(beats x events), the
+  // hottest loop in the whole layout).
   const map = new Map([[sorted[0], startX]]);
+  const cursors = new Array(voiceEvents.length).fill(0);
   for (let i = 0; i < sorted.length - 1; i += 1) {
     const a = sorted[i];
     const z = sorted[i + 1];
     const gap = z - a;
     let maxWidth = 0;
-    for (const ev of allEvents) {
-      if (ev.startBeat <= a + 0.0001 && ev.endBeat >= z - 0.0001) {
+    for (let vi = 0; vi < voiceEvents.length; vi += 1) {
+      const events = voiceEvents[vi];
+      let c = cursors[vi];
+      while (c < events.length && events[c].endBeat < z - 0.0001) c += 1;
+      cursors[vi] = c;
+      const ev = events[c];
+      if (ev && ev.startBeat <= a + 0.0001 && ev.endBeat >= z - 0.0001) {
         const evDur = ev.endBeat - ev.startBeat;
         const contribution = ev.spacing * (gap / evDur);
         if (contribution > maxWidth) maxWidth = contribution;

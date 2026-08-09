@@ -95,7 +95,37 @@ export function sliceVoiceByMeasure(
   endMeasure,
   pickupBeats = 0
 ) {
-  // First pass: assign each note index to its measure index. With a pickup
+  // The measure-assignment walk below is range-independent, and the system
+  // breaker slices the same voice arrays once per candidate run — so cache
+  // the assignment per (array, grid). The WeakMap keys on the array object:
+  // the renderer builds fresh note arrays each render, so entries die with
+  // them and a mutated-then-resliced array cannot serve stale indices
+  // within one render (nothing mutates between slices).
+  let byGrid = measureOfCache.get(voiceNotes);
+  if (!byGrid) {
+    byGrid = new Map();
+    measureOfCache.set(voiceNotes, byGrid);
+  }
+  const gridKey = `${measureLength}|${pickupBeats}`;
+  let measureOf = byGrid.get(gridKey);
+  if (!measureOf) {
+    measureOf = assignMeasures(voiceNotes, measureLength, pickupBeats);
+    byGrid.set(gridKey, measureOf);
+  }
+
+  const out = [];
+  for (let i = 0; i < voiceNotes.length; i += 1) {
+    const m = measureOf[i];
+    if (m >= startMeasure && m <= endMeasure) out.push(voiceNotes[i]);
+  }
+  return out;
+}
+
+const measureOfCache = new WeakMap();
+
+/** Range-independent pass: the measure index every element belongs to. */
+function assignMeasures(voiceNotes, measureLength, pickupBeats) {
+  // Assign each note index to its measure index. With a pickup
   // (SPEC-pickup-and-barline-lyrics.md JOB B) measure 0 fills at
   // `pickupBeats`; every later measure fills at `measureLength`.
   const fillFor = (m) => (m === 0 && pickupBeats ? pickupBeats : measureLength);
@@ -154,12 +184,5 @@ export function sliceVoiceByMeasure(
       if (measureOf[j] === -1 && isMarker(voiceNotes[j])) measureOf[j] = targetMeasure;
     }
   }
-
-  // Second pass: collect elements whose measure is in range.
-  const out = [];
-  for (let i = 0; i < voiceNotes.length; i += 1) {
-    const m = measureOf[i];
-    if (m >= startMeasure && m <= endMeasure) out.push(voiceNotes[i]);
-  }
-  return out;
+  return measureOf;
 }
