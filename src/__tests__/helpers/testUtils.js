@@ -4,6 +4,25 @@
  */
 
 import { NotationRenderer } from '../../NotationRenderer.js';
+import { injectSmuflDefs } from '../../assets/glyphs.js';
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/**
+ * Resolve the SMuFL glyph def <path>s referenced by the <use> instance(s)
+ * at or under `el`, in document order. Materializes defs the same way the
+ * renderer does at the end of render(), so tests on detached components
+ * can still assert on glyph path data.
+ */
+export function smuflGlyphPaths(el) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.appendChild(el.cloneNode(true));
+  injectSmuflDefs(svg);
+  return Array.from(svg.querySelectorAll('use'), (use) => {
+    const href = use.getAttribute('href') || '';
+    return svg.querySelector(`defs path[id="${href.slice(1)}"]`);
+  }).filter(Boolean);
+}
 
 export function createNotationContext() {
   const container = document.createElement('div');

@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 
 import { createRest } from './Rest.js';
+import { smuflGlyphPaths } from '../__tests__/helpers/testUtils.js';
 
 describe('Rest', () => {
   describe('createRest', () => {
@@ -35,40 +36,22 @@ describe('Rest', () => {
       expect(el.getAttribute('transform')).toContain('100');
     });
 
-    it('whole rest renders a Bravura path glyph', () => {
-      const el = createRest({ length: '1/1', x: 0 });
-      const symbol = el.querySelector('.rest-symbol');
-      expect(symbol).not.toBeNull();
-      expect(symbol.querySelector('path')).not.toBeNull();
-    });
-
-    it('half rest renders a Bravura path glyph', () => {
-      const el = createRest({ length: '1/2', x: 0 });
-      const symbol = el.querySelector('.rest-symbol');
-      expect(symbol).not.toBeNull();
-      expect(symbol.querySelector('path')).not.toBeNull();
-    });
-
-    it('quarter rest renders a path element', () => {
-      const el = createRest({ length: '1/4', x: 0 });
-      const symbol = el.querySelector('.rest-symbol');
-      expect(symbol).not.toBeNull();
-      expect(symbol.querySelector('path')).not.toBeNull();
-    });
-
-    it('eighth rest renders a path element', () => {
-      const el = createRest({ length: '1/8', x: 0 });
-      const symbol = el.querySelector('.rest-symbol');
-      expect(symbol).not.toBeNull();
-      expect(symbol.querySelector('path')).not.toBeNull();
-    });
-
-    it('16th rest renders a path element', () => {
-      const el = createRest({ length: '1/16', x: 0 });
-      const symbol = el.querySelector('.rest-symbol');
-      expect(symbol).not.toBeNull();
-      expect(symbol.querySelector('path')).not.toBeNull();
-    });
+    for (const [label, length] of [
+      ['whole', '1/1'],
+      ['half', '1/2'],
+      ['quarter', '1/4'],
+      ['eighth', '1/8'],
+      ['16th', '1/16'],
+    ]) {
+      it(`${label} rest renders a Bravura glyph`, () => {
+        const el = createRest({ length, x: 0 });
+        const symbol = el.querySelector('.rest-symbol');
+        expect(symbol).not.toBeNull();
+        const [path] = smuflGlyphPaths(symbol);
+        expect(path).toBeDefined();
+        expect(path.getAttribute('d')).toBeTruthy();
+      });
+    }
 
     it('contains children for all supported rest types', () => {
       const lengths = ['1/1', '1/2', '1/4', '1/8', '1/16'];

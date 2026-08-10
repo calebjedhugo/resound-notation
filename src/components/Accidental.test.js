@@ -1,12 +1,13 @@
 /** @jest-environment jsdom */
 
 import { createAccidental } from './Accidental.js';
+import { smuflGlyphPaths } from '../__tests__/helpers/testUtils.js';
 
 describe('Accidental', () => {
   describe('createAccidental', () => {
-    it('returns a group with class "accidental sharp" for sharp', () => {
+    it('returns a glyph instance with class "accidental sharp" for sharp', () => {
       const el = createAccidental('sharp');
-      expect(el.tagName).toBe('g');
+      expect(el.tagName).toBe('use');
       expect(el.getAttribute('class')).toBe('accidental sharp');
     });
 
@@ -20,32 +21,29 @@ describe('Accidental', () => {
       expect(el.getAttribute('class')).toBe('accidental natural');
     });
 
-    it('contains a text or path element for each accidental type', () => {
+    it('resolves to a glyph def path for each accidental type', () => {
       for (const type of ['sharp', 'flat', 'natural']) {
         const el = createAccidental(type);
-        expect(el.children.length).toBeGreaterThan(0);
+        expect(smuflGlyphPaths(el).length).toBeGreaterThan(0);
       }
     });
 
-    it('sharp symbol contains the sharp character or a path', () => {
-      const el = createAccidental('sharp');
-      const text = el.querySelector('text');
-      const path = el.querySelector('path');
-      expect(text || path).not.toBeNull();
+    it('sharp symbol resolves to a path with data', () => {
+      const [path] = smuflGlyphPaths(createAccidental('sharp'));
+      expect(path).toBeDefined();
+      expect(path.getAttribute('d')).toBeTruthy();
     });
 
-    it('flat symbol contains the flat character or a path', () => {
-      const el = createAccidental('flat');
-      const text = el.querySelector('text');
-      const path = el.querySelector('path');
-      expect(text || path).not.toBeNull();
+    it('flat symbol resolves to a path with data', () => {
+      const [path] = smuflGlyphPaths(createAccidental('flat'));
+      expect(path).toBeDefined();
+      expect(path.getAttribute('d')).toBeTruthy();
     });
 
-    it('natural symbol contains the natural character or a path', () => {
-      const el = createAccidental('natural');
-      const text = el.querySelector('text');
-      const path = el.querySelector('path');
-      expect(text || path).not.toBeNull();
+    it('natural symbol resolves to a path with data', () => {
+      const [path] = smuflGlyphPaths(createAccidental('natural'));
+      expect(path).toBeDefined();
+      expect(path.getAttribute('d')).toBeTruthy();
     });
 
     it('throws for unknown accidental type', () => {

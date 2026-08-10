@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 
 import { createTimeSignature } from './TimeSignature.js';
+import { smuflGlyphPaths } from '../__tests__/helpers/testUtils.js';
 
 describe('TimeSignature', () => {
   describe('createTimeSignature', () => {
@@ -10,29 +11,33 @@ describe('TimeSignature', () => {
       expect(width).toBeGreaterThan(0);
     });
 
-    it('renders numerator and denominator as Bravura path glyphs (no <text>)', () => {
+    it('renders numerator and denominator as Bravura glyphs (no <text>)', () => {
       const { element } = createTimeSignature([4, 4]);
       expect(element.querySelector('text')).toBeNull();
-      expect(element.querySelector('.time-numerator path')).not.toBeNull();
-      expect(element.querySelector('.time-denominator path')).not.toBeNull();
+      expect(
+        smuflGlyphPaths(element.querySelector('.time-numerator')).length
+      ).toBeGreaterThan(0);
+      expect(
+        smuflGlyphPaths(element.querySelector('.time-denominator')).length
+      ).toBeGreaterThan(0);
     });
 
-    it('renders one path glyph per digit', () => {
+    it('renders one glyph instance per digit', () => {
       const { element } = createTimeSignature([12, 8]);
-      expect(element.querySelectorAll('.time-numerator path').length).toBe(2);
-      expect(element.querySelectorAll('.time-denominator path').length).toBe(1);
+      expect(element.querySelectorAll('.time-numerator use').length).toBe(2);
+      expect(element.querySelectorAll('.time-denominator use').length).toBe(1);
     });
 
     it('positions numerator centered in upper staff half (y=30)', () => {
       const { element } = createTimeSignature([4, 4]);
-      const digit = element.querySelector('.time-numerator > g');
+      const digit = element.querySelector('.time-numerator > use');
       const transform = digit.getAttribute('transform');
       expect(transform).toMatch(/translate\([-\d.]+,\s*30\)/);
     });
 
     it('positions denominator centered in lower staff half (y=70)', () => {
       const { element } = createTimeSignature([4, 4]);
-      const digit = element.querySelector('.time-denominator > g');
+      const digit = element.querySelector('.time-denominator > use');
       const transform = digit.getAttribute('transform');
       expect(transform).toMatch(/translate\([-\d.]+,\s*70\)/);
     });

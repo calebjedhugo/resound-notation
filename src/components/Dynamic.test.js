@@ -24,8 +24,8 @@ describe('dynamics rendering', () => {
       const dynamics = ctx.getDynamics();
       expect(dynamics).toHaveLength(1);
       expect(dynamics[0].dataset.dynamic).toBe('f');
-      // f letter is one Bravura glyph path.
-      expect(dynamics[0].querySelectorAll('path')).toHaveLength(1);
+      // f letter is one Bravura glyph instance.
+      expect(dynamics[0].querySelectorAll('use')).toHaveLength(1);
     });
 
     it('renders multi-character dynamics as a single element', () => {
@@ -34,7 +34,7 @@ describe('dynamics rendering', () => {
       const dynamic = ctx.container.querySelector('.dynamic');
       expect(dynamic.dataset.dynamic).toBe('mf');
       // mf renders as 2 letter glyphs.
-      expect(dynamic.querySelectorAll('path')).toHaveLength(2);
+      expect(dynamic.querySelectorAll('use')).toHaveLength(2);
     });
 
     it('renders multiple dynamics at their respective positions', () => {
@@ -67,11 +67,11 @@ describe('dynamics rendering', () => {
 
         const dynamic = ctx.container.querySelector('.dynamic');
         expect(dynamic.dataset.dynamic).toBe(val);
-        // Each character that maps to a Bravura letter renders one path.
+        // Each character that maps to a Bravura letter renders one glyph.
         const expected = [...val.toLowerCase()].filter((c) =>
           'pmfrszn'.includes(c)
         ).length;
-        expect(dynamic.querySelectorAll('path')).toHaveLength(expected);
+        expect(dynamic.querySelectorAll('use')).toHaveLength(expected);
         ctx.renderer.clear();
       });
     });

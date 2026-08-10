@@ -17,7 +17,7 @@
  * SMUFL_SCALE = LINE_SPACING/250 = 20/250 = 0.08 px/font-unit.
  */
 
-import { createGroup, createPath } from '../lib/svgHelpers.js';
+import { createPath, createSvgElement } from '../lib/svgHelpers.js';
 
 // SMuFL → staff-coord pixel scale. LINE_SPACING (20px) / fu-per-space (250).
 export const SMUFL_SCALE = 0.08;
@@ -325,34 +325,119 @@ export const FLAG_GLYPHS = {
 };
 /* eslint-enable max-len */
 
+// Glyph <defs> registry. Each distinct glyph object gets one stable id;
+// instances reference it via <use href="#id">, and injectSmuflDefs()
+// materializes only the referenced defs into each rendered SVG so every
+// SVG stays self-contained (clones/serializations carry their glyphs).
+// Ids repeat across multiple SVGs on one page, but the def content for a
+// given id is identical everywhere, so document-wide href resolution is
+// harmless.
+let nextSmuflDefId = 1;
+const smuflDefIds = new Map();
+const smuflGlyphsById = new Map();
+
+function smuflDefId(glyph) {
+  let id = smuflDefIds.get(glyph);
+  if (!id) {
+    id = `smufl-${nextSmuflDefId++}`;
+    smuflDefIds.set(glyph, id);
+    smuflGlyphsById.set(id, glyph);
+  }
+  return id;
+}
+
+// Horizontal registration: glyphs center on the bbox x-center by default;
+// a `headCx` (grace notes: notehead center; flags: 0 = SMuFL origin)
+// overrides it so the head/anchor lands at local x=0.
+function smuflCx(glyph) {
+  return typeof glyph.headCx === 'number'
+    ? glyph.headCx
+    : (glyph.bbox.xMin + glyph.bbox.xMax) / 2;
+}
+
+/** The <defs> entry for a glyph: a <path id> carrying the glyph-constant
+ * scale/flip/centering transform, so instances are bare <use> nodes. */
+function createSmuflDefPath(glyph) {
+  const attrs = {
+    id: smuflDefId(glyph),
+    fill: 'currentColor',
+    transform: `translate(${-smuflCx(glyph) * SMUFL_SCALE}, 0) scale(${SMUFL_SCALE}, ${-SMUFL_SCALE})`,
+  };
+  if (glyph.fillRule) attrs['fill-rule'] = glyph.fillRule;
+  return createPath(glyph.d, attrs);
+}
+
 /**
  * Render a SMuFL glyph at engraving scale (SMUFL_SCALE px/font-unit).
  * Glyph path is in SMuFL font coords (y=0 = staff midline, y positive =
- * above midline). The inner transform applies SMUFL_SCALE in x and
- * -SMUFL_SCALE in y to scale + flip Y into SVG screen coords. Outer
- * transform centers the glyph horizontally on local x=0; vertical anchor
- * stays at the SMuFL origin (midline). Caller positions via translate().
+ * above midline); the def's transform applies SMUFL_SCALE in x and
+ * -SMUFL_SCALE in y to scale + flip Y into SVG screen coords, and centers
+ * the glyph horizontally on local x=0 (vertical anchor stays at the SMuFL
+ * origin/midline). Each instance is a single <use> node referencing the
+ * shared per-SVG def; caller positions via translate(). The owning SVG
+ * must pass through injectSmuflDefs() before display (the renderer does
+ * this at the end of render()).
  *
  * @param {{d:string, bbox:{xMin:number,xMax:number,yMin:number,yMax:number}, fillRule?:string}} glyph
  * @param {string} className
- * @returns {SVGGElement}
+ * @returns {SVGUseElement}
  */
 export function createSmuflGlyph(glyph, className) {
-  // Grace-note glyphs (and any glyph with a `headCx`) center on the notehead
-  // x-center, not the full bbox center, so the head lands at local x=0 and
-  // the stem/flag overhang to one side.
-  const cx = typeof glyph.headCx === 'number'
-    ? glyph.headCx
-    : (glyph.bbox.xMin + glyph.bbox.xMax) / 2;
-  const wrapper = createGroup(className);
-  const inner = createGroup('', {
-    transform: `translate(${-cx * SMUFL_SCALE}, 0) scale(${SMUFL_SCALE}, ${-SMUFL_SCALE})`,
-  });
-  const pathAttrs = { fill: 'currentColor' };
-  if (glyph.fillRule) pathAttrs['fill-rule'] = glyph.fillRule;
-  inner.appendChild(createPath(glyph.d, pathAttrs));
-  wrapper.appendChild(inner);
-  return wrapper;
+  const use = createSvgElement('use', { href: `#${smuflDefId(glyph)}` });
+  if (className) use.setAttribute('class', className);
+  return use;
+}
+
+/**
+ * Materialize a <defs> block containing every SMuFL glyph referenced by a
+ * <use> inside `svg`, prepended as the SVG's first child. Idempotent per
+ * render (the renderer builds a fresh SVG each time). No-op when the SVG
+ * contains no glyph references.
+ * @param {SVGElement} svg
+ */
+export function injectSmuflDefs(svg) {
+  const used = new Set();
+  for (const use of svg.querySelectorAll('use')) {
+    const href = use.getAttribute('href') || '';
+    if (href.startsWith('#smufl-')) used.add(href.slice(1));
+  }
+  if (used.size === 0) return;
+  const defs = createSvgElement('defs');
+  const ids = Array.from(used).sort(
+    (a, b) => Number(a.slice(6)) - Number(b.slice(6))
+  );
+  for (const id of ids) {
+    defs.appendChild(createSmuflDefPath(smuflGlyphsById.get(id)));
+  }
+  svg.insertBefore(defs, svg.firstChild);
+}
+
+// Pre-register every glyph table in a fixed order so def ids are stable
+// regardless of which glyphs a given render touches first — byte-identical
+// serialization harnesses (and diff-friendly SVG output) rely on it.
+for (const glyph of [
+  NOTEHEAD_BLACK_GLYPH,
+  NOTEHEAD_HALF_GLYPH,
+  NOTEHEAD_WHOLE_GLYPH,
+  NOTEHEAD_X_BLACK_GLYPH,
+  AUGMENTATION_DOT_GLYPH,
+  ...Object.values(ARTICULATION_GLYPHS),
+  ...Object.values(ACCIDENTAL_GLYPHS),
+  ...Object.values(DYNAMIC_LETTERS),
+  ...Object.values(TUPLET_DIGITS),
+  ...Object.values(CLEF_GLYPHS),
+  ...Object.values(REST_GLYPHS),
+  ...Object.values(TIME_SIG_DIGITS),
+  GRACE_NOTE_ACCIACCATURA_STEM_UP_GLYPH,
+  GRACE_NOTE_APPOGGIATURA_STEM_UP_GLYPH,
+  GRACE_NOTE_SLASH_STEM_UP_GLYPH,
+  BRACE_GLYPH,
+  BRACKET_TOP_GLYPH,
+  BRACKET_BOTTOM_GLYPH,
+  ...Object.values(OTTAVA_GLYPHS),
+  ...Object.values(FLAG_GLYPHS),
+]) {
+  smuflDefId(glyph);
 }
 
 /**

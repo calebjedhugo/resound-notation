@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 
 import { createClef } from './Clef.js';
+import { smuflGlyphPaths } from '../__tests__/helpers/testUtils.js';
 
 describe('Clef', () => {
   describe('createClef', () => {
@@ -20,17 +21,15 @@ describe('Clef', () => {
       expect(el.getAttribute('class')).toBe('clef clef-percussion');
     });
 
-    it('contains a path element for treble clef', () => {
-      const el = createClef('treble');
-      const path = el.querySelector('path');
-      expect(path).not.toBeNull();
+    it('resolves to a glyph path for treble clef', () => {
+      const [path] = smuflGlyphPaths(createClef('treble'));
+      expect(path).toBeDefined();
       expect(path.getAttribute('d')).toBeTruthy();
     });
 
-    it('contains a path element for bass clef', () => {
-      const el = createClef('bass');
-      const path = el.querySelector('path');
-      expect(path).not.toBeNull();
+    it('resolves to a glyph path for bass clef', () => {
+      const [path] = smuflGlyphPaths(createClef('bass'));
+      expect(path).toBeDefined();
       expect(path.getAttribute('d')).toBeTruthy();
     });
 

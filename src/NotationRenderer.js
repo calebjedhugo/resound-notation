@@ -6,6 +6,7 @@
 import { createSvgElement, createGroup, createLine } from './lib/svgHelpers.js';
 import {
   createSmuflGlyph,
+  injectSmuflDefs,
   smuflTip,
   NOTEHEAD_BLACK_GLYPH,
   NOTEHEAD_HALF_GLYPH,
@@ -2473,6 +2474,10 @@ export class NotationRenderer {
       this._svg.setAttribute('width', svgPxWidth * effectiveScale);
       this._svg.setAttribute('height', svgPxHeight * effectiveScale);
     }
+
+    // Every SMuFL glyph instance is a <use>; materialize the referenced
+    // glyph defs into this SVG so it renders (and serializes) standalone.
+    injectSmuflDefs(this._svg);
 
     if (this._container) {
       this._container.appendChild(this._svg);

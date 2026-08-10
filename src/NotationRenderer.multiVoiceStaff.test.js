@@ -440,7 +440,7 @@ describe('NotationRenderer — two voices per staff (close score)', () => {
       );
       const dbl = ctx.container.querySelector('.accidental.doubleFlat');
       expect(dbl).not.toBeNull();
-      expect(dbl.querySelectorAll('path')).toHaveLength(2);
+      expect(dbl.querySelectorAll('use')).toHaveLength(2);
     });
 
     it('renders doubleSharp with its single intact glyph', () => {
@@ -452,7 +452,8 @@ describe('NotationRenderer — two voices per staff (close score)', () => {
       );
       const dbl = ctx.container.querySelector('.accidental.doubleSharp');
       expect(dbl).not.toBeNull();
-      expect(dbl.querySelectorAll('path')).toHaveLength(1);
+      // Single-glyph accidentals ARE the <use> instance (no wrapper group).
+      expect(dbl.tagName).toBe('use');
     });
   });
 });

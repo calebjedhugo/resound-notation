@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 
-import { createNotationContext } from './__tests__/helpers/testUtils.js';
+import { createNotationContext, smuflGlyphPaths } from './__tests__/helpers/testUtils.js';
 import {
   NotationRenderer,
   PROFESSIONAL_BASE_SCALE,
@@ -207,8 +207,8 @@ describe('NotationRenderer', () => {
       ctx.render([{ pitch: 'E4', length: '1/4' }]);
       const head = ctx.container.querySelector('.note-head');
       expect(head.tagName.toLowerCase()).not.toBe('ellipse');
-      const path = head.querySelector('path');
-      expect(path).not.toBeNull();
+      const [path] = smuflGlyphPaths(head);
+      expect(path).toBeDefined();
       // Stable Bravura noteheadBlack signature: max-x vertex at (295, 42).
       expect(path.getAttribute('d')).toContain('295');
     });
@@ -283,8 +283,8 @@ describe('NotationRenderer', () => {
       expect(note).not.toBeNull();
       const head = note.querySelector('.note-head');
       expect(head).not.toBeNull();
-      // The head wrapper should contain a <path>, not be an <ellipse>.
-      expect(head.querySelector('path')).not.toBeNull();
+      // The head must resolve to a glyph <path>, not be an <ellipse>.
+      expect(smuflGlyphPaths(head).length).toBeGreaterThan(0);
     });
 
     it('renders accidentals as path glyphs, not Unicode text', () => {
@@ -307,7 +307,7 @@ describe('NotationRenderer', () => {
       const accidentals = ctx.container.querySelectorAll('.accidental');
       expect(accidentals.length).toBeGreaterThan(0);
       for (const acc of accidentals) {
-        expect(acc.querySelector('path')).not.toBeNull();
+        expect(smuflGlyphPaths(acc).length).toBeGreaterThan(0);
         expect(acc.querySelector('text')).toBeNull();
       }
     });
@@ -543,8 +543,8 @@ describe('NotationRenderer', () => {
       // Numerator + denominator each render at least one <path>.
       const numerator = sig.querySelector('.time-numerator');
       const denominator = sig.querySelector('.time-denominator');
-      expect(numerator.querySelector('path')).not.toBeNull();
-      expect(denominator.querySelector('path')).not.toBeNull();
+      expect(smuflGlyphPaths(numerator).length).toBeGreaterThan(0);
+      expect(smuflGlyphPaths(denominator).length).toBeGreaterThan(0);
     });
 
     // Clefs must render as Bravura SMuFL path glyphs. Pin via path
@@ -556,10 +556,10 @@ describe('NotationRenderer', () => {
           { clef: 'bass', notes: [{ pitch: 'C3', length: '1/4' }] },
         ],
       });
-      const treble = ctx.container.querySelector('.clef-treble path');
-      const bass = ctx.container.querySelector('.clef-bass path');
-      expect(treble).not.toBeNull();
-      expect(bass).not.toBeNull();
+      const [treble] = smuflGlyphPaths(ctx.container.querySelector('.clef-treble'));
+      const [bass] = smuflGlyphPaths(ctx.container.querySelector('.clef-bass'));
+      expect(treble).toBeDefined();
+      expect(bass).toBeDefined();
       // Bravura gClef path begins with M376; fClef begins with M252.
       expect(treble.getAttribute('d').startsWith('M376')).toBe(true);
       expect(bass.getAttribute('d').startsWith('M252')).toBe(true);
@@ -576,7 +576,8 @@ describe('NotationRenderer', () => {
       });
       const rest = ctx.container.querySelector('.rest-16th .rest-symbol');
       expect(rest).not.toBeNull();
-      const path = rest.querySelector('path') || rest;
+      const [path] = smuflGlyphPaths(rest);
+      expect(path).toBeDefined();
       // Bravura rest16th signature: bbox max-x is 320 fu.
       expect(path.getAttribute('d')).toContain('320');
     });
@@ -902,7 +903,7 @@ describe('NotationRenderer', () => {
       ctx.render({ timeSignature: [12, 8], notes: [{ pitch: 'C4', length: '1/4' }] });
       const numerator = ctx.container.querySelector('.time-numerator');
       // "12" → two digit glyphs.
-      expect(numerator.querySelectorAll('path').length).toBeGreaterThanOrEqual(2);
+      expect(numerator.querySelectorAll('use').length).toBeGreaterThanOrEqual(2);
     });
   });
 
@@ -1600,8 +1601,8 @@ describe('NotationRenderer', () => {
       ctx.render([{ pitch: 'C5', length: '1/8' }]);
       const flag = ctx.container.querySelector('.note-flag');
       expect(flag).not.toBeNull();
-      const path = flag.querySelector('path');
-      expect(path).not.toBeNull();
+      const [path] = smuflGlyphPaths(flag);
+      expect(path).toBeDefined();
       const d = path.getAttribute('d');
       expect(d).toContain('M240 760C254 718');
     });
@@ -5474,8 +5475,8 @@ describe('NotationRenderer', () => {
         '.ottava-bracket.ottava-8va .ottava-glyph'
       );
       expect(glyph).not.toBeNull();
-      const path = glyph.querySelector('path');
-      expect(path).not.toBeNull();
+      const [path] = smuflGlyphPaths(glyph);
+      expect(path).toBeDefined();
       const d = path.getAttribute('d') || '';
       const subpathCount = (d.match(/M/g) || []).length;
       // Bare "8" = 3 subpaths. Composed "8va" should have 6+.

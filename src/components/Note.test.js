@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 
 import { createNote } from './Note';
+import { smuflGlyphPaths } from '../__tests__/helpers/testUtils.js';
 
 describe('Note', () => {
   describe('createNote', () => {
@@ -31,37 +32,34 @@ describe('Note', () => {
   });
 
   describe('note head', () => {
-    it('renders a Bravura path glyph for quarter notes', () => {
+    it('renders a Bravura glyph for quarter notes', () => {
       const g = createNote({ pitch: 'C4', length: '1/4', x: 0, clef: 'treble' });
       const head = g.querySelector('.note-head');
       expect(head).not.toBeNull();
-      const path = head.querySelector('path');
-      expect(path).not.toBeNull();
+      const [path] = smuflGlyphPaths(head);
+      expect(path).toBeDefined();
       // Bravura noteheadBlack signature vertex.
       expect(path.getAttribute('d')).toContain('295');
     });
 
     it('renders a hollow head for half notes (evenodd cutout)', () => {
       const g = createNote({ pitch: 'C4', length: '1/2', x: 0, clef: 'treble' });
-      const head = g.querySelector('.note-head');
-      const path = head.querySelector('path');
-      expect(path).not.toBeNull();
+      const [path] = smuflGlyphPaths(g.querySelector('.note-head'));
+      expect(path).toBeDefined();
       expect(path.getAttribute('fill-rule')).toBe('evenodd');
     });
 
     it('renders a hollow head for whole notes (evenodd cutout)', () => {
       const g = createNote({ pitch: 'C4', length: '1/1', x: 0, clef: 'treble' });
-      const head = g.querySelector('.note-head');
-      const path = head.querySelector('path');
-      expect(path).not.toBeNull();
+      const [path] = smuflGlyphPaths(g.querySelector('.note-head'));
+      expect(path).toBeDefined();
       expect(path.getAttribute('fill-rule')).toBe('evenodd');
     });
 
     it('renders a filled black-notehead glyph for eighth notes', () => {
       const g = createNote({ pitch: 'C4', length: '1/8', x: 0, clef: 'treble' });
-      const head = g.querySelector('.note-head');
-      const path = head.querySelector('path');
-      expect(path).not.toBeNull();
+      const [path] = smuflGlyphPaths(g.querySelector('.note-head'));
+      expect(path).toBeDefined();
       // Bravura black notehead has no fill-rule (solid fill).
       expect(path.getAttribute('fill-rule')).toBeNull();
     });

@@ -7,14 +7,14 @@ Published SVG notation package extracted from `resound-fe/src/notation/`. See `R
 - `src/NotationRenderer.js` — top-level renderer. ~4.7 k lines / ~210 kB; by far the meatiest file. Two methods dominate it: `render()` (piece-level: staff placement, system breaking) and `_renderSystem()` (everything visible in one system).
 - `src/components/` — 28 SVG primitives. Each exports a `create*` or `render*` factory that returns an SVG element or fragment.
 - `src/lib/` — 18 pure helpers. No DOM, no I/O. Cheap to test, fast to reason about. `lib/engravingDefaults.js` is the shared-constants module: Bravura stroke weights plus the staff geometry (`LINE_SPACING`, `MIDDLE_LINE_Y`, `STEM_LENGTH`, `STEM_THICKNESS`) that components and the renderer must agree on.
-- `src/assets/glyphs.js` — the SMuFL/Bravura glyph table (path data + bboxes) plus `createSmuflGlyph` / `smuflTip`. Not a public subpath export.
+- `src/assets/glyphs.js` — the SMuFL/Bravura glyph table (path data + bboxes) plus `createSmuflGlyph` / `smuflTip` / `injectSmuflDefs`. Each glyph instance is a single `<use href="#smufl-N">`; the referenced `<path>` defs (which carry the glyph-constant scale/flip/centering transform) are materialized per-SVG by `injectSmuflDefs` at the end of `render()`. Tests asserting on glyph path data resolve instances via `smuflGlyphPaths` in `src/__tests__/helpers/testUtils.js`. Not a public subpath export.
 - `src/index.js` — minimal barrel re-exporting `NotationRenderer`. Subpath exports do the rest.
 - All internal imports use **relative paths with explicit `.js` extensions** (mechanically rewritten from `notation/...` absolute imports during the extraction). Don't reintroduce absolute imports — there's no resolver plugin to handle them.
 
 ## Workflows
 
 ```bash
-npm test            # 925 jest tests across 51 suites (jsdom). Keep these green.
+npm test            # 934 jest tests across 51 suites (jsdom). Keep these green.
 npm run build       # babel CLI src→dist (per-file ESM) + tsc emit-only for .d.ts
 ```
 
