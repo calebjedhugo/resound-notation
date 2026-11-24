@@ -5,7 +5,8 @@
  */
 
 import { createGroup } from '../lib/svgHelpers.js';
-import { getDurationInfo } from '../lib/durationSymbols.js';
+import { getDurationInfo, dotCount } from '../lib/durationSymbols.js';
+import { appendAugmentationDots } from './AugmentationDots.js';
 import {
   createSmuflGlyph,
   SMUFL_SCALE,
@@ -37,7 +38,8 @@ const REST_PLACEMENT = {
  * @param {Object} params
  * @param {string} params.length - Fraction string (e.g. "1/4")
  * @param {number} params.x - Horizontal position
- * @param {boolean} [params.dotted] - Draw an augmentation dot right of the glyph
+ * @param {boolean|number} [params.dotted] - Augmentation dots right of the glyph:
+ *   true / 1 one, 2 two (a double dot)
  * @returns {SVGGElement}
  */
 export function createRest({ length, x, dotted }) {
@@ -66,9 +68,7 @@ export function createRest({ length, x, dotted }) {
     const dotGap = LINE_SPACING / 4;
     const dotX = glyphHalfWidth + dotGap + dotRadius;
     const dotY = MIDDLE_LINE_Y - LINE_SPACING / 2; // space above the midline
-    const dot = createSmuflGlyph(AUGMENTATION_DOT_GLYPH, 'augmentation-dot');
-    dot.setAttribute('transform', `translate(${dotX}, ${dotY})`);
-    group.appendChild(dot);
+    appendAugmentationDots(group, dotCount(dotted), dotX, dotY);
   }
 
   return group;

@@ -4,6 +4,19 @@
 
 ### Added
 
+- **Double dots** — `dotted: 2` on a note, rest or chord member is a
+  double-dotted value (1.75x the written length; `dotted: true` / `1`
+  stays one dot, 1.5x). Engraved with two augmentation dots (new
+  `components/AugmentationDots`), and counted at 1.75x everywhere the
+  renderer turns a length into beats (layout, barlines, beaming, measure
+  slicing, lyric spacing, tuplets, playback `data-beat`s). New
+  `lib/durationSymbols` exports `dotCount(dotted)` and `dotFactor(dotted)`.
+- **Dotted chords draw their dots** — every head of a dotted chord gets its
+  dot(s) in a space (a space two heads of a second share is dotted once).
+  Before, a dotted chord took a dotted chord's time but showed no dot.
+- Tests pin per-note ties inside chords (one chord tone tied, the rest
+  struck; a tie into an entry lacking its pitch draws nothing).
+
 - **`getContentWidth()`** — the rightmost rendered extent (widest system's
   closing barline) of the most recent render, in layout units. Lets a
   consumer that probe-renders at an oversized width (a one-system ribbon)

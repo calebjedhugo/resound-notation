@@ -4,7 +4,7 @@
  * Pure data module — no DOM.
  */
 
-import { getDurationInfo, fractionToBeats } from './durationSymbols.js';
+import { getDurationInfo, fractionToBeats, dotFactor } from './durationSymbols.js';
 import { MIDDLE_LINE_Y } from './engravingDefaults.js';
 
 const MAX_GROUP_SIZE = 4;
@@ -78,7 +78,7 @@ function getBeatLength(timeSignature) {
 function getElementBeats(element) {
   if (!element.length) return 0;
   let beats = fractionToBeats(element.length);
-  if (element.dotted) beats *= 1.5;
+  beats *= dotFactor(element.dotted);
   return beats;
 }
 
@@ -125,7 +125,7 @@ export function computeBeamGroups(notes, timeSignature, opts = {}) {
       const length = element[0]?.length;
       if (length) {
         let beats = fractionToBeats(length);
-        if (element[0].dotted) beats *= 1.5;
+        beats *= dotFactor(element[0].dotted);
         currentBeat += beats;
       }
       annotated.push({ index: i, beamable: false });

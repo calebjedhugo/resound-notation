@@ -12,11 +12,13 @@ import {
   NOTEHEAD_HALF_GLYPH,
   NOTEHEAD_WHOLE_GLYPH,
   NOTEHEAD_X_BLACK_GLYPH,
+  SMUFL_SCALE,
 } from './assets/glyphs.js';
+import { appendAugmentationDots, DOT_DIAMETER } from './components/AugmentationDots.js';
 import { parseNoteData } from './lib/dataParser.js';
 import { measureIntrinsicWidths } from './lib/measureIntrinsicWidths.js';
 import { inferClef } from './lib/clefInference.js';
-import { getDurationInfo, fractionToBeats } from './lib/durationSymbols.js';
+import { getDurationInfo, fractionToBeats, dotCount, dotFactor } from './lib/durationSymbols.js';
 import { pitchToStaffY, parsePitch } from './lib/notePositions.js';
 import { effectiveStemLength } from './lib/stemLength.js';
 import { createStaffLines } from './components/Staff.js';
@@ -604,8 +606,8 @@ function collectVoiceEvents(voiceNotes) {
       if (lengths.length === 0) continue;
       const first = lengths[0];
       const info = getDurationInfo(first.length);
-      const dur = fractionToBeats(first.length) * (first.dotted ? 1.5 : 1);
-      const spacing = info.spacing * (first.dotted ? 1.5 : 1);
+      const dur = fractionToBeats(first.length) * dotFactor(first.dotted);
+      const spacing = info.spacing * dotFactor(first.dotted);
       events.push({ startBeat: beat, endBeat: beat + dur, spacing });
       beat += dur;
       continue;
@@ -631,8 +633,8 @@ function collectVoiceEvents(voiceNotes) {
           continue;
         }
         const info = getDurationInfo(length);
-        const dur = fractionToBeats(length) * (dotted ? 1.5 : 1) * (normal / actual);
-        const spacing = info.spacing * (dotted ? 1.5 : 1) * (normal / actual);
+        const dur = fractionToBeats(length) * dotFactor(dotted) * (normal / actual);
+        const spacing = info.spacing * dotFactor(dotted) * (normal / actual);
         events.push({ startBeat: beat, endBeat: beat + dur, spacing });
         beat += dur;
       }
@@ -655,8 +657,8 @@ function collectVoiceEvents(voiceNotes) {
     if (!element.length) continue;
 
     const info = getDurationInfo(element.length);
-    const dur = fractionToBeats(element.length) * (element.dotted ? 1.5 : 1);
-    const spacing = info.spacing * (element.dotted ? 1.5 : 1);
+    const dur = fractionToBeats(element.length) * dotFactor(element.dotted);
+    const spacing = info.spacing * dotFactor(element.dotted);
     events.push({ startBeat: beat, endBeat: beat + dur, spacing });
     beat += dur;
   }
@@ -909,7 +911,7 @@ function collectSharedStaffEvents(voiceNotes, clef) {
       maxY: Math.max(...ys),
       minY: Math.min(...ys),
       ys,
-      dotted: !!dotted,
+      dotted: dotCount(dotted),
       length,
     });
   };
@@ -919,7 +921,7 @@ function collectSharedStaffEvents(voiceNotes, clef) {
     if (Array.isArray(element)) {
       const first = element.find((n) => n && n.length);
       if (!first) continue;
-      const dur = fractionToBeats(first.length) * (first.dotted ? 1.5 : 1);
+      const dur = fractionToBeats(first.length) * dotFactor(first.dotted);
       addOnset(
         beat,
         element.filter((n) => n && n.pitch).map((n) => pitchToStaffY(n.pitch, clef)),
@@ -950,7 +952,7 @@ function collectSharedStaffEvents(voiceNotes, clef) {
         } else {
           continue;
         }
-        const dur = fractionToBeats(length) * (dotted ? 1.5 : 1) * (normal / actual);
+        const dur = fractionToBeats(length) * dotFactor(dotted) * (normal / actual);
         addOnset(beat, ys, dotted, length);
         beat += dur;
       }
@@ -959,11 +961,11 @@ function collectSharedStaffEvents(voiceNotes, clef) {
     if (getMarkerType(element) !== null) continue;
     if (element.position !== undefined && element.length) {
       // Percussion — occupies time but contributes no collision pitch.
-      beat += fractionToBeats(element.length) * (element.dotted ? 1.5 : 1);
+      beat += fractionToBeats(element.length) * dotFactor(element.dotted);
       continue;
     }
     if (!element.length) continue;
-    const dur = fractionToBeats(element.length) * (element.dotted ? 1.5 : 1);
+    const dur = fractionToBeats(element.length) * dotFactor(element.dotted);
     if (element.pitch) {
       addOnset(beat, [pitchToStaffY(element.pitch, clef)], element.dotted, element.length);
     } else {
@@ -1939,19 +1941,19 @@ export class NotationRenderer {
         if (Array.isArray(el)) {
           const first = el.find((n) => n && n.length);
           if (!first) continue;
-          evBeats = (fractionToBeats(first.length) || 0) * (first.dotted ? 1.5 : 1);
+          evBeats = (fractionToBeats(first.length) || 0) * dotFactor(first.dotted);
         } else if (el.tuplet && Array.isArray(el.notes)) {
           const [actual, normal] = el.tuplet;
           for (const inner of el.notes) {
             if (Array.isArray(inner)) {
               const f = inner.find((n) => n && n.length);
-              if (f) evBeats += (fractionToBeats(f.length) || 0) * (f.dotted ? 1.5 : 1) * (normal / actual);
+              if (f) evBeats += (fractionToBeats(f.length) || 0) * dotFactor(f.dotted) * (normal / actual);
             } else if (inner && inner.length) {
-              evBeats += (fractionToBeats(inner.length) || 0) * (inner.dotted ? 1.5 : 1) * (normal / actual);
+              evBeats += (fractionToBeats(inner.length) || 0) * dotFactor(inner.dotted) * (normal / actual);
             }
           }
         } else if (el.length) {
-          evBeats = (fractionToBeats(el.length) || 0) * (el.dotted ? 1.5 : 1);
+          evBeats = (fractionToBeats(el.length) || 0) * dotFactor(el.dotted);
         } else {
           continue;
         }
@@ -3021,7 +3023,7 @@ export class NotationRenderer {
               const restGroup = createRest({
                 length: tEl.length,
                 x: cursorX,
-                dotted: !!tEl.dotted,
+                dotted: dotCount(tEl.dotted),
               });
               restGroup.setAttribute('data-beat', String(beatPosition));
               tupletGroup.appendChild(restGroup);
@@ -3057,7 +3059,7 @@ export class NotationRenderer {
                 clef,
                 beamed: allBeamable && !hasRest,
                 stemDown: forcedStemDown,
-                dotted: !!tEl.dotted,
+                dotted: dotCount(tEl.dotted),
                 dotBelow: forcedStemDown === true,
               });
               noteGroup.setAttribute('data-beat', String(beatPosition));
@@ -3523,6 +3525,30 @@ export class NotationRenderer {
               chordGroup.appendChild(head);
             }
 
+            // Augmentation dots (one per head, a double dot two): as a
+            // single note's (components/Note), each in a SPACE — an on-line
+            // head's in the space above (below for a shared staff's
+            // down-stem voice) — and a space two heads would dot (a
+            // second) dotted once (Gould pp. 56-57).
+            const chordDots = dotCount(chordNotes[0].dotted);
+            if (chordDots > 0) {
+              const glyph = chordGlyphFor(info);
+              const headHalfWidth = ((glyph.bbox.xMax - glyph.bbox.xMin) / 2) * SMUFL_SCALE;
+              const dotX = headHalfWidth + LINE_SPACING / 4 + DOT_DIAMETER / 2;
+              const halfSpace = LINE_SPACING / 2;
+              const dotted = new Set();
+              for (const noteY of yPositions) {
+                const onLine =
+                  ((noteY % LINE_SPACING) + LINE_SPACING) % LINE_SPACING === halfSpace;
+                const below = forcedStemDown === true;
+                const dotY = onLine ? noteY + (below ? halfSpace : -halfSpace) : noteY;
+                if (!dotted.has(dotY)) {
+                  dotted.add(dotY);
+                  appendAugmentationDots(chordGroup, chordDots, dotX, dotY);
+                }
+              }
+            }
+
             // Single shared stem
             if (info.hasStem) {
               const minY = Math.min(...yPositions);
@@ -3621,7 +3647,7 @@ export class NotationRenderer {
             noteXPositions.set(i, chordRenderX);
 
             // Store note data for playback
-            const chordBeats = fractionToBeats(chordLength) * (chordNotes[0].dotted ? 1.5 : 1);
+            const chordBeats = fractionToBeats(chordLength) * dotFactor(chordNotes[0].dotted);
             this._noteData.push({
               element: chordGroup,
               beat: currentBeatChord,
@@ -3631,9 +3657,7 @@ export class NotationRenderer {
             });
 
             const chordElementBeats = fractionToBeats(chordLength);
-            const chordAdjBeats = chordNotes[0].dotted
-              ? chordElementBeats * 1.5
-              : chordElementBeats;
+            const chordAdjBeats = chordElementBeats * dotFactor(chordNotes[0].dotted);
             beatPosition += chordAdjBeats;
 
             // Record the chord's rightmost notehead edge so a
@@ -3757,18 +3781,18 @@ export class NotationRenderer {
           this._noteData.push({
             element: noteGroup,
             beat: currentBeat,
-            duration: fractionToBeats(element.length) * (element.dotted ? 1.5 : 1),
+            duration: fractionToBeats(element.length) * dotFactor(element.dotted),
             x: cursorX,
             voiceId: voice.id,
           });
 
           elementBeats = fractionToBeats(element.length);
-          if (element.dotted) elementBeats *= 1.5;
+          elementBeats *= dotFactor(element.dotted);
         } else if (!element.pitch) {
           // Rest (no pitch, has length)
           if (element.length) {
             const restInfo = getDurationInfo(element.length);
-            const elemBeats = fractionToBeats(element.length) * (element.dotted ? 1.5 : 1);
+            const elemBeats = fractionToBeats(element.length) * dotFactor(element.dotted);
             // Center long rests (whole/half) within their full slot;
             // short rests left-align at the beat position.
             const slotEndX = xForBeat(beatPosition + elemBeats);
@@ -3798,7 +3822,7 @@ export class NotationRenderer {
               const restGroup = createRest({
                 length: element.length,
                 x: restX,
-                dotted: !!element.dotted,
+                dotted: dotCount(element.dotted),
               });
               if (restShiftY !== 0) {
                 restGroup.setAttribute(
@@ -3856,7 +3880,7 @@ export class NotationRenderer {
                 if (
                   inSpace
                   && element.dotted
-                  && up.dotted
+                  && up.dotted === dotCount(element.dotted)
                   && up.length === element.length
                   && up.ys.includes(noteY)
                 ) {
@@ -3962,7 +3986,7 @@ export class NotationRenderer {
             // On-line dots bias BELOW only for the shared-staff down-stem
             // voice (forcedStemDown), never merely because a beam chose a
             // down stem for a single voice.
-            dotted: !!element.dotted && !dotSuppressed,
+            dotted: dotSuppressed ? 0 : dotCount(element.dotted),
             dotBelow: forcedStemDown === true,
             dotShiftX,
           });
@@ -3984,7 +4008,7 @@ export class NotationRenderer {
           this._noteData.push({
             element: noteGroup,
             beat: currentBeat,
-            duration: fractionToBeats(element.length) * (element.dotted ? 1.5 : 1),
+            duration: fractionToBeats(element.length) * dotFactor(element.dotted),
             x: renderedX,
             voiceId: voice.id,
           });
@@ -4013,7 +4037,7 @@ export class NotationRenderer {
           }
 
           elementBeats = fractionToBeats(element.length);
-          if (element.dotted) elementBeats *= 1.5;
+          elementBeats *= dotFactor(element.dotted);
         }
 
         beatPosition += elementBeats;

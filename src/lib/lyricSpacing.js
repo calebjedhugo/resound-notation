@@ -31,7 +31,7 @@
  * No DOM, no I/O.
  */
 
-import { fractionToBeats } from './durationSymbols.js';
+import { fractionToBeats, dotFactor } from './durationSymbols.js';
 import { isMarker } from './sliceVoiceByMeasure.js';
 import {
   BARLINE_SEPARATION,
@@ -128,7 +128,7 @@ function walkLyricAnchors(voiceNotes) {
       const lengths = element.filter((e) => e && e.length);
       if (lengths.length === 0) continue;
       const first = lengths[0];
-      beat += fractionToBeats(first.length) * (first.dotted ? 1.5 : 1);
+      beat += fractionToBeats(first.length) * dotFactor(first.dotted);
       continue;
     }
 
@@ -148,7 +148,7 @@ function walkLyricAnchors(voiceNotes) {
         } else {
           continue;
         }
-        beat += fractionToBeats(length) * (dotted ? 1.5 : 1) * (normal / actual);
+        beat += fractionToBeats(length) * dotFactor(dotted) * (normal / actual);
       }
       continue;
     }
@@ -159,7 +159,7 @@ function walkLyricAnchors(voiceNotes) {
     if (element.pitch && element.lyric !== undefined) {
       anchors.push({ startBeat: beat, lyric: element.lyric });
     }
-    beat += fractionToBeats(element.length) * (element.dotted ? 1.5 : 1);
+    beat += fractionToBeats(element.length) * dotFactor(element.dotted);
   }
 
   return anchors;

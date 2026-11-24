@@ -130,3 +130,27 @@ export function getDurationInfo(lengthString) {
   }
   return info;
 }
+
+/**
+ * How many augmentation dots a note's `dotted` field asks for: `true` (or
+ * 1) is one dot, `2` a double dot; anything falsy is none. A non-integer or
+ * negative number counts as one dot (truthy, as `dotted` always read).
+ * @param {boolean|number|undefined} dotted
+ * @returns {number}
+ */
+export function dotCount(dotted) {
+  if (!dotted) return 0;
+  if (typeof dotted === 'number' && Number.isInteger(dotted) && dotted > 1) return dotted;
+  return 1;
+}
+
+/**
+ * The factor dots multiply a written length by: none 1, one dot 1.5, two
+ * dots 1.75 (each dot adds half the value before it: 2 - 1/2^dots).
+ * @param {boolean|number|undefined} dotted - a note's `dotted` field
+ * @returns {number}
+ */
+export function dotFactor(dotted) {
+  const dots = dotCount(dotted);
+  return dots === 0 ? 1 : 2 - 1 / 2 ** dots;
+}

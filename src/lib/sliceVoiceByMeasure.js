@@ -5,7 +5,7 @@
  * `NotationRenderer.js` also consume, so there is one definition of "how
  * long is this element" and "is this element a marker".
  */
-import { fractionToBeats } from './durationSymbols.js';
+import { fractionToBeats, dotFactor } from './durationSymbols.js';
 import { getTupletNoteDuration } from './tuplets.js';
 
 /**
@@ -18,7 +18,7 @@ export function elementBeats(element) {
   if (Array.isArray(element)) {
     const first = element.find((n) => n && n.length);
     if (!first) return 0;
-    return fractionToBeats(first.length) * (first.dotted ? 1.5 : 1);
+    return fractionToBeats(first.length) * dotFactor(first.dotted);
   }
   if (element.tuplet && Array.isArray(element.notes)) {
     const [actual, normal] = element.tuplet;
@@ -26,15 +26,15 @@ export function elementBeats(element) {
     for (const inner of element.notes) {
       if (Array.isArray(inner)) {
         const first = inner.find((n) => n && n.length);
-        if (first) total += getTupletNoteDuration(first.length, !!first.dotted, [actual, normal]);
+        if (first) total += getTupletNoteDuration(first.length, first.dotted, [actual, normal]);
       } else if (inner && inner.length) {
-        total += getTupletNoteDuration(inner.length, !!inner.dotted, [actual, normal]);
+        total += getTupletNoteDuration(inner.length, inner.dotted, [actual, normal]);
       }
     }
     return total;
   }
   if (element.length && !isMarker(element)) {
-    return fractionToBeats(element.length) * (element.dotted ? 1.5 : 1);
+    return fractionToBeats(element.length) * dotFactor(element.dotted);
   }
   return 0;
 }

@@ -2,19 +2,19 @@
  * Tuplet duration math utilities.
  */
 
-import { fractionToBeats } from './durationSymbols.js';
+import { fractionToBeats, dotFactor } from './durationSymbols.js';
 
 /**
  * Calculate effective duration of a note within a tuplet (in beats).
  * @param {string} faceLength - Written length (e.g., "1/8")
- * @param {boolean} dotted - Whether the note is dotted
+ * @param {boolean|number} dotted - The note's `dotted` field (true/1 one dot, 2 two)
  * @param {number[]} tupletRatio - [actual, normal]
  * @returns {number} Effective duration in beats
  */
 export function getTupletNoteDuration(faceLength, dotted, tupletRatio) {
   const [actual, normal] = tupletRatio;
   let faceBeats = fractionToBeats(faceLength);
-  if (dotted) faceBeats *= 1.5;
+  faceBeats *= dotFactor(dotted);
   return faceBeats * (normal / actual);
 }
 

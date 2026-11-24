@@ -109,9 +109,10 @@ Add `dotted: true` to indicate a dotted duration. This makes intent explicit for
 { pitch: "C4", length: "1/4", dotted: true }   // dotted quarter (1/4 + 1/8)
 { pitch: "E4", length: "1/2", dotted: true }   // dotted half (1/2 + 1/4)
 { length: "1/4", dotted: true }                // dotted quarter rest
+{ pitch: "G4", length: "1/2", dotted: 2 }      // DOUBLE-dotted half (1/2 + 1/4 + 1/8)
 ```
 
-The `dotted` flag means "this duration is 1.5x the written length." The renderer draws an augmentation dot. The caller is responsible for checking `dotted: true` and multiplying the result of `getDuration()` by 1.5. The `getDuration()` function itself only handles the base fraction.
+`dotted: true` (or `1`) means "this duration is 1.5x the written length"; `dotted: 2` is a double dot, 1.75x. The renderer draws one or two augmentation dots (every head of a dotted chord gets them, a space two heads share dotted once). `lib/durationSymbols` exports `dotCount(dotted)` and `dotFactor(dotted)` for consumers that turn lengths into beats. The caller is responsible for multiplying the result of `getDuration()` by `dotFactor(note.dotted)`. The `getDuration()` function itself only handles the base fraction.
 
 **IMPORTANT:** Do not use raw fractions for dotted values (e.g., `"3/8"` for dotted quarter). While mathematically correct, the renderer cannot distinguish a dotted quarter from a true 3/8 duration, and the dot would not be drawn.
 

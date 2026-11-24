@@ -22,7 +22,7 @@
  * space (log-based, not linear), then we clamp at MIN_GAP so 16ths don't
  * collapse into each other:
  *   L_nat(d) = max(BASE_GAP + LOG_FACTOR * log2(d / quarter), MIN_GAP)
- * Dotted: L_nat * 1.5.
+ * Dotted: L_nat * 1.5 (double-dotted: * 1.75).
  *
  * STRETCHABILITY FORMULA — gaps with more natural slack are more
  * stretchable. Simple and robust:
@@ -59,7 +59,7 @@
  */
 
 import { parseNoteData } from './dataParser.js';
-import { fractionToBeats } from './durationSymbols.js';
+import { fractionToBeats, dotCount, dotFactor as dotFactorOf } from './durationSymbols.js';
 
 // Per-event width constants. Notehead glyph widths approximate Bravura's
 // actual rendered widths.
@@ -74,6 +74,8 @@ const NOTEHEAD_WIDTH_BY_LENGTH = {
 const DEFAULT_NOTEHEAD_WIDTH = 12;
 const ACCIDENTAL_WIDTH = 14;
 const DOT_WIDTH = 6;
+// Each further dot of a double dot adds its own step (components/AugmentationDots DOT_STEP)
+const EXTRA_DOT_WIDTH = 13;
 
 // Spring-model tunables.
 export const BASE_GAP = 18;
@@ -135,7 +137,7 @@ function measureElement(element) {
     if (notes.length === 0) return null;
     const first = notes[0];
     const length = first.length;
-    const dotted = !!first.dotted;
+    const dots = dotCount(first.dotted);
     const headWidth = noteheadWidthFor(length);
     let maxNoteWidth = 0;
     for (const n of notes) {
@@ -144,9 +146,9 @@ function measureElement(element) {
       const w = nh + acc;
       if (w > maxNoteWidth) maxNoteWidth = w;
     }
-    const fixedWidth = Math.max(maxNoteWidth, headWidth) + (dotted ? DOT_WIDTH : 0);
+    const fixedWidth = Math.max(maxNoteWidth, headWidth) + (dots > 0 ? DOT_WIDTH + (dots - 1) * EXTRA_DOT_WIDTH : 0);
     const baseBeats = fractionToBeats(length);
-    const dotFactor = dotted ? 1.5 : 1;
+    const dotFactor = dotFactorOf(dots);
     const durationBeats = baseBeats * dotFactor;
     const gapNatLength = springNatLength(baseBeats) * dotFactor;
     const gapStretchability = springStretchability(baseBeats) * dotFactor;
@@ -178,12 +180,12 @@ function measureElement(element) {
   // Sounding single note or rest (has length, no inline marker fields).
   if (element.length) {
     const length = element.length;
-    const dotted = !!element.dotted;
+    const dots = dotCount(element.dotted);
     const nh = noteheadWidthFor(length);
     const acc = hasAccidentalInPitch(element.pitch) ? ACCIDENTAL_WIDTH : 0;
-    const fixedWidth = nh + acc + (dotted ? DOT_WIDTH : 0);
+    const fixedWidth = nh + acc + (dots > 0 ? DOT_WIDTH + (dots - 1) * EXTRA_DOT_WIDTH : 0);
     const baseBeats = fractionToBeats(length);
-    const dotFactor = dotted ? 1.5 : 1;
+    const dotFactor = dotFactorOf(dots);
     const durationBeats = baseBeats * dotFactor;
     const gapNatLength = springNatLength(baseBeats) * dotFactor;
     const gapStretchability = springStretchability(baseBeats) * dotFactor;

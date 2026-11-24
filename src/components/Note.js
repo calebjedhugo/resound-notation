@@ -5,7 +5,8 @@
 
 import { createGroup, createLine } from '../lib/svgHelpers.js';
 import { pitchToStaffY } from '../lib/notePositions.js';
-import { getDurationInfo } from '../lib/durationSymbols.js';
+import { getDurationInfo, dotCount } from '../lib/durationSymbols.js';
+import { appendAugmentationDots } from './AugmentationDots.js';
 import {
   createSmuflGlyph,
   smuflTip,
@@ -48,7 +49,8 @@ function pickFlagGlyph(flagCount, stemDown) {
  * @param {string} params.clef - Clef for Y positioning
  * @param {boolean} [params.beamed] - If true, suppress flags (note is beamed)
  * @param {boolean} [params.stemDown] - Override auto stem direction
- * @param {boolean} [params.dotted] - Draw an augmentation dot right of the head
+ * @param {boolean|number} [params.dotted] - Augmentation dots right of the head:
+ *   true / 1 one, 2 two (a double dot)
  * @param {boolean} [params.dotBelow] - On-line dots take the space BELOW the
  *   line instead of above. Set for the down-stem voice of a shared
  *   (two-voice) staff so the two voices' dots cannot collide (Gould,
@@ -96,9 +98,7 @@ export function createNote({
     // Staff lines sit at odd multiples of a half space (y=10, 30, ..).
     const onLine = ((y % LINE_SPACING) + LINE_SPACING) % LINE_SPACING === halfSpace;
     const dotDy = onLine ? (dotBelow ? halfSpace : -halfSpace) : 0;
-    const dot = createSmuflGlyph(AUGMENTATION_DOT_GLYPH, 'augmentation-dot');
-    dot.setAttribute('transform', `translate(${dotX}, ${dotDy})`);
-    group.appendChild(dot);
+    appendAugmentationDots(group, dotCount(dotted), dotX, dotDy);
   }
 
   if (info.hasStem) {
