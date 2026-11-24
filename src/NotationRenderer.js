@@ -2585,12 +2585,29 @@ export class NotationRenderer {
       }
       return set;
     });
-    const sharedBarlineBeats = voiceBarlineBeatSets.length === 0
-      ? new Set()
-      : [...voiceBarlineBeatSets[0]].reduce((acc, b) => {
-          if (voiceBarlineBeatSets.every((s) => s.has(b))) acc.add(b);
-          return acc;
-        }, new Set());
+    // A voice that has already ended (an empty staff, or one the user has
+    // only partly written) has no notes past its end to misalign, so it
+    // can't veto a barline there. Without this, a grand staff whose bass
+    // is empty or shorter treats every later barline as voice-specific:
+    // barlineOffset never advances, and each downbeat lands on the note
+    // before it (the spring map already folded the barline gap out).
+    const voiceEndBeats = voices.map((v, vi) => {
+      let end = 0;
+      for (const ev of collectVoiceEvents(shiftedVoiceNotes[vi])) {
+        if (ev.endBeat > end) end = ev.endBeat;
+      }
+      return end;
+    });
+    const sharedBarlineBeats = new Set();
+    for (const set of voiceBarlineBeatSets) {
+      for (const b of set) {
+        if (voiceBarlineBeatSets.every(
+          (s, vi) => s.has(b) || voiceEndBeats[vi] < b - 0.001
+        )) {
+          sharedBarlineBeats.add(b);
+        }
+      }
+    }
 
     // Per-staff lyric baseline for THIS system (JOB 4): the lowest content
     // extent across the staff's voices (down-stem tips, beams, low heads —

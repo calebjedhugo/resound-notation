@@ -4019,6 +4019,58 @@ describe('NotationRenderer', () => {
       expect(brace).toBeNull();
     });
 
+    // A staff whose voice is empty (or stops early) has no notes left to
+    // disagree with the other staff's barlines, so the melody must space
+    // normally: each downbeat clear of the note
+    // before it, with its barline between them. Regression: the designer
+    // added a bass staff to a written melody and the melody collapsed
+    // (every downbeat stacked on the previous note) until the bass was
+    // filled in.
+    it.each([
+      ['empty', []],
+      ['shorter (one bar)', [{ pitch: 'A2', length: '1/1' }]],
+    ])('spaces the melody normally when the other staff is %s', (_label, bassNotes) => {
+      const q = (pitch) => ({ pitch, length: '1/4' });
+      const melody = [
+        q('A4'), q('B4'), q('C5'), q('F4'),
+        q('E4'), q('A4'), q('B4'), q('E4'),
+        { pitch: 'F4', length: '1/2' }, { pitch: 'B3', length: '1/2' },
+        { pitch: 'A3', length: '1/1' },
+      ];
+      ctx.renderer._width = 2000; // one system: all four bars side by side
+      ctx.render({
+        timeSignature: [4, 4],
+        voices: [
+          { id: 'treble', clef: 'treble', notes: melody },
+          { id: 'bass', clef: 'bass', notes: bassNotes },
+        ],
+        staffGroups: [{ type: 'brace', voiceIds: ['treble', 'bass'] }],
+      });
+
+      const trebleStaff = ctx.container.querySelector('.staff[data-voice-id="treble"]');
+      const xOf = (el) => parseFloat(el.getAttribute('transform').match(/translate\(([-\d.]+)/)[1]);
+      const heads = Array.from(trebleStaff.querySelectorAll('.note[data-beat]')).map((n) => ({
+        beat: parseFloat(n.getAttribute('data-beat')),
+        x: xOf(n),
+      }));
+      expect(heads.map((h) => h.beat)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12]);
+      const barXs = Array.from(trebleStaff.querySelectorAll('.bar-line line')).map((l) =>
+        parseFloat(l.getAttribute('x1'))
+      );
+
+      for (let i = 1; i < heads.length; i += 1) {
+        // A notehead is ~12px wide; neighbours must not overlap.
+        expect(heads[i].x - heads[i - 1].x).toBeGreaterThan(12);
+      }
+      // Each downbeat (4, 8, 12) has a barline strictly between it and the
+      // note before it.
+      for (const downbeat of [4, 8, 12]) {
+        const i = heads.findIndex((h) => h.beat === downbeat);
+        const between = barXs.filter((x) => x > heads[i - 1].x && x < heads[i].x);
+        expect(between).toHaveLength(1);
+      }
+    });
+
     it('renders two staff groups for a grand staff', () => {
       ctx.render(grandStaffInput);
       const staves = ctx.container.querySelectorAll('.staff');

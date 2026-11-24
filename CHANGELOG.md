@@ -41,6 +41,10 @@
 
 ### Fixed
 
+- A melody over an empty or shorter second staff no longer piles up: a
+  voice that has run out of notes no longer stops a barline from pushing
+  the notes after it, so each downbeat lands in its place instead of on
+  the note before it.
 - `npm run build` now cleans `dist/` first, so files deleted from `src/`
   (the old `dist/editor/*`) no longer ship as stale build output.
 
